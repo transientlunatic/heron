@@ -15,6 +15,7 @@ with open('HISTORY.rst') as history_file:
     history = history_file.read()
 
 requirements = [
+    "numpy", "matplotlib"
     # TODO: put package requirements here
 ]
 
@@ -25,7 +26,7 @@ test_requirements = [
 setup(
     name='heron',
     version='0.1.0',
-    description="Heron is a matched filtering package for Python",
+    description="Heron is a machine learning package for Python",
     long_description=readme + '\n\n' + history,
     author="Daniel Williams",
     author_email='d.williams.2@research.gla.ac.uk',
@@ -38,7 +39,7 @@ setup(
     include_package_data=True,
     install_requires=requirements,
     license="ISCL",
-    zip_safe=False,
+    zip_safe=True,
     keywords='heron',
     classifiers=[
         'Development Status :: 2 - Pre-Alpha',
@@ -54,5 +55,5 @@ setup(
         'Programming Language :: Python :: 3.5',
     ],
     test_suite='tests',
-    tests_require=test_requirements
+    #tests_require=test_requirements
 )

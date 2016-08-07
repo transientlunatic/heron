@@ -1,5 +1,7 @@
 import numpy as np
 import emcee
+import scipy.linalg
+
 class Regressor():
     """
     An implementation of a Gaussian Process Regressor
@@ -7,11 +9,17 @@ class Regressor():
     
     km = None
     
-    def __init__(self, training_data, training_y, kernel, kernel_args):
-        self.training_data = training_data
-        self.training_y = training_y
+    def __init__(self, training_data, kernel):
+        self.training_object = training_data
+        self.training_data = training_data.targets
+        self.training_y = training_data.labels
+        
+        self.input_dim = self.training_data.ndim
+        self.output_dim = self.training_y.ndim
+
         #np.atleast_2d(training_data)
-        self.kernel = kernel(training_data.ndim, *kernel_args)
+        self.kernel = kernel #kernel(self.training_data.ndim, *kernel_args)
+        self.update()
     
     def optimise(self, nwalkers=100, nsamples=1000, burn=1000):
         # This is an ugly kludge, FIX ME by moving to the kernel class
@@ -27,21 +35,74 @@ class Regressor():
         pos, prob, state = sampler.run_mcmc(p0, nsamples)
         return sampler, pos, prob, state
     
+    def active_learn(self, afunction, x,y, iters=1, afunc_args={}):
+        """
+        Actively train the Gaussian process from a set of provided
+        labels and targets using some acquisition function.
+
+        afunction : function
+           The acquisition function.
+        x : array-like
+           The input labels of the data. This can be a multi-dimensional array.
+        y : array-like
+           The input targets of the data. This can only be a single-dimensional 
+           array at present.
+        iters : int
+           The number of times to iterate the learning process: equivalently, 
+           the number of training points to digest.
+        afunc_args : dict
+           A dictionary of arguments for the acquisition function. Optional.
+
+        """
+        i=0
+        while i < iters:
+            # Choose the new sample from the area with the greatest uncertainty
+            mean, var =  self.prediction(x)
+            err = np.sqrt(np.diag(np.abs(var)))
+            LB = afunction(mean, err, **afunc_args)
+            new_sample = np.argmax(LB)
+            self.add_data(np.atleast_1d(x[new_sample]), y[new_sample])
+            i += 1
+
+    def add_data(self, target, label):
+        """
+        Add data to the Gaussian process.
+        """
+        if self.training_data.ndim==1:
+            self.training_data = np.append(self.training_data, target)
+        else:
+            self.training_data = np.vstack([self.training_data, target])
+        self.training_y = np.append(self.training_y, label)
+        self.update()
+
     def set_hyperparameters(self, hypers):
         """
         Set the hyperparameters of the kernel function.
         """
         self.kernel.set_hyperparameters(hypers)
+        self.update()
         return self.loglikelihood()
     
-    
+    def update(self):
+        """
+        Update the stored matrices.
+        """
+        km = self.kernel.matrix(self.training_data, self.training_data) 
+        km += 1e-6 * np.eye(km.shape[0], km.shape[1])
+        try:
+            self.L = scipy.linalg.cho_factor(km)
+        except:
+            print km
+        self.km = km 
+
     def K_matrix(self):
         """
         Produce the Kx,x matrix (the covariance matrix of the training
         inputs)
         """
-        km = self.kernel.matrix(self.training_data, self.training_data)
-        return km
+        return self.km 
+        #km = self.kernel.matrix(self.training_data, self.training_data)
+        #return km
     
     def Kstar_matrix(self, data):
         """
@@ -63,22 +124,40 @@ class Regressor():
         new_matrix[:a,a:] = self.Kstar_matrix(data).T
         new_matrix[a:,a:] = self.Kstar_scalar(data)
         return new_matrix
-    
+
     def loglikelihood(self):
         training_y = self.training_y
-        try:
-            KI = np.linalg.inv(self.K_matrix())
-        except LinAlgError:
-            return -np.inf
         LD = np.linalg.slogdet(self.K_matrix())
-        return -0.5 * np.dot(np.dot(training_y.T, KI),training_y) - 0.5 * LD[0]*LD[1]  - 0.5*np.log(2*np.pi)
+        return -0.5 * np.dot(self.apply_inverse(self.training_y),training_y) - 0.5 * LD[0]*LD[1]  - 0.5*np.log(2*np.pi)
     
+    def apply_inverse(self, matrix):
+        """
+
+        Apply the inverse of the K matrix to another object using Colesky
+        decomposition.
+
+        """
+        KK = self.K_matrix()
+        L = self.L
+        return scipy.linalg.cho_solve(L, matrix, overwrite_b=False)
+    
+    def fast_mean(self, newdata):
+        KS = self.Kstar_matrix(newdata)
+        return np.dot(KS.T, self.apply_inverse(self.training_y))
+        
+    def fast_covariance(self, newdata):
+        KS = self.Kstar_matrix(newdata)
+        KST = np.ascontiguousarray(KS.T, dtype=np.float64)
+        b =self.apply_inverse(KS)
+        cov = self.Kstar_scalar(newdata) - np.dot(KST, self.apply_inverse(KS))
+        return cov
+
     def prediction(self, new_datum):
         training_y = self.training_y
-        KI = np.linalg.inv(self.K_matrix())
         new_datum = np.array(new_datum)
-        KS = self.Kstar_matrix(new_datum)
-        KK = np.dot(KS.T, KI)
-        mean = np.dot(KK, training_y)
-        variance = self.Kstar_scalar(new_datum) - np.dot(np.dot(KS.T, KI), KS)
-        return mean, variance
+        #KK = np.dot(KS.T, KI)
+        #mean = np.dot(KK, training_y)
+        #variance = self.Kstar_scalar(new_datum) - np.dot(np.dot(KS.T, KI), KS)
+        mean = self.fast_mean(new_datum)
+        variance = self.fast_covariance(new_datum)
+        return self.training_object.denormalise(mean, self.training_object.labels_scale), variance

@@ -1,4 +1,6 @@
 import numpy as np
+from scipy.spatial.distance import cdist
+
 class Kernel():
     """
     A generic factory for Kernel classes.
@@ -12,21 +14,21 @@ class Kernel():
         """
         Calculate the squared distance to the point in parameter space.
         """
+        
         if not hypers:
             hypers = np.ones(self.ndim)
-        elif not hasattr(hypers, '__getitem__'):
+        hypers = np.atleast_2d(hypers)
+        if len(hypers) == 1:
+            # Assume that we've given a single hyper 
+            # which can be used for all of the dimensions.
             hypers = np.ones(self.ndim)*hypers
+        elif len(hypers) != self.ndim:
+            raise ValueError("There are not enough dimensions in the hyperparameter vector.")
         hypers = np.squeeze(hypers)
-        hypers = np.exp(hypers)
-        if data1.ndim >= 2:
-            d = np.zeros((data1.shape[0], data2.shape[0]))
-            for i in xrange(data1.shape[-1]):
-                d += hypers[i]*(np.atleast_2d(data1[...,i]).T - np.atleast_2d(data2[...,i]))**2
-        else:
-            data1, data2 = np.atleast_2d(data1), np.atleast_2d(data2)
-            d = hypers*(data1.T - data2)**2
-            
-        return d
+        #hypers = np.exp(hypers)
+
+        d = cdist(data1, data2, 'wminkowski', p=2, w = hypers)
+        return d**2
     
     def matrix(self, data1, data2):
         """
@@ -55,6 +57,7 @@ class SquaredExponential(Kernel):
     hyper = [1.0]
     def __init__(self,ndim=1, amplitude=100, width=15):
         self.ndim = ndim
+        self.nparam = 1 + self.ndim
         self.hyper = [amplitude, width]
         
     def set_hyperparameters(self, hypers):

@@ -1,0 +1,7 @@
+This folder contains test datasets for use with machine learning algorithms.
+
+* concrete.csv contains tests of concrete compressive strength given a variety of ingredients.
+  It is derived from [1]. Details of the data set can be found at http://archive.ics.uci.edu/ml/datasets/Concrete+Compressive+Strength.
+
+
+[1] I-Cheng Yeh, "Modeling of strength of high performance concrete using artificial neural networks," Cement and Concrete Research, Vol. 28, No. 12, pp. 1797-1808 (1998). 

@@ -1,7 +1,12 @@
 import matplotlib.pyplot as plt
-def corner(data, labels):
-    f, ax = plt.subplots(data.shape[1],data.shape[1],)
-    
+def corner(data_object, figsize=(10,10)):
+
+    data = data_object.denormalise(data_object.targets, data_object.targets_scale)
+    labels = data_object.target_names
+    f, ax = plt.subplots(data.shape[1],data.shape[1],figsize=figsize)
+    yvalues = data_object.denormalise(data_object.labels, data_object.labels_scale)
+
+
     for i in xrange(data.shape[1]):
         for j in xrange(data.shape[1]):   
             
@@ -34,8 +39,8 @@ def corner(data, labels):
                 try:
                     kernel = gaussian_kde(data[:,i].T)
                     positions = np.linspace(data[:,i][0], data[:,i][-1], 100)
-                    ax[i,j].plot(positions, n.max()*kernel(positions)/kernel(positions).max())
-                    ax[i,j].set_xlim([positions.min(), positions.max()])
+                    ax[i,data.shape[-1]-j].plot(positions, n.max()*kernel(positions)/kernel(positions).max())
+                    ax[i,data.shape[-1]-j].set_xlim([positions.min(), positions.max()])
                 except:
                     pass
                 
