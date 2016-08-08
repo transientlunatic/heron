@@ -15,7 +15,7 @@ class Kernel():
         Calculate the squared distance to the point in parameter space.
         """
         
-        if not hypers:
+        if hypers == None:
             hypers = np.ones(self.ndim)
         hypers = np.atleast_2d(hypers)
         if len(hypers) == 1:
@@ -74,16 +74,18 @@ class SquaredExponential(Kernel):
         """
         Calculate the graient of the kernel.
         """
-        gradients = np.zeros(len(self.hyper[1])+1)
+        #gradients = np.zeros(self.nparam)
+        gradients = []
+        d = self.distance(data1, data2)
         # First calculate the gradient wrt to the scaling term
-        gradients[0] = np.exp(-np.abs(d))
+        gradients.append( np.exp(-np.abs(d)) )
         # Now calculate the gradient wrt all of the width factors
-        for i in xrange(len(self.hyper[1])):
+        for i in xrange(self.ndim):
             # Set the ith hyperparameter to equal 1
-            th = np.copy(self.hyper[1])
+            th = np.copy(self.hyper[1][0])
             th[i] = 1
-            d = self.distance(data1, data2, th )
-            gradients[i+1] = self.hyper[0] * np.exp(-np.abs(d))
+            d = self.distance(data1, data2, hypers = th )
+            gradients.append( self.hyper[0] * np.exp(-np.abs(d)) )
         return gradients
         
 

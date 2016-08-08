@@ -130,6 +130,18 @@ class Regressor():
         LD = np.linalg.slogdet(self.K_matrix())
         return -0.5 * np.dot(self.apply_inverse(self.training_y),training_y) - 0.5 * LD[0]*LD[1]  - 0.5*np.log(2*np.pi)
     
+    def grad_loglikelihood(self):
+        """
+        Calculate the gradient of the log(likelihood) function
+        """
+        dK = self.kernel.gradient(self.training_data, self.training_data)
+        KI = self.apply_inverse(np.eye(self.km.shape[0]))
+        A = self.apply_inverse(self.training_y)
+        B = np.outer(A, A) - KI
+        g = 0.5 * np.einsum('ijk,jk', dK, B)
+        return g
+        
+
     def apply_inverse(self, matrix):
         """
 
