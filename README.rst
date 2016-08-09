@@ -13,7 +13,7 @@ heron
         :alt: Documentation Status
 
 
-Heron is a matched filtering package for Python
+Heron is a fast machine learning package for Python.
 
 * Free software: ISC license
 * Documentation: https://heron.readthedocs.org.
@@ -21,7 +21,7 @@ Heron is a matched filtering package for Python
 Features
 --------
 
-* TODO
+* TODO Gaussian Process Regression
 
 Credits
 ---------
