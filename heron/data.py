@@ -5,8 +5,10 @@ for use in machine learning algorithms.
 
 """
 
+import numpy as np
+
 class Data():
-    def __init__(self, targets, labels, target_names = None, label_names = None):
+    def __init__(self, targets, labels, target_names = None, label_names = None, test_size = 0.05):
         """
         Construct the training data object with pre-loaded
         data.
@@ -21,6 +23,10 @@ class Data():
            An array of training labels or "y" values which represent
            the observations made at the target locations of the data set.
 
+        test_size : float
+           The size of the test set as a percentage of the whole data set.
+           The test set is selected at random from the data, and is not
+           provided to the algorithm as training data.
 
         Notes
         -----
@@ -40,7 +46,14 @@ class Data():
         self.targets, self.targets_scale = self.normalise(targets)
         self.labels, self.labels_scale = self.normalise(labels)
 
-        
+        test_entries = np.floor(test_size * len(self.labels))
+        test_entries = np.random.random_integers(0, len(self.labels), test_entries)
+        #
+        self.test_targets = self.targets[test_entries]
+        self.test_labels = self.labels[test_entries]
+        #
+        self.targets = np.delete(self.targets, test_entries, axis=0)
+        self.labels = np.delete(self.labels, test_entries, axis=0)
 
         if target_names:
             self.target_names = target_names
