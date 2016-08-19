@@ -9,11 +9,11 @@ class Regressor():
     
     km = None
     
-    def __init__(self, training_data, kernel):
+    def __init__(self, training_data, kernel, yerror = 0):
         self.training_object = training_data
         self.training_data = training_data.targets
         self.training_y = training_data.labels
-        
+        self.yerror = yerror
         self.input_dim = self.training_data.ndim
         self.output_dim = self.training_y.ndim
 
@@ -88,6 +88,10 @@ class Regressor():
         Update the stored matrices.
         """
         km = self.kernel.matrix(self.training_data, self.training_data) 
+        if isinstance(self.yerror , float):
+            km += self.yerror * np.eye(km.shape[0], km.shape[1])
+        elif isinstance(self.yerror, np.ndarray):
+            km += np.diag(self.yerror)
         km += 1e-6 * np.eye(km.shape[0], km.shape[1])
         try:
             self.L = scipy.linalg.cho_factor(km)

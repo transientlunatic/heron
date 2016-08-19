@@ -42,7 +42,7 @@ class Data():
         in the literature, consistent with more traditional methods
         of data analysis.
         """
-
+        targets = np.atleast_2d(targets)
         self.targets, self.targets_scale = self.normalise(targets)
         self.labels, self.labels_scale = self.normalise(labels)
 
@@ -91,8 +91,12 @@ class Data():
         1) Subtract the "DC Offset", which is the minimum of the data
         2) Divide by the range of the data
         """
-        dc = data.min(axis=0)
-        range = data.max(axis=0) - data.min(axis=0)
+        if data.shape[0]==1:
+            dc = data.min()
+            range = data.max() - data.min()
+        else:
+            dc = data.min(axis=0)
+            range = data.max(axis=0) - data.min(axis=0)
 
         normalised = (data - dc) / range
 
