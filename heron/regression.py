@@ -1,6 +1,7 @@
 import numpy as np
 import emcee
 import scipy.linalg
+from scipy.optimize import minimize
 
 class Regressor():
     """
@@ -9,7 +10,25 @@ class Regressor():
     
     km = None
     
-    def __init__(self, training_data, kernel, yerror = 0):
+    def __init__(self, training_data, kernel, yerror = 0, tikh=1e-6):
+        """
+        Set up the Gaussian process regression.
+
+        Parameters
+        ----------
+        training data : heron data object
+           The training data, consisiting of labels and targets.
+        kernel : heron kernel
+           The kernel used to calculate the covariance matrix.
+        yerror : 
+           The variance of the labels
+        tikh : float
+           The Tikhonov regularization factor to be applied to the diagonal
+           to avoid the attempt to invert an ill-posed matrix problem. Defaults to 1e-6.
+        """
+
+        self.tikh = tikh
+
         self.training_object = training_data
         self.training_data = training_data.targets
         self.training_y = training_data.labels
@@ -20,20 +39,6 @@ class Regressor():
         #np.atleast_2d(training_data)
         self.kernel = kernel #kernel(self.training_data.ndim, *kernel_args)
         self.update()
-    
-    def optimise(self, nwalkers=100, nsamples=1000, burn=1000):
-        # This is an ugly kludge, FIX ME by moving to the kernel class
-        ndim = len(self.kernel.hyper[1]) + 1
-        # Make a random initial point
-        p0 = np.random.rand(ndim * nwalkers).reshape((nwalkers, ndim))
-        # Set up the MCMC sampler
-        sampler = emcee.EnsembleSampler(nwalkers, ndim, self.set_hyperparameters, args=[])
-        # Run the burn-in
-        pos, prob, state = sampler.run_mcmc(p0, burn)
-        sampler.reset()
-        # Make the production samples
-        pos, prob, state = sampler.run_mcmc(p0, nsamples)
-        return sampler, pos, prob, state
     
     def active_learn(self, afunction, x,y, iters=1, afunc_args={}):
         """
@@ -92,11 +97,8 @@ class Regressor():
             km += self.yerror * np.eye(km.shape[0], km.shape[1])
         elif isinstance(self.yerror, np.ndarray):
             km += np.diag(self.yerror)
-        km += 1e-6 * np.eye(km.shape[0], km.shape[1])
-        try:
-            self.L = scipy.linalg.cho_factor(km)
-        except:
-            print km
+        km += self.tikh * np.eye(km.shape[0], km.shape[1])
+        self.L = scipy.linalg.cho_factor(km)
         self.km = km 
 
     def K_matrix(self):
@@ -148,20 +150,19 @@ class Regressor():
 
     def apply_inverse(self, matrix):
         """
-
         Apply the inverse of the K matrix to another object using Colesky
         decomposition.
-
         """
-        KK = self.K_matrix()
+        #KK = np.copy(self.K_matrix())
+        #KK += self.tikh * np.eye(KK.shape[0], KK.shape[1])
         L = self.L
         return scipy.linalg.cho_solve(L, matrix, overwrite_b=False)
     
-    def fast_mean(self, newdata):
+    def mean(self, newdata):
         KS = self.Kstar_matrix(newdata)
         return np.dot(KS.T, self.apply_inverse(self.training_y))
         
-    def fast_covariance(self, newdata):
+    def covariance(self, newdata):
         KS = self.Kstar_matrix(newdata)
         KST = np.ascontiguousarray(KS.T, dtype=np.float64)
         b =self.apply_inverse(KS)
@@ -171,9 +172,26 @@ class Regressor():
     def prediction(self, new_datum):
         training_y = self.training_y
         new_datum = np.array(new_datum)
-        #KK = np.dot(KS.T, KI)
-        #mean = np.dot(KK, training_y)
-        #variance = self.Kstar_scalar(new_datum) - np.dot(np.dot(KS.T, KI), KS)
-        mean = self.fast_mean(new_datum)
-        variance = self.fast_covariance(new_datum)
-        return self.training_object.denormalise(mean, self.training_object.labels_scale), variance
+        new_datum = self.training_object.normalise(new_datum, "target")
+        mean = self.mean(new_datum)
+        variance = self.covariance(new_datum)
+        return self.training_object.denormalise(mean, "label"), self.training_object.denormalise(variance, "label")
+
+    def optimise(self):
+        """
+        Find the optimal values for the kernel hyper-parameters by maximising the 
+        log-likelihood of the entire Gaussian Process. It's also possible to do
+        this via cross-validation.
+        """
+        def nll(p):
+            self.set_hyperparameters(p)
+            ll = self.loglikelihood()
+            return -ll if np.isfinite(ll) else 1e25
+
+        def grad_nll(p):
+            self.set_hyperparameters(p)
+            return -self.grad_loglikelihood()
+
+        x0 = self.kernel.flat_hyper
+        res = minimize(nll, x0, method='BFGS', jac=grad_nll ,options={'disp': False})
+        return res

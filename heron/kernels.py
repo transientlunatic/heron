@@ -97,7 +97,7 @@ class ExponentialSineSq(Kernel):
         else:
             matrix = np.zeros(data1, data2)
             for axis in ax:
-                matrix + = self.function(data1[:,axis], data2[:,axis], period = self.hyper[1][axis])
+                matrix += self.function(data1[:,axis], data2[:,axis], period = self.hyper[1][axis])
             return np.exp(front * matrix)
 
     def gradient(self, data1, data2):
@@ -121,8 +121,12 @@ class SquaredExponential(Kernel):
         self.hyper = [amplitude, width]
         
     def set_hyperparameters(self, hypers):
-        self.hyper = [hypers[0], [hypers[1:]]]
+        self.hyper = [hypers[0], hypers[1:]]
         
+    @property
+    def flat_hyper(self):
+        return np.append(self.hyper[0], self.hyper[1:])
+
     def function(self, data1, data2):
         """
         The functional form of the kernel.
@@ -142,7 +146,7 @@ class SquaredExponential(Kernel):
         # Now calculate the gradient wrt all of the width factors
         for i in xrange(self.ndim):
             # Set the ith hyperparameter to equal 1
-            th = np.copy(self.hyper[1][0])
+            th = np.copy(self.hyper[1])
             th[i] = 1
             d = self.distance(data1, data2, hypers = th )
             gradients.append( self.hyper[0] * np.exp(-np.abs(d)) )
