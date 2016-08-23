@@ -30,9 +30,9 @@ class Regressor():
         self.tikh = tikh
 
         self.training_object = training_data
-        self.training_data = training_data.targets
-        self.training_y = training_data.labels
-        self.yerror = yerror
+        self.training_data = self.training_object.targets
+        self.training_y = self.training_object.labels[0]
+        self.yerror = self.training_object.label_sigma
         self.input_dim = self.training_data.ndim
         self.output_dim = self.training_y.ndim
 
@@ -69,15 +69,14 @@ class Regressor():
             self.add_data(np.atleast_1d(x[new_sample]), y[new_sample])
             i += 1
 
-    def add_data(self, target, label):
+    def add_data(self, target, label, label_error=None):
         """
         Add data to the Gaussian process.
         """
-        if self.training_data.ndim==1:
-            self.training_data = np.append(self.training_data, target)
-        else:
-            self.training_data = np.vstack([self.training_data, target])
-        self.training_y = np.append(self.training_y, label)
+        self.training_object.add_data(target, label, label_sigma=label_error, target_sigma=None)
+        self.training_data = self.training_object.targets
+        self.training_y = self.training_object.labels[0]
+        self.yerror = self.training_object.label_sigma
         self.update()
 
     def set_hyperparameters(self, hypers):
@@ -134,7 +133,7 @@ class Regressor():
     def loglikelihood(self):
         training_y = self.training_y
         LD = np.linalg.slogdet(self.K_matrix())
-        return -0.5 * np.dot(self.apply_inverse(self.training_y),training_y) - 0.5 * LD[0]*LD[1]  - 0.5*np.log(2*np.pi)
+        return -0.5 * np.dot(self.apply_inverse(training_y),training_y) - 0.5 * LD[0]*LD[1]  - 0.5*np.log(2*np.pi)
     
     def grad_loglikelihood(self):
         """

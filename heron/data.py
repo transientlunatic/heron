@@ -71,6 +71,7 @@ class Data():
         self.normaliser = {}
 
         targets = np.atleast_2d(targets)
+        labels = np.atleast_2d(labels)
         self.targets = self.normalise(targets, "target")
         self.labels = self.normalise(labels, "label")
 
@@ -227,7 +228,7 @@ class Data():
         dc, range = self.normaliser[name]
         return data*range + dc
 
-    def add_data(self, target, labels, target_sigma, label_sigma):
+    def add_data(self, targets, labels, target_sigma, label_sigma):
         """
         Add new rows into the data object.
 
@@ -248,13 +249,14 @@ class Data():
            array of the uncertainties, as a float, for each column in the labels.
         """
         targets = np.atleast_2d(targets)
-        if self.targets.ndim==1:
-            self.targets = np.append(self.targets, self.normalise(targets, "target"))
+        labels = np.atleast_2d(labels)
+        if self.targets.shape[0]==1:
+            self.targets = np.vstack([self.targets.T, self.normalise(targets, "target")]).T
         else:
             self.targets = np.vstack([self.targets, self.normalise(targets, "target")])
 
-        if self.labels.ndim == 1:
-            self.labels = np.append(self.labels, self.normalise(labels, "label"))
+        if self.labels.shape[0] == 1:
+            self.labels = np.vstack([self.labels.T, self.normalise(labels, "label")]).T
         else:
             self.labels = np.vstack([self.labels, self.normalise(labels, "label")])
 
@@ -263,29 +265,47 @@ class Data():
             # A full array of sigmas for each point
             if hasattr(target_sigma, '__len__') and (not isinstance(target_sigma, str)):
                 if len(target_sigma) == len(targets):
-                    self.target_sigma = np.vstack([self.target_sigma, self.normalise(target_sigma, "target")])
+                    if self.target_sigma.shape[0]==1:
+                        self.target_sigma = np.vstack([self.target_sigma.T, self.normalise(target_sigma, "target")]).T
+                    else:
+                        self.target_sigma = np.vstack([self.target_sigma, self.normalise(target_sigma, "target")])
                 else:
                     raise ValueError("The length of the uncertainty array doesn't match the data")
             # An array with a fixed sigma for each column
             else:
-                self.target_sigma = np.vstack([self.target_sigma, np.ones(len(target_sigma))*self.normalise(target_sigma, "target")])
+                if self.target_sigma.shape[0]==1:
+                    self.target_sigma = np.vstack([self.target_sigma.T, np.ones(len(target_sigma))*self.normalise(target_sigma, "target")]).T
+                else:
+                    self.target_sigma = np.vstack([self.target_sigma, np.ones(len(target_sigma))*self.normalise(target_sigma, "target")])
         # If no sigma is provided, assume it equals zero
         else:
-            self.target_sigma = np.vstack([self.target_sigma, np.zeros_like(targets)])
+            if self.target_sigma.shape[0]==1:
+                self.target_sigma = np.vstack([self.target_sigma.T, np.zeros_like(targets)]).T
+            else:
+                self.target_sigma = np.vstack([self.target_sigma, np.zeros_like(targets)])
         # Do the same for the labels
         if label_sigma:
             # A full array of sigmas for each point
             if hasattr(label_sigma, '__len__') and (not isinstance(label_sigma, str)):
                 if len(label_sigma) == len(labels):
-                    self.label_sigma = np.vstack([self.label_sigma, self.normalise(label_sigma, "label")])
+                    if self.label_sigma.shape[0]==1:
+                        self.label_sigma = np.vstack([self.label_sigma.T, self.normalise(label_sigma, "label")]).T
+                    else:
+                        self.label_sigma = np.vstack([self.label_sigma, self.normalise(label_sigma, "label")])
                 else:
                     raise ValueError("The length of the uncertainty array doesn't match the data")
             # An array with a fixed sigma for each column
             else:
-                self.label_sigma = np.vstack([self.label_sigma, np.ones(len(label_sigma))*self.normalise(label_sigma, "label")])
+                if self.label_sigma.shape[0]==1:
+                    self.label_sigma = np.vstack([self.label_sigma.T, np.ones(len(label_sigma))*self.normalise(label_sigma, "label")]).T
+                else:
+                    self.label_sigma = np.vstack([self.label_sigma, np.ones(len(label_sigma))*self.normalise(label_sigma, "label")])
         # If no sigma is provided, assume it equals zero
         else:
-            self.label_sigma = np.vstack([self.label_sigma, np.zeros_like(labels)])
+            if self.label_sigma.shape[0]==1:
+                self.label_sigma = np.vstack([self.label_sigma.T, np.zeros_like(labels)]).T
+            else:
+                self.label_sigma = np.vstack([self.label_sigma, np.zeros_like(labels)])
 
 class Timeseries():
     """
