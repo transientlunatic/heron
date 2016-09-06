@@ -1,3 +1,4 @@
+import math as m
 import numpy as np
 import emcee
 import scipy.linalg
@@ -99,6 +100,7 @@ class Regressor():
         km += self.tikh * np.eye(km.shape[0], km.shape[1])
         self.L = scipy.linalg.cho_factor(km)
         self.km = km 
+        self.test_predict()
 
     def K_matrix(self):
         """
@@ -194,3 +196,73 @@ class Regressor():
         x0 = self.kernel.flat_hyper
         res = minimize(nll, x0, method='BFGS', jac=grad_nll ,options={'disp': False})
         return res
+
+
+    def test_predict(self):
+        """
+        Calculate the value of the GP at the test targets.   
+        """
+        self.test_predictions = self.prediction(self.training_object.denormalise(self.training_object.test_targets, "target"))[0]
+
+    def correlation(self):
+        """
+        Calculate the correlation between the model and the test data.
+        
+        Returns
+        -------
+        corr : float
+           The correlation squared.
+        """
+        a = self.training_object.denormalise(self.training_object.test_labels, "label")
+        b = self.test_predictions
+        return np.linalg.det((np.cov(a,b) / np.sqrt(np.var(a) * np.var(b)))**2)
+
+    def rmse(self):
+        """
+        Calculate the root mean squared error of the whole model.
+        
+        Returns
+        -------
+        rmse : float
+           The root mean squared error.
+        """
+
+        a = self.training_object.denormalise(self.training_object.test_labels, "label")
+        b = self.test_predictions
+        return np.sqrt(np.mean((a - b)**2) )
+
+    def expected_improvement(self, x):
+        '''
+        Returns the expected improvement at the design vector X in the model
+        
+        Parameters
+        ==========
+        x : array-like
+           A real world coordinates design vector
+        
+        Returns
+        =======
+        EI: float 
+           The expected improvement value at the point x in the model
+        '''
+        x = np.atleast_2d(x)
+        p, S = self.prediction(x)
+        S = np.diag(S)
+        y_min = np.min(self.training_y)
+        #if S <=#  0.:
+        #     EI = 0.
+        # elif S >
+        #0.:
+        EI_one = ((y_min - p) * (0.5 + 0.5*m.erf((
+            1./np.sqrt(2.))*((y_min - p) /
+                             S))))
+        EI_two = ((S * (1. / np.sqrt(2. * np.pi))) * (np.exp(-(1./2.) *
+                                                             ((y_min - p)**2. / S**2.))))
+        EI = EI_one + EI_two
+        return EI
+
+    def nei(self, x):
+        """
+        Calculate the negative of the expected improvement at a point x.
+        """
+        return -self.expected_improvement(x)
