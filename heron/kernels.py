@@ -28,7 +28,7 @@ class Kernel():
             raise ValueError("There are not enough dimensions in the hyperparameter vector.")
         hypers = np.squeeze(hypers)
         #hypers = np.exp(hypers)
-
+        
         d = cdist(data1, data2, 'wminkowski', p=2, w = hypers)
         return d**2
     
@@ -46,9 +46,7 @@ class Kernel():
         covar : ndarray 
             A covariance matrix.
         """
-        #data1 = np.atleast_2d(data1)
-        #data2 = np.atleast_2d(data2)
-        #data1, data2 = np.expand_dims(data1,0), np.expand_dims(data2,0)
+        #print data1.shape, data2.shape
         return self.function(data1, data2)
 
 class ExponentialSineSq(Kernel):
