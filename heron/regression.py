@@ -245,6 +245,12 @@ class Regressor():
         EI: float 
            The expected improvement value at the point x in the model
         '''
+        
+        # hard-coded nastiness, please improve!
+        if x[1] < 5: return -1e25
+        if x[2] > 1: return -1e25
+        if x[2] < 0: return -1e25
+        
         x = np.atleast_2d(x)
         p, S = self.prediction(x)
         S = np.diag(S)
