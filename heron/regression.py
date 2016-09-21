@@ -33,7 +33,7 @@ class Regressor():
         self.training_object = training_data
         self.training_data = self.training_object.targets
         self.training_y = np.atleast_2d(self.training_object.labels.T.reshape(-1)).T
-        self.yerror = self.training_object.label_sigma
+        self.yerror = self.training_object.label_sigma.reshape(-1)
         self.input_instances = self.training_object.targets.shape[0]
         self.input_dim = self.training_object.targets.shape[1]
         self.output_dim = self.training_object.labels.shape[1]
@@ -83,6 +83,17 @@ class Regressor():
         self.yerror = self.training_object.label_sigma
         self.update()
 
+    def set_bmatrix(self, values):
+        """
+        Set the values of the B matrix from a vector.
+        """
+        bm = values.reshape(self.output_dim, self.output_dim)
+        bm += self.tikh * np.eye(bm.shape[0], bm.shape[1])
+        if not np.all(np.linalg.eigvals(bm) > 0): return -1e25
+        self.B_matrix = bm
+        return self.loglikelihood()
+        
+
     def set_hyperparameters(self, hypers):
         """
         Set the hyperparameters of the kernel function.
@@ -96,14 +107,14 @@ class Regressor():
         Update the stored matrices.
         """
         km = self.kernel.matrix(self.training_data, self.training_data) 
-        #if isinstance(self.yerror , float):
-        #    km += self.yerror * np.eye(km.shape[0], km.shape[1])
-        #elif isinstance(self.yerror, np.ndarray):
-        #    km += np.diag(self.yerror)
+
+        km += self.tikh * np.eye(km.shape[0], km.shape[1])
         self.L = scipy.linalg.cholesky(km)
         km = np.kron(self.B_matrix, km)
-        km += self.tikh * np.eye(km.shape[0], km.shape[1])
-        #self.L = scipy.linalg.cholesky(km)
+        if isinstance(self.yerror , float):
+            km += self.yerror * np.eye(km.shape[0], km.shape[1])
+        elif isinstance(self.yerror, np.ndarray):
+            km += np.diag(self.yerror)
         self.km = km 
         #self.test_predict()
 
@@ -190,7 +201,7 @@ class Regressor():
         new_datum = self.training_object.normalise(new_datum, "target")
         mean = self.mean(new_datum)
         variance = self.covariance(new_datum)
-        return mean, variance
+        return mean.reshape(self.output_dim,-1).T, variance
 
     def optimise(self):
         """
