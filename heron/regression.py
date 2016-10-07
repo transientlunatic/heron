@@ -11,6 +11,43 @@ class Regressor():
     
     km = None
     
+    def __repr__(self):
+        """
+        The printable representation of this object.
+        """
+        return "<Heron Gaussian Process instance with {} training points>".format(len(self.training_data))
+
+    def _html_repr_(self):
+        """
+        The HTML representation of the object for use with IPython /
+        Jupyter notebooks.
+
+        """
+
+        output = "<table>"
+        output += "<tr>"
+        output += "<th>Heron Gaussian Process</th>"
+        output += "<th></th>"
+        output += "</tr>"
+        output += "<tr>"
+        output += "<td>Training Points</th>"
+        output += "<td>{}</td>".format(len(self.training_data))
+        output += "</tr>"
+        output += "<tr>"
+        output += "<td>Test Points</th>"
+        output += "<td>{}</td>".format(len(self.training_object.test_labels))
+        output += "</tr>"
+        output += "<tr>"
+        output += "<td>Model Correlation</th>"
+        output += "<td>{}</td>".format(self.correlation())
+        output += "</tr>"
+        output += "<tr>"
+        output += "<td>Model RMSE</th>"
+        output += "<td>{}</td>".format(self.rmse())
+        output += "</tr>"
+        output += "</table>"
+        return output
+
     def __init__(self, training_data, kernel, yerror = 0, tikh=1e-6):
         """
         Set up the Gaussian process regression.
@@ -32,12 +69,10 @@ class Regressor():
 
         self.training_object = training_data
         self.training_data = self.training_object.targets
-        self.training_y = self.training_object.labels[0]
+        self.training_y = self.training_object.labels
         self.yerror = self.training_object.label_sigma
         self.input_dim = self.training_data.ndim
         self.output_dim = self.training_y.ndim
-
-        #np.atleast_2d(training_data)
         self.kernel = kernel #kernel(self.training_data.ndim, *kernel_args)
         self.update()
     
@@ -96,7 +131,10 @@ class Regressor():
         if isinstance(self.yerror , float):
             km += self.yerror * np.eye(km.shape[0], km.shape[1])
         elif isinstance(self.yerror, np.ndarray):
-            km += np.diag(self.yerror)
+            if self.yerror.ndim == 1:
+                km += np.diag(self.yerror)
+            else:
+                km += self.yerror
         km += self.tikh * np.eye(km.shape[0], km.shape[1])
         self.L = scipy.linalg.cho_factor(km)
         self.km = km 
@@ -156,7 +194,7 @@ class Regressor():
         """
         #KK = np.copy(self.K_matrix())
         #KK += self.tikh * np.eye(KK.shape[0], KK.shape[1])
-        L = self.L
+        L = self.L        
         return scipy.linalg.cho_solve(L, matrix, overwrite_b=False)
     
     def mean(self, newdata):
@@ -202,7 +240,7 @@ class Regressor():
         """
         Calculate the value of the GP at the test targets.   
         """
-        self.test_predictions = self.prediction(self.training_object.denormalise(self.training_object.test_targets, "target"))[0]
+        self.test_predictions = self.prediction(np.atleast_2d(self.training_object.denormalise(self.training_object.test_targets, "target")))[0]
 
     def correlation(self):
         """
@@ -247,10 +285,10 @@ class Regressor():
         '''
         
         # hard-coded nastiness, please improve!
-        if x[1] < 5: return -1e25
-        if x[2] > 1: return -1e25
-        if x[2] < 0: return -1e25
-        
+        #if x[1] < 5: return -1e25
+        #if x[2] > 1: return -1e25
+        #if x[2] < 0: return -1e25
+
         x = np.atleast_2d(x)
         p, S = self.prediction(x)
         S = np.diag(S)

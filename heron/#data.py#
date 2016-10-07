@@ -21,7 +21,7 @@ class Data():
         """
         Construct the training data object with pre-loaded
         data.
-
+x
         Parameters
         ----------
         targets : array-like
@@ -110,22 +110,23 @@ class Data():
         if not isinstance(test_targets, type(None)) and not isinstance(test_labels, type(None)):
             # Targets and labels have been provided, so we'll use those rather than
             # using the input data.
-            self.test_targets = np.squeeze(self.normalise(test_targets, "target"))
-            self.test_labels = np.squeeze(self.normalise(test_labels, "label"))
-            self.labels = np.squeeze(self.labels)
+            self.test_targets = self.normalise(test_targets, "target")
+            self.test_labels = self.normalise(test_labels, "label")
+
         else:
             # Otherwise we use a portion of the training data.
+
             # Prepare the test entries
-            test_entries = np.floor(test_size * len(self.labels[0]))
-            test_entries = np.random.random_integers(0, len(self.labels[0])-1, test_entries)
+``            test_entries = np.floor(test_size * len(self.labels))
+            test_entries = np.random.random_integers(0, len(self.labels), test_entries)
             #
             self.test_targets = self.targets[test_entries]
-            self.test_labels = self.labels[0][test_entries]
+            self.test_labels = self.labels[test_entries]
             #
             self.targets = np.delete(self.targets, test_entries, axis=0)
-            self.labels = np.delete(self.labels[0], test_entries, axis=0)
+            self.labels = np.delete(self.labels, test_entries, axis=0)
             self.target_sigma = np.delete(self.target_sigma, test_entries, axis=0)
-            self.label_sigma = np.delete(self.label_sigma[0], test_entries, axis=0)
+            self.label_sigma = np.delete(self.label_sigma, test_entries, axis=0)
 
         if target_names:
             self.target_names = target_names
