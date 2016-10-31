@@ -3,6 +3,8 @@ import numpy as np
 import emcee
 import scipy.linalg
 from scipy.optimize import minimize
+import george
+import scipy
 
 class Regressor():
     """
@@ -48,7 +50,7 @@ class Regressor():
         output += "</table>"
         return output
 
-    def __init__(self, training_data, kernel, yerror = 0, tikh=1e-6):
+    def __init__(self, training_data, kernel, yerror = 0, tikh=1e-6, solver=george.HODLRSolver):
         """
         Set up the Gaussian process regression.
 
@@ -74,6 +76,8 @@ class Regressor():
         self.input_dim = self.training_data.ndim
         self.output_dim = self.training_y.ndim
         self.kernel = kernel #kernel(self.training_data.ndim, *kernel_args)
+        self.gp = george.GP(kernel, solver=solver, tol=self.tikh, mean = 0, fit_mean=True, fit_white_noise=True)
+        self.kernel = self.gp.kernel
         self.update()
     
     def active_learn(self, afunction, x,y, iters=1, afunc_args={}):
@@ -119,7 +123,7 @@ class Regressor():
         """
         Set the hyperparameters of the kernel function.
         """
-        self.kernel.set_hyperparameters(hypers)
+        self.gp.set_vector(hypers)
         self.update()
         return self.loglikelihood()
     
@@ -127,93 +131,28 @@ class Regressor():
         """
         Update the stored matrices.
         """
-        km = self.kernel.matrix(self.training_data, self.training_data) 
-        if isinstance(self.yerror , float):
-            km += self.yerror * np.eye(km.shape[0], km.shape[1])
-        elif isinstance(self.yerror, np.ndarray):
-            if self.yerror.ndim == 1:
-                km += np.diag(self.yerror)
-            else:
-                km += self.yerror
-        km += self.tikh * np.eye(km.shape[0], km.shape[1])
-        self.L = scipy.linalg.cho_factor(km)
-        self.km = km 
-        self.test_predict()
+        self.gp.compute(self.training_data)
+        #self.test_predict()
 
-    def K_matrix(self):
-        """
-        Produce the Kx,x matrix (the covariance matrix of the training
-        inputs)
-        """
-        return self.km 
-        #km = self.kernel.matrix(self.training_data, self.training_data)
-        #return km
-    
-    def Kstar_matrix(self, data):
-        """
-        Produce the Nx1 matrix which describes the locations of the prediction
-        data.
-        """
-        return self.kernel.matrix(self.training_data, data)
-    
-    def Kstar_scalar(self, data):
-        return self.kernel.matrix(data, data)
-    
-    def Kplus_matrix(self, data):
-        data = np.expand_dims(data,0)
-        new_size = self.training_data.shape[-1]+data.shape[-1]
-        new_matrix = np.zeros((new_size, new_size))
-        a = len(gp.K_matrix())
-        new_matrix[:a, :a] = self.K_matrix()
-        new_matrix[a:,:a] = self.Kstar_matrix(data)
-        new_matrix[:a,a:] = self.Kstar_matrix(data).T
-        new_matrix[a:,a:] = self.Kstar_scalar(data)
-        return new_matrix
 
     def loglikelihood(self):
-        training_y = self.training_y
-        LD = np.linalg.slogdet(self.K_matrix())
-        return -0.5 * np.dot(self.apply_inverse(training_y),training_y) - 0.5 * LD[0]*LD[1]  - 0.5*np.log(2*np.pi)
+        """
+        Return the log-likelihood function for the Gaussian process.
+        """
+        return self.gp.lnlikelihood()
     
     def grad_loglikelihood(self):
         """
         Calculate the gradient of the log(likelihood) function
         """
-        dK = self.kernel.gradient(self.training_data, self.training_data)
-        KI = self.apply_inverse(np.eye(self.km.shape[0]))
-        A = self.apply_inverse(self.training_y)
-        B = np.outer(A, A) - KI
-        g = 0.5 * np.einsum('ijk,jk', dK, B)
-        return g
+        return self.gp.grad_lnlikelihood()
         
-
-    def apply_inverse(self, matrix):
-        """
-        Apply the inverse of the K matrix to another object using Colesky
-        decomposition.
-        """
-        #KK = np.copy(self.K_matrix())
-        #KK += self.tikh * np.eye(KK.shape[0], KK.shape[1])
-        L = self.L        
-        return scipy.linalg.cho_solve(L, matrix, overwrite_b=False)
     
-    def mean(self, newdata):
-        KS = self.Kstar_matrix(newdata)
-        return np.dot(KS.T, self.apply_inverse(self.training_y))
-        
-    def covariance(self, newdata):
-        KS = self.Kstar_matrix(newdata)
-        KST = np.ascontiguousarray(KS.T, dtype=np.float64)
-        b =self.apply_inverse(KS)
-        cov = self.Kstar_scalar(newdata) - np.dot(KST, self.apply_inverse(KS))
-        return cov
-
     def prediction(self, new_datum):
         training_y = self.training_y
         new_datum = np.array(new_datum)
         new_datum = self.training_object.normalise(new_datum, "target")
-        mean = self.mean(new_datum)
-        variance = self.covariance(new_datum)
+        mean, variance = self.gp.predict(self.training_y, new_datum, return_var=True)
         return self.training_object.denormalise(mean, "label"), self.training_object.denormalise(variance, "label")
 
     def optimise(self):
@@ -222,25 +161,26 @@ class Regressor():
         log-likelihood of the entire Gaussian Process. It's also possible to do
         this via cross-validation.
         """
-        def nll(p):
-            self.set_hyperparameters(p)
-            ll = self.loglikelihood()
-            return -ll if np.isfinite(ll) else 1e25
+        def neg_ln_like(p):
+            self.gp.set_vector(p)
+            return -self.gp.lnlikelihood(self.training_y)
 
-        def grad_nll(p):
-            self.set_hyperparameters(p)
-            return -self.grad_loglikelihood()
+        def grad_neg_ln_like(p):
+            self.gp.set_vector(p)
+            return -self.gp.grad_lnlikelihood(self.training_y)
 
-        x0 = self.kernel.flat_hyper
-        res = minimize(nll, x0, method='BFGS', jac=grad_nll ,options={'disp': False})
-        return res
+        result = minimize(neg_ln_like, self.gp.get_vector(), method="BFGS",  jac=grad_neg_ln_like)
+
+        #x0 = self.gp.get_vector()
+        #res = minimize(nll, x0, method='BFGS', jac=grad_nll ,options={'disp': False})
+        return result
 
 
     def test_predict(self):
         """
         Calculate the value of the GP at the test targets.   
         """
-        self.test_predictions = self.prediction(np.atleast_2d(self.training_object.denormalise(self.training_object.test_targets, "target")))[0]
+        self.test_predictions = self.prediction(self.training_object.denormalise(self.training_object.test_targets, "target"))[0]
 
     def correlation(self):
         """
@@ -283,21 +223,12 @@ class Regressor():
         EI: float 
            The expected improvement value at the point x in the model
         '''
-        
-        # hard-coded nastiness, please improve!
-        #if x[1] < 5: return -1e25
-        #if x[2] > 1: return -1e25
-        #if x[2] < 0: return -1e25
 
         x = np.atleast_2d(x)
         p, S = self.prediction(x)
-        S = np.diag(S)
+        p = np.abs(p)
         y_min = np.min(self.training_y)
-        #if S <=#  0.:
-        #     EI = 0.
-        # elif S >
-        #0.:
-        EI_one = ((y_min - p) * (0.5 + 0.5*m.erf((
+        EI_one = ((y_min - p) * (0.5 + 0.5*scipy.special.erf((
             1./np.sqrt(2.))*((y_min - p) /
                              S))))
         EI_two = ((S * (1. / np.sqrt(2. * np.pi))) * (np.exp(-(1./2.) *
