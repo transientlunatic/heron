@@ -8,6 +8,8 @@ class Kernel():
     name = "Generic kernel"
     ndim = 1
     def set_hyperparameters(self, hypers):
+        if not len(hypers) == ndim + 1:
+            raise ValueError("Wrong number of hyper-parameters passed to the kernel.")
         self.hyper = hypers
     
     def distance(self, data1, data2, hypers = None):
@@ -49,6 +51,64 @@ class Kernel():
         #data1, data2 = np.expand_dims(data1,0), np.expand_dims(data2,0)
         return self.function(data1, data2)
 
+class ExponentialSineSq(Kernel):
+    """
+    An implementation of the exponential sine-squared kernel.
+    """
+    name = "Exponential sine-squared kernel"
+    hyper = [1, 1]
+    
+    def __init__(self, period = 1, width = 15, ax=0):
+        
+        # The number of axes dictates the dimensionality of the 
+        # Kernel.
+        # -
+        # This kernel is only easily expressed as a single 
+        # dimensional expression, so we take the product 
+        # of multiple kernels to make it multidimensional.
+        self.ax = ax
+        if isinstance(ax, int):
+            self.ndim = 1
+        else:
+            self.ndim = len(ax)
+        # The kernel possesses one parameter which applies to
+        # all of the axes, and one which applies to each
+        # axis separately, so
+        self.nparam = 1 + self.ndim
+        if isinstance(period, list):
+            self.hyper = [width, period]
+        else:
+            self.hyper = [width, [period]*self.ndim]
+
+
+    def function(self, data1, data2, period):
+        """
+        The functional form of the kernel inside the exponential.
+        """
+        # The distance is not weighted, and we perform the 
+        # weighting later.
+        d = self.distance(data1, data2)
+        return np.sin(np.pi * (d/period) )**2
+
+    def matrix(self, data1, data2):
+        front = 2 / self.hyper[0]**2
+        if isinstance(self.ax, int):
+            return np.exp(front * self.function(data1, data2, period = self.hyper[1]))
+        else:
+            matrix = np.zeros(data1, data2)
+            for axis in ax:
+                matrix += self.function(data1[:,axis], data2[:,axis], period = self.hyper[1][axis])
+            return np.exp(front * matrix)
+
+    def gradient(self, data1, data2):
+        gradients = np.zeros(self.nparam)
+        # Precalculate the gram matrix
+        k = self.matrix(data1,data2)
+        # The first component is the fixed width-factor
+        gradient[0] = - 1. / self.hyper[0]**3 * k
+        
+        gradient[1:]  = 2*np.pi
+
 class SquaredExponential(Kernel):
     """
     An implementation of the squared-exponential kernel.
@@ -61,8 +121,12 @@ class SquaredExponential(Kernel):
         self.hyper = [amplitude, width]
         
     def set_hyperparameters(self, hypers):
-        self.hyper = [hypers[0], [hypers[1:]]]
+        self.hyper = [hypers[0], hypers[1:]]
         
+    @property
+    def flat_hyper(self):
+        return np.append(self.hyper[0], self.hyper[1:])
+
     def function(self, data1, data2):
         """
         The functional form of the kernel.
@@ -82,7 +146,7 @@ class SquaredExponential(Kernel):
         # Now calculate the gradient wrt all of the width factors
         for i in xrange(self.ndim):
             # Set the ith hyperparameter to equal 1
-            th = np.copy(self.hyper[1][0])
+            th = np.copy(self.hyper[1])
             th[i] = 1
             d = self.distance(data1, data2, hypers = th )
             gradients.append( self.hyper[0] * np.exp(-np.abs(d)) )

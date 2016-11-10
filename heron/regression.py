@@ -1,6 +1,8 @@
+import math as m
 import numpy as np
 import emcee
 import scipy.linalg
+from scipy.optimize import minimize
 
 class Regressor():
     """
@@ -9,31 +11,35 @@ class Regressor():
     
     km = None
     
-    def __init__(self, training_data, kernel):
+    def __init__(self, training_data, kernel, yerror = 0, tikh=1e-6):
+        """
+        Set up the Gaussian process regression.
+
+        Parameters
+        ----------
+        training data : heron data object
+           The training data, consisiting of labels and targets.
+        kernel : heron kernel
+           The kernel used to calculate the covariance matrix.
+        yerror : 
+           The variance of the labels
+        tikh : float
+           The Tikhonov regularization factor to be applied to the diagonal
+           to avoid the attempt to invert an ill-posed matrix problem. Defaults to 1e-6.
+        """
+
+        self.tikh = tikh
+
         self.training_object = training_data
-        self.training_data = training_data.targets
-        self.training_y = training_data.labels
-        
+        self.training_data = self.training_object.targets
+        self.training_y = self.training_object.labels[0]
+        self.yerror = self.training_object.label_sigma
         self.input_dim = self.training_data.ndim
         self.output_dim = self.training_y.ndim
 
         #np.atleast_2d(training_data)
         self.kernel = kernel #kernel(self.training_data.ndim, *kernel_args)
         self.update()
-    
-    def optimise(self, nwalkers=100, nsamples=1000, burn=1000):
-        # This is an ugly kludge, FIX ME by moving to the kernel class
-        ndim = len(self.kernel.hyper[1]) + 1
-        # Make a random initial point
-        p0 = np.random.rand(ndim * nwalkers).reshape((nwalkers, ndim))
-        # Set up the MCMC sampler
-        sampler = emcee.EnsembleSampler(nwalkers, ndim, self.set_hyperparameters, args=[])
-        # Run the burn-in
-        pos, prob, state = sampler.run_mcmc(p0, burn)
-        sampler.reset()
-        # Make the production samples
-        pos, prob, state = sampler.run_mcmc(p0, nsamples)
-        return sampler, pos, prob, state
     
     def active_learn(self, afunction, x,y, iters=1, afunc_args={}):
         """
@@ -64,15 +70,14 @@ class Regressor():
             self.add_data(np.atleast_1d(x[new_sample]), y[new_sample])
             i += 1
 
-    def add_data(self, target, label):
+    def add_data(self, target, label, label_error=None):
         """
         Add data to the Gaussian process.
         """
-        if self.training_data.ndim==1:
-            self.training_data = np.append(self.training_data, target)
-        else:
-            self.training_data = np.vstack([self.training_data, target])
-        self.training_y = np.append(self.training_y, label)
+        self.training_object.add_data(target, label, label_sigma=label_error, target_sigma=None)
+        self.training_data = self.training_object.targets
+        self.training_y = self.training_object.labels[0]
+        self.yerror = self.training_object.label_sigma
         self.update()
 
     def set_hyperparameters(self, hypers):
@@ -88,12 +93,14 @@ class Regressor():
         Update the stored matrices.
         """
         km = self.kernel.matrix(self.training_data, self.training_data) 
-        km += 1e-6 * np.eye(km.shape[0], km.shape[1])
-        try:
-            self.L = scipy.linalg.cho_factor(km)
-        except:
-            print km
+        if isinstance(self.yerror , float):
+            km += self.yerror * np.eye(km.shape[0], km.shape[1])
+        elif isinstance(self.yerror, np.ndarray):
+            km += np.diag(self.yerror)
+        km += self.tikh * np.eye(km.shape[0], km.shape[1])
+        self.L = scipy.linalg.cho_factor(km)
         self.km = km 
+        self.test_predict()
 
     def K_matrix(self):
         """
@@ -128,7 +135,7 @@ class Regressor():
     def loglikelihood(self):
         training_y = self.training_y
         LD = np.linalg.slogdet(self.K_matrix())
-        return -0.5 * np.dot(self.apply_inverse(self.training_y),training_y) - 0.5 * LD[0]*LD[1]  - 0.5*np.log(2*np.pi)
+        return -0.5 * np.dot(self.apply_inverse(training_y),training_y) - 0.5 * LD[0]*LD[1]  - 0.5*np.log(2*np.pi)
     
     def grad_loglikelihood(self):
         """
@@ -144,20 +151,19 @@ class Regressor():
 
     def apply_inverse(self, matrix):
         """
-
         Apply the inverse of the K matrix to another object using Colesky
         decomposition.
-
         """
-        KK = self.K_matrix()
+        #KK = np.copy(self.K_matrix())
+        #KK += self.tikh * np.eye(KK.shape[0], KK.shape[1])
         L = self.L
         return scipy.linalg.cho_solve(L, matrix, overwrite_b=False)
     
-    def fast_mean(self, newdata):
+    def mean(self, newdata):
         KS = self.Kstar_matrix(newdata)
         return np.dot(KS.T, self.apply_inverse(self.training_y))
         
-    def fast_covariance(self, newdata):
+    def covariance(self, newdata):
         KS = self.Kstar_matrix(newdata)
         KST = np.ascontiguousarray(KS.T, dtype=np.float64)
         b =self.apply_inverse(KS)
@@ -167,9 +173,96 @@ class Regressor():
     def prediction(self, new_datum):
         training_y = self.training_y
         new_datum = np.array(new_datum)
-        #KK = np.dot(KS.T, KI)
-        #mean = np.dot(KK, training_y)
-        #variance = self.Kstar_scalar(new_datum) - np.dot(np.dot(KS.T, KI), KS)
-        mean = self.fast_mean(new_datum)
-        variance = self.fast_covariance(new_datum)
-        return self.training_object.denormalise(mean, self.training_object.labels_scale), variance
+        new_datum = self.training_object.normalise(new_datum, "target")
+        mean = self.mean(new_datum)
+        variance = self.covariance(new_datum)
+        return self.training_object.denormalise(mean, "label"), self.training_object.denormalise(variance, "label")
+
+    def optimise(self):
+        """
+        Find the optimal values for the kernel hyper-parameters by maximising the 
+        log-likelihood of the entire Gaussian Process. It's also possible to do
+        this via cross-validation.
+        """
+        def nll(p):
+            self.set_hyperparameters(p)
+            ll = self.loglikelihood()
+            return -ll if np.isfinite(ll) else 1e25
+
+        def grad_nll(p):
+            self.set_hyperparameters(p)
+            return -self.grad_loglikelihood()
+
+        x0 = self.kernel.flat_hyper
+        res = minimize(nll, x0, method='BFGS', jac=grad_nll ,options={'disp': False})
+        return res
+
+
+    def test_predict(self):
+        """
+        Calculate the value of the GP at the test targets.   
+        """
+        self.test_predictions = self.prediction(self.training_object.denormalise(self.training_object.test_targets, "target"))[0]
+
+    def correlation(self):
+        """
+        Calculate the correlation between the model and the test data.
+        
+        Returns
+        -------
+        corr : float
+           The correlation squared.
+        """
+        a = self.training_object.denormalise(self.training_object.test_labels, "label")
+        b = self.test_predictions
+        return np.linalg.det((np.cov(a,b) / np.sqrt(np.var(a) * np.var(b)))**2)
+
+    def rmse(self):
+        """
+        Calculate the root mean squared error of the whole model.
+        
+        Returns
+        -------
+        rmse : float
+           The root mean squared error.
+        """
+
+        a = self.training_object.denormalise(self.training_object.test_labels, "label")
+        b = self.test_predictions
+        return np.sqrt(np.mean((a - b)**2) )
+
+    def expected_improvement(self, x):
+        '''
+        Returns the expected improvement at the design vector X in the model
+        
+        Parameters
+        ==========
+        x : array-like
+           A real world coordinates design vector
+        
+        Returns
+        =======
+        EI: float 
+           The expected improvement value at the point x in the model
+        '''
+        x = np.atleast_2d(x)
+        p, S = self.prediction(x)
+        S = np.diag(S)
+        y_min = np.min(self.training_y)
+        #if S <=#  0.:
+        #     EI = 0.
+        # elif S >
+        #0.:
+        EI_one = ((y_min - p) * (0.5 + 0.5*m.erf((
+            1./np.sqrt(2.))*((y_min - p) /
+                             S))))
+        EI_two = ((S * (1. / np.sqrt(2. * np.pi))) * (np.exp(-(1./2.) *
+                                                             ((y_min - p)**2. / S**2.))))
+        EI = EI_one + EI_two
+        return EI
+
+    def nei(self, x):
+        """
+        Calculate the negative of the expected improvement at a point x.
+        """
+        return -self.expected_improvement(x)
