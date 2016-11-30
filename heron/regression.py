@@ -76,7 +76,7 @@ class Regressor():
         self.input_dim = self.training_data.ndim
         self.output_dim = self.training_y.ndim
         self.kernel = kernel #kernel(self.training_data.ndim, *kernel_args)
-        self.gp = george.GP(kernel, solver=solver, tol=self.tikh, mean = 0, fit_mean=True, fit_white_noise=True)
+        self.gp = george.GP(kernel, solver=solver, tol=self.tikh, mean = 0, fit_mean=False, fit_white_noise=False)
         self.kernel = self.gp.kernel
         self.update()
     
@@ -139,13 +139,13 @@ class Regressor():
         """
         Return the log-likelihood function for the Gaussian process.
         """
-        return self.gp.lnlikelihood()
+        return self.gp.lnlikelihood(self.training_y)
     
     def grad_loglikelihood(self):
         """
         Calculate the gradient of the log(likelihood) function
         """
-        return self.gp.grad_lnlikelihood()
+        return self.gp.grad_lnlikelihood(self.training_y)
         
     
     def prediction(self, new_datum):
