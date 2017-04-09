@@ -1,16 +1,16 @@
 import matplotlib.pyplot as plt
 def corner(data_object, figsize=(10,10)):
 
-    data = data_object.denormalise(data_object.targets, data_object.targets_scale)
+    data = data_object.denormalise(data_object.targets, "target")
     labels = data_object.target_names
     f, ax = plt.subplots(data.shape[1],data.shape[1],figsize=figsize)
-    yvalues = data_object.denormalise(data_object.labels, data_object.labels_scale)
+    yvalues = data_object.denormalise(data_object.labels, "label")
 
 
     for i in xrange(data.shape[1]):
         for j in xrange(data.shape[1]):   
             
-            if not i==data.shape[1]-1:
+            if not i==data.shape[1]:
                 ax[i,j].set_xticklabels([])
             else:
                 ax[i,j].set_xlabel(labels[j])
