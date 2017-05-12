@@ -123,6 +123,11 @@ sep = np.array([0.0001, 0.2, 0.2, 20, 90, 50, 25,  10])
 k3 = kernels.Matern52Kernel(sep**2, ndim=8)
 kernel = k0+k3 
 gp = george.GP(kernel, tol=1e-10, solver=george.HODLRSolver, mean=0, nleaf=100, )
+
+training_x = np.array(training_x)
+
+print training_x.shape
+
 gp.compute(training_x, sort=False)
 
 from scipy.optimize import minimize
