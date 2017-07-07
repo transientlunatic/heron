@@ -5,6 +5,7 @@ import scipy.linalg
 from scipy.optimize import minimize
 import george
 import scipy
+from .training import *
 
 class Regressor():
     """
@@ -50,7 +51,7 @@ class Regressor():
         output += "</table>"
         return output
 
-    def __init__(self, training_data, kernel, yerror = 0, tikh=1e-6, solver=george.HODLRSolver):
+    def __init__(self, training_data, kernel, tikh=1e-6, solver=george.HODLRSolver):
         """
         Set up the Gaussian process regression.
 
@@ -60,8 +61,6 @@ class Regressor():
            The training data, consisiting of labels and targets.
         kernel : heron kernel
            The kernel used to calculate the covariance matrix.
-        yerror : 
-           The variance of the labels
         tikh : float
            The Tikhonov regularization factor to be applied to the diagonal
            to avoid the attempt to invert an ill-posed matrix problem. Defaults to 1e-6.
@@ -71,22 +70,10 @@ class Regressor():
 
         self.training_object = training_data
         self.training_data = self.training_object.targets
-<<<<<<< HEAD
         self.training_y = self.training_object.labels
         self.yerror = self.training_object.label_sigma
         self.input_dim = self.training_data.ndim
         self.output_dim = self.training_y.ndim
-=======
-        self.training_y = np.atleast_2d(self.training_object.labels.T.reshape(-1)).T
-        self.yerror = self.training_object.label_sigma.reshape(-1)
-        self.input_instances = self.training_object.targets.shape[0]
-        self.input_dim = self.training_object.targets.shape[1]
-        self.output_dim = self.training_object.labels.shape[1]
-
-        self.B_matrix = np.identity(self.output_dim)
-
-        #np.atleast_2d(training_data)
->>>>>>> f02bf7fa5ed4df3149e9245a8268c710f611e0f9
         self.kernel = kernel #kernel(self.training_data.ndim, *kernel_args)
         self.gp = george.GP(kernel, solver=solver, tol=self.tikh, mean = 0, fit_mean=False, fit_white_noise=False)
         self.kernel = self.gp.kernel
@@ -141,7 +128,6 @@ class Regressor():
         self.B_matrix = bm
         return self.loglikelihood()
         
-
     def set_hyperparameters(self, hypers):
         """
         Set the hyperparameters of the kernel function.
@@ -154,155 +140,33 @@ class Regressor():
         """
         Update the stored matrices.
         """
-<<<<<<< HEAD
         self.gp.compute(self.training_data)
         #self.test_predict()
 
 
-    def loglikelihood(self):
-        """
-        Return the log-likelihood function for the Gaussian process.
-        """
-        return self.gp.lnlikelihood(self.training_y)
-=======
-        km = self.kernel.matrix(self.training_data, self.training_data) 
-
-        km += self.tikh * np.eye(km.shape[0], km.shape[1])
-        self.L = scipy.linalg.cholesky(km)
-        km = np.kron(self.B_matrix, km)
-        if isinstance(self.yerror , float):
-            km += self.yerror * np.eye(km.shape[0], km.shape[1])
-        elif isinstance(self.yerror, np.ndarray):
-            km += np.diag(self.yerror)
-        self.km = km 
-        #self.test_predict()
-
-    def K_matrix(self):
-        """
-        Produce the Kx,x matrix (the covariance matrix of the training
-        inputs)
-        """
-        return self.km 
-        #km = self.kernel.matrix(self.training_data, self.training_data)
-        #return km
-    
-    def Kstar_matrix(self, data):
-        """
-        Produce the Nx1 matrix which describes the locations of the prediction
-        data.
-        """
-        return np.kron(self.B_matrix, self.kernel.matrix(self.training_data, data))
-    
-    def Kstar_scalar(self, data):
-        return np.kron(self.B_matrix, self.kernel.matrix(data, data))
-    
-    def Kplus_matrix(self, data):
-        data = np.expand_dims(data,0)
-        new_size = self.training_data.shape[-1]+data.shape[-1]
-        new_matrix = np.zeros((new_size, new_size))
-        a = len(gp.K_matrix())
-        new_matrix[:a, :a] = self.K_matrix()
-        new_matrix[a:,:a] = self.Kstar_matrix(data)
-        new_matrix[:a,a:] = self.Kstar_matrix(data).T
-        new_matrix[a:,a:] = self.Kstar_scalar(data)
-        return new_matrix
-
-    def loglikelihood(self):
-        training_y = self.training_y.T[0]
-        LD = np.linalg.slogdet(self.K_matrix())
-        return -0.5 * np.dot(self.apply_inverse(training_y),training_y) - 0.5 * LD[0]*LD[1]  - self.output_dim*0.5*np.log(2*np.pi)
->>>>>>> f02bf7fa5ed4df3149e9245a8268c710f611e0f9
-    
-    def grad_loglikelihood(self):
-        """
-        Calculate the gradient of the log(likelihood) function
-        """
-<<<<<<< HEAD
-        return self.gp.grad_lnlikelihood(self.training_y)
-        
-    
-=======
-        dK = self.kernel.gradient(self.training_data, self.training_data)
-        dK = np.kron(self.B_matrix, dK)
-        KI = self.apply_inverse(np.eye(self.km.shape[0]))
-        A = self.apply_inverse(self.training_y.T[0])
-        B = np.outer(A, A) - KI
-        g = 0.5 * np.einsum('ijk,jk', dK, B)
-        return g
-        
-
-    def apply_inverse(self, matrix):
-        """
-        Apply the inverse of the K matrix to another object using Colesky
-        decomposition.
-        """
-        #KK = np.copy(self.K_matrix())
-        #KK += self.tikh * np.eye(KK.shape[0], KK.shape[1])
-        L = self.L
-        B = scipy.linalg.cholesky(self.B_matrix)
-        LI = np.linalg.inv(L)
-        BI = np.linalg.inv(B)
-        LI = np.dot(LI.T, LI)
-        BI = np.dot(BI.T, BI)
-        A = np.kron(BI, LI)
-        return np.dot(A, matrix)
-        #return scipy.linalg.cho_solve(L, matrix, overwrite_b=False)
-    
-    def mean(self, newdata):
-        KS = self.Kstar_matrix(newdata)
-        means = np.dot(KS.T, self.apply_inverse(self.training_y))
-        return means
-        
-    def covariance(self, newdata):
-        KS = self.Kstar_matrix(newdata)
-        KST = np.ascontiguousarray(KS.T, dtype=np.float64)
-        b =self.apply_inverse(KS)
-        cov = self.Kstar_scalar(newdata) - np.dot(KST, self.apply_inverse(KS))
-        return cov
-
->>>>>>> f02bf7fa5ed4df3149e9245a8268c710f611e0f9
     def prediction(self, new_datum):
+        """
+        Produce a prediction at a new point, or set of points.
+
+        Parameters
+        ----------
+        new_datum : array
+           The coordinates of the new point(s) at which the GPR model should be evaluated.
+
+        Returns
+        -------
+        prediction mean : array
+           The mean values of the function drawn from the Gaussian Process.
+        prediction variance : array
+           The variance values for the function drawn from the GP.
+        """
+        
         training_y = self.training_y
         new_datum = np.atleast_2d(new_datum).T
         new_datum = self.training_object.normalise(new_datum, "target")
-<<<<<<< HEAD
+
         mean, variance = self.gp.predict(self.training_y, new_datum, return_var=True)
         return self.training_object.denormalise(mean, "label"), self.training_object.denormalise(variance, "label")
-=======
-        mean = self.mean(new_datum)
-        variance = self.covariance(new_datum)
-        return mean.reshape(self.output_dim,-1).T, variance
->>>>>>> f02bf7fa5ed4df3149e9245a8268c710f611e0f9
-
-    def optimise(self):
-        """
-        Find the optimal values for the kernel hyper-parameters by maximising the 
-        log-likelihood of the entire Gaussian Process. It's also possible to do
-        this via cross-validation.
-        """
-        def neg_ln_like(p):
-            self.gp.set_vector(p)
-            return -self.gp.lnlikelihood(self.training_y)
-
-        def grad_neg_ln_like(p):
-            self.gp.set_vector(p)
-            return -self.gp.grad_lnlikelihood(self.training_y)
-
-<<<<<<< HEAD
-        result = minimize(neg_ln_like, self.gp.get_vector(), method="BFGS",  jac=grad_neg_ln_like)
-
-        #x0 = self.gp.get_vector()
-        #res = minimize(nll, x0, method='BFGS', jac=grad_nll ,options={'disp': False})
-        return result
-=======
-        def grad_nll(p):
-            self.set_hyperparameters(p)
-            return -self.grad_loglikelihood()
-        x0 = self.kernel.flat_hyper
-        res = minimize(nll, x0, method='BFGS', jac=grad_nll ,options={'disp': False})
-        
-        return res
->>>>>>> f02bf7fa5ed4df3149e9245a8268c710f611e0f9
 
 
     def test_predict(self):
@@ -370,3 +234,101 @@ class Regressor():
         Calculate the negative of the expected improvement at a point x.
         """
         return -self.expected_improvement(x)
+
+    def ln_likelihood(self, p):
+        """
+        Provides a convenient wrapper to the ln likelihood function.
+
+        Notes
+        -----
+        This is implemented in a separate function because of the mild 
+        peculiarities of how the pickle module needs to serialise 
+        functions, which means that instancemethods (which this would 
+        become) can't be serialised. 
+        """
+        return training.ln_likelihood(p, self)
+    
+    def neg_ln_likelihood(self, p):
+        """
+
+        Returns the negative of the log-likelihood; designed for use with
+        minimisation algorithms.
+
+        Parameters
+        ----------
+        gp : heron `Regressor` object
+           The gaussian process to be evaluated.
+        p : array-like
+           An array of the hyper-parameters at which the model is to be evaluated.
+
+        Returns
+        -------
+        neg_ln_likelihood : float
+           The negative of the log-likelihood for the Gaussian process
+        """
+        return -self.ln_likelihood(p)
+
+
+
+    def grad_neg_ln_likelihood(self, p):
+        """
+        Return the negative of the gradient of the log likelihood for the
+        GP when its hyperparameters have some specified value.
+
+        Parameters
+        ----------
+        gp : heron `Regressor` object
+           The gaussian process to be evaluated
+        p : array-like
+           An array of the hyper-parameters at which the model is to be evaluated.
+
+        Returns
+        -------
+        grad_ln_likelihood : float
+           The gradient of log-likelihood for the Gaussian process
+        """
+
+        self.gp.set_vector(p)
+        return self.gp.grad_lnlikelihood(self.training_y)
+
+    def train(self, method="MCMC", metric="loglikelihood", sampler="ensemble"):
+        """
+        Train the Gaussian process by finding the optimal 
+        values for the kernel hyperparameters.
+        
+        Parameters
+        ----------
+        method : str {"MCMC", "CV"}
+           The method to be employed to calculate the hyperparameters.
+        metric : str
+           The metric which should be used to assess the model.
+        """
+
+        if method=="MCMC":
+            samples, burn = run_training_mcmc(self, metric = metric, samplertype=sampler)
+            return samples, burn
+        elif method=="CV":
+            run_training_map(self, metric, samplertype=sampler)
+
+
+    def save(self, filename):
+        """
+        Save the Gaussian Process to a file which can be reloaded later.
+
+        Parameters
+        ----------
+        filename : str
+           The location at which the Gaussian Process should be written.
+
+        Notes
+        -----
+        In the current implementation the serialisation of the GP is performed
+        by the python `pickle` library, which isn't guaranteed to be binary-compatible 
+        with all machines.
+        """
+
+        import pickle
+        with open(filename, "wb"):
+            pickle.dump(self, filename)
+        
+        

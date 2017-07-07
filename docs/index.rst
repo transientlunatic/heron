@@ -18,6 +18,20 @@ Contents:
    authors
    history
 
+.. automodule:: heron
+
+Automagic API documentation
+===========================
+
+.. autosummary::
+   :toctree: _autosummary
+
+   heron.regression
+   heron.training
+   
+
+   
+   
 Indices and tables
 ==================
 

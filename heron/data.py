@@ -116,7 +116,7 @@ class Data():
         else:
             # Otherwise we use a portion of the training data.
             # Prepare the test entries
-            test_entries = np.floor(test_size * len(self.labels[0]))
+            test_entries = int(np.floor(test_size * len(self.labels[0])))
             test_entries = np.random.random_integers(0, len(self.labels[0])-1, test_entries)
             #
             self.test_targets = self.targets[test_entries]
