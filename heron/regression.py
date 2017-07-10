@@ -328,7 +328,7 @@ class Regressor():
         """
 
         import pickle
-        with open(filename, "wb"):
-            pickle.dump(self, filename)
+        with open(filename, "wb") as filedump:
+            pickle.dump(self, filedump)
         
         
