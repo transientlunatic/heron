@@ -35,7 +35,7 @@ def ln_likelihood(p, gp):
     * TODO Add the ability to specify the priors on each hyperparameter.
     """
     gp.gp.set_vector(p)
-    return logp(p) * gp.gp.lnlikelihood(gp.training_y)
+    return gp.loghyperpriors(p) * gp.gp.lnlikelihood(gp.training_y)
 
 
 

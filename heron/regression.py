@@ -51,7 +51,7 @@ class Regressor():
         output += "</table>"
         return output
 
-    def __init__(self, training_data, kernel, tikh=1e-6, solver=george.HODLRSolver):
+    def __init__(self, training_data, kernel, tikh=1e-6, solver=george.HODLRSolver, hyperpriors = None):
         """
         Set up the Gaussian process regression.
 
@@ -77,6 +77,7 @@ class Regressor():
         self.kernel = kernel #kernel(self.training_data.ndim, *kernel_args)
         self.gp = george.GP(kernel, solver=solver, tol=self.tikh, mean = 0, fit_mean=False, fit_white_noise=False)
         self.kernel = self.gp.kernel
+        self.hyperpriordistributions = hyperpriors
         self.update()
     
     def active_learn(self, afunction, x,y, iters=1, afunc_args={}):
@@ -268,7 +269,25 @@ class Regressor():
         """
         return -self.ln_likelihood(p)
 
-
+    def loghyperpriors(self, p):
+        """
+        Calculate the log of the hyperprior distributions at a given 
+        point.
+        
+        Parameters
+        ----------
+        p : ndarray
+            The location to be tested.
+        """
+        hypers = self.hyperpriordistributions
+        probs = 1
+        for hyper, pv in zip(hypers, p):
+            if isinstance(hyper, scipy.stats._distn_infrastructure.rv_frozen):
+                probs *= hyper.logpdf(pv)
+            else:
+                probs *= 1
+        return probs
+        
 
     def grad_neg_ln_likelihood(self, p):
         """
@@ -302,6 +321,9 @@ class Regressor():
            The method to be employed to calculate the hyperparameters.
         metric : str
            The metric which should be used to assess the model.
+        hyperpriors : list
+           The hyperprior distributions for the hyperparameters. Defaults to None, in which 
+           case the prior is uniform over all real numbers.
         """
 
         if method=="MCMC":
