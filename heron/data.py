@@ -167,6 +167,22 @@ class Data():
         self.normaliser[name] = (dc, range)
         return (dc, range)
 
+    def get_starting(self):
+        """
+        Attempts to guess sensible starting values for the hyperparameter values.
+
+        Returns
+        -------
+        hyperparameters : ndarray
+           An array of values for the various hyperparameters.
+        """
+        values = []
+        for ax in xrange(data.targets.shape[1]):
+            print ax
+            values.append(np.median(np.unique(np.diff(data.targets[:, ax])))/2)
+        return np.array(values)
+
+    
     def normalise(self, data, name):
         """
         Normalise a given array of data so that the values of the data
