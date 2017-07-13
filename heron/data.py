@@ -177,9 +177,9 @@ class Data():
            An array of values for the various hyperparameters.
         """
         values = []
-        for ax in xrange(data.targets.shape[1]):
+        for ax in xrange(self.targets.shape[1]):
             print ax
-            values.append(np.median(np.unique(np.diff(data.targets[:, ax])))/2)
+            values.append(np.median(np.unique(np.diff(self.targets[:, ax])))/2)
         return np.array(values)
 
     

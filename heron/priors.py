@@ -1,3 +1,5 @@
+from scipy import stats
+
 class Prior(object):
     """
     A prior probability distribution.
