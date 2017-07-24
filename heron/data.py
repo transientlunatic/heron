@@ -145,6 +145,13 @@ class Data():
         n2i = {n:i for i, n in enumerate(self.target_names)}
         return n2i[name]
 
+    def ix2name(self, name):
+        """
+        Convert the index of a column to a column name.
+        """
+        i2n = {i:n for i, n in enumerate(self.target_names)}
+        return i2n[name]
+
     def calculate_normalisation(self, data, name):
         """
         Calculate the offsets for the normalisation. 
