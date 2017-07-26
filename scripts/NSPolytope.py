@@ -7,7 +7,8 @@ from heron import data, regression
 from heron import priors
 from george import kernels
 import scipy
-
+import matplotlib
+matplotlib.use("agg")
 import matplotlib.pyplot as plt
 
 training_data = np.loadtxt("/home/daniel/data/heron/ns-polytrope.txt")
@@ -19,7 +20,7 @@ data = data.Data(training_data[:5].T, training_data[5],
                  label_names = ["amp"],)
 
 sep = np.abs(data.get_starting())
-hyper_priors = [priors.Normal(hyper, 1) for hyper in sep]
+hyper_priors = [priors.Normal(1.0/hyper, 1) for hyper in sep]
 k3 = np.std(data.labels) * kernels.Matern52Kernel(sep, ndim=len(sep))
 kernel = k3
 gp = regression.Regressor(data, kernel = kernel, hyperpriors = hyper_priors)
