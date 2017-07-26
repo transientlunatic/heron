@@ -15,7 +15,7 @@ with open('HISTORY.rst') as history_file:
     history = history_file.read()
 
 requirements = [
-    "numpy", "matplotlib"
+    "numpy", "matplotlib", "pyswarm", "scipy", 
     # TODO: put package requirements here
 ]
 
@@ -34,8 +34,7 @@ setup(
     packages=[
         'heron',
     ],
-    package_dir={'heron':
-                 'heron'},
+    package_dir={'heron': 'heron'},
     include_package_data=True,
     install_requires=requirements,
     license="ISCL",
@@ -49,10 +48,10 @@ setup(
         "Programming Language :: Python :: 2",
         'Programming Language :: Python :: 2.6',
         'Programming Language :: Python :: 2.7',
-        'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.3',
-        'Programming Language :: Python :: 3.4',
-        'Programming Language :: Python :: 3.5',
+        # 'Programming Language :: Python :: 3',
+        # 'Programming Language :: Python :: 3.3',
+        # 'Programming Language :: Python :: 3.4',
+        # 'Programming Language :: Python :: 3.5',
     ],
     test_suite='tests',
     #tests_require=test_requirements

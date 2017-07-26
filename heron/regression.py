@@ -141,7 +141,7 @@ class Regressor():
         """
         Update the stored matrices.
         """
-        self.gp.compute(self.training_data)
+        self.gp.compute(self.training_data, self.training_object.label_sigma)
         #self.test_predict()
 
 
@@ -247,7 +247,7 @@ class Regressor():
         functions, which means that instancemethods (which this would 
         become) can't be serialised. 
         """
-        return training.ln_likelihood(p, self)
+        return ln_likelihood(p, self)
     
     def neg_ln_likelihood(self, p):
         """
@@ -310,14 +310,14 @@ class Regressor():
         self.gp.set_vector(p)
         return self.gp.grad_lnlikelihood(self.training_y)
 
-    def train(self, method="MCMC", metric="loglikelihood", sampler="ensemble"):
+    def train(self, method="MCMC", metric="loglikelihood", sampler="ensemble", **kwargs):
         """
         Train the Gaussian process by finding the optimal 
         values for the kernel hyperparameters.
         
         Parameters
         ----------
-        method : str {"MCMC", "CV"}
+        method : str {"MCMC", "MAP"}
            The method to be employed to calculate the hyperparameters.
         metric : str
            The metric which should be used to assess the model.
@@ -327,10 +327,11 @@ class Regressor():
         """
 
         if method=="MCMC":
-            samples, burn = run_training_mcmc(self, metric = metric, samplertype=sampler)
+            samples, burn = run_training_mcmc(self, metric = metric, samplertype=sampler, **kwargs)
             return samples, burn
-        elif method=="CV":
-            run_training_map(self, metric, samplertype=sampler)
+        elif method == "MAP":
+            MAP = run_training_map(self, metric = metric, **kwargs)
+            return MAP
 
 
     def save(self, filename):

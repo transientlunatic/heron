@@ -6,7 +6,7 @@ process made using heron.
 
 """
 
-
+import scipy.optimize
 from scipy.optimize import minimize
 import emcee
 import numpy as np
@@ -68,7 +68,7 @@ def run_sampler(sampler, initial, iterations):
             bar.update(iteration)
     return sampler
 
-def run_training_map(gp, metric = "loglikelihood"):
+def run_training_map(gp, metric = "loglikelihood", repeats=10, **kwargs):
     """
     Find the maximum a posteriori training values for the Gaussian Process.
 
@@ -80,7 +80,11 @@ def run_training_map(gp, metric = "loglikelihood"):
        The metric to be used to train the MCMC. Defaults to log likelihood 
        (loglikelihood), which is the more traditionally Bayesian manner, but 
        cross-validation (cv) is also available.
-    
+    repeats : int, optional
+       The number of times that the optimisation should be repeated in order 
+       to partially combat having the optimiser choose a local rather than the 
+       global maximum log_like.
+
     Notes
     -----
     The current implementation has no way of specifying the optimisation algorithm.
@@ -92,10 +96,19 @@ def run_training_map(gp, metric = "loglikelihood"):
         minfunc = gp.neg_ln_likelihood
     elif metric=="cv":
         minfunc = gp.neg_cross_validation
-    
-    MAP = minimize(minfunc, gp.gp.get_vector(),)
-    gp.gp.set_vector(MAP.x)
+
+    minima, locs = [], []
+    for run in range(repeats):
+       MAP = minimize(minfunc, gp.gp.get_vector(),)
+       minima.append(MAP.fun)
+       locs.append(MAP.x)
+    gp.gp.set_vector(locs[np.argmin(minima)])
+
+    #MAP = scipy.optimize.basinhopping(minfunc, gp.gp.get_vector(),
+    #                                  niter=repeats, **kwargs)
+
     gp.update()
+    return MAP
 
 
 def run_training_mcmc(gp, walkers = 200, burn = 500, samples = 1000, metric = "loglikelihood", samplertype="ensemble"):
@@ -121,10 +134,10 @@ def run_training_mcmc(gp, walkers = 200, burn = 500, samples = 1000, metric = "l
 
     Returns
     -------
+    probs : array
+       The log probabilities.
     samples : array
        The array of samples from the sampling chains.
-    burn : array
-       The array of samples from the burn-in chains.
 
     Notes
     -----
@@ -152,12 +165,13 @@ def run_training_mcmc(gp, walkers = 200, burn = 500, samples = 1000, metric = "l
     elif samplertype == "pt":
         p0 = np.random.uniform(low=-1.0, high=1.0, size=(ntemps, nwalkers, ndim))
         sampler = emcee.PTSampler(ntemps, nwalkers, ndim, minfunc, logp, loglargs=[gp], threads=4)
-    burn = run_sampler(sampler, p0, burn)
+    burn = run_sampler(sampler, p0, burn, )
     sampler.reset()
     sampler = run_sampler(sampler, p0, samples)
+    probs = sampler.lnprobability[:,:].reshape((-1))
     samples = sampler.chain[:, :, :].reshape((-1, ndim))
-    gp.gp.set_vector(np.median(samples,axis=0))
-    return samples, burn
+    gp.gp.set_vector(samples[np.argmax(probs)])
+    return probs, samples
 
 def cross_validation(p, gp):
     """
