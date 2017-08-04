@@ -34,8 +34,7 @@ def ln_likelihood(p, gp):
     -----
     * TODO Add the ability to specify the priors on each hyperparameter.
     """
-    gp.gp.set_vector(p)
-    return gp.loghyperpriors(p) * gp.gp.lnlikelihood(gp.training_y)
+    return gp.loghyperpriors(p) * gp._lnlikelihood(p)
 
 
 
@@ -68,13 +67,13 @@ def run_sampler(sampler, initial, iterations):
             bar.update(iteration)
     return sampler
 
-def run_training_map(gp, metric = "loglikelihood", repeats=10, **kwargs):
+def run_training_map(gp, metric = "loglikelihood", repeats=20, **kwargs):
     """
     Find the maximum a posteriori training values for the Gaussian Process.
 
     Parameters
     ----------
-    gp : heron.Regressor
+    gp : heron.GaussianProcess,
        The Gaussian process object.
     metric : {"loglikelihood", "cv"}
        The metric to be used to train the MCMC. Defaults to log likelihood 
@@ -99,7 +98,7 @@ def run_training_map(gp, metric = "loglikelihood", repeats=10, **kwargs):
 
     minima, locs = [], []
     for run in range(repeats):
-       MAP = minimize(minfunc, gp.gp.get_vector(),)
+       MAP = minimize(minfunc, gp.get_hyperparameters(),)
        minima.append(MAP.fun)
        locs.append(MAP.x)
     gp.gp.set_vector(locs[np.argmin(minima)])

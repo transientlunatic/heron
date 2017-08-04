@@ -6,10 +6,23 @@ from scipy.optimize import minimize
 import george
 import scipy
 from .training import *
+import copy
 
-class Regressor():
+
+class SingleTaskGP(object):
     """
-    An implementation of a Gaussian Process Regressor with multiple response outputs and multiple inputs.
+    This is an implementaion of a Single task Gaussian process 
+    regressor. That is, a GPR which is capable of acting as a 
+    surrogate to a many-to-one function. The Single Task GPR is
+    the fundamental building block of the MultiTask GPR, which 
+    consists of multiple Single Tasks which are trained in tandem 
+    (but which do NOT share correlation information).
+    ---
+    Ahem... There /are/ components of this code in here, but 
+    things need a little bit more thought before this will work
+    efficiently...
+    An implementation of a Gaussian Process Regressor with 
+    multiple response outputs and multiple inputs.
     """
     
     km = None
@@ -136,6 +149,13 @@ class Regressor():
         self.gp.set_vector(hypers)
         self.update()
         #return self.loglikelihood()
+
+    def get_hyperparameters(self):
+        """
+        Return the kernel hyperparameters.
+        """
+        return self.gp.get_vector()
+        
     
     def update(self):
         """
@@ -248,6 +268,24 @@ class Regressor():
         become) can't be serialised. 
         """
         return ln_likelihood(p, self)
+
+    def _lnlikelihood(self, p):
+        """
+        Calculates the lnlikelihood for the GP.
+
+        Parameters
+        ----------
+        p : list
+           The vector of hyperparameters at which the lnlikelihood should be evaluated.
+
+        Returns
+        -------
+        float 
+           The lnlikelihood for the system.
+
+        """
+        self.set_hyperparameters(p)
+        return  self.gp.lnlikelihood(self.training_y)
     
     def neg_ln_likelihood(self, p):
         """
@@ -354,4 +392,172 @@ class Regressor():
         with open(filename, "wb") as filedump:
             pickle.dump(self, filedump)
         
+class MultiTaskGP(SingleTaskGP):
+    """
+    An implementation of a co-trained set of Gaussian processes which
+    share the same hyperparameters, but which model differing
+    data. The training of these models is described in RW pp115--116.
+
+    A multi-task GPR is capable of acting as a surrogate to a many-to-many function, 
+    and is trained by making the assumption that all of the outputs from the function 
+    share a common correlation structure.
+    
+    The principle difference compared to a single task GP is the
+    presence of multiple Gaussian Processes, with one to model each
+    dimension of the output data.
+
+    Notes
+    -----
+    The MultiTask GPR implementation is very much a work in progress at the
+    moment, and not all methods implemented in the SingleTask GPR are implemented
+    correctly yet.
+
+    """
+
+    def __init__(self, training_data, kernel, tikh=1e-6, solver=george.HODLRSolver, hyperpriors = None):
+        """
+        Set up the multi-task Gaussian process regression.
+
+        Parameters
+        ----------
+        training data : heron data object
+           The training data, consisiting of labels and targets.
+        kernel : heron kernel
+           The kernel used to calculate the covariance matrix.
+        tikh : float
+           The Tikhonov regularization factor to be applied to the diagonal
+           to avoid the attempt to invert an ill-posed matrix problem. Defaults to 1e-6.
+        """
+
+        self.tikh = tikh
+
+        self.training_object = training_data
+        self.training_data = self.training_object.targets
+        self.training_y = self.training_object.labels
+        self.yerror = self.training_object.label_sigma
+        self.input_dim = self.training_data.ndim
+        self.output_dim = self.training_y.ndim
+        #self.kernel = kernel #kernel(self.training_data.ndim, *kernel_args)
+        self.gps = []
+        for i in xrange(self.output_dim):
+            sub_training_data = training_data.copy()
+            sub_training_data.labels = sub_training_data.labels[:,i]
+            sub_training_data.label_sigma = sub_training_data.label_sigma[:,i]
+            self.gps.append(SingleTaskGP(sub_training_data, kernel, tikh, solver, hyperpriors))
+        self.kernel = self.gps[0].kernel
+        self.hyperpriordistributions = hyperpriors
+        self.update()
+
+    def update(self):
+        """
+        Update the stored matrices.
+        """
+        for gp in self.gps:
+            gp.update()
+
+    def get_hyperparameters(self):
+        """
+        Return the kernel hyperparameters. Returns the hyperparameters of
+        only the first GP in the network; the others /should/ all be
+        the same, but there might be something to be said for checking
+        this.
+
+        Returns
+        -------
+        hypers : list
+           A list of the kernel hyperparameters
+        """
+        return self.gps[0].get_hyperparameters()
+            
+    def set_hyperparameters(self, hypers):
+        """
+        Set the hyperparameters of the kernel function on each Gaussian process.
+        """
+        for gp in self.gps:
+            gp.set_hyperparameters(hypers)
+
+    def train(self, method="MCMC", metric="loglikelihood", sampler="ensemble", **kwargs):
+        """
+        Train the Gaussian process by finding the optimal 
+        values for the kernel hyperparameters.
         
+        Parameters
+        ----------
+        method : str {"MCMC", "MAP"}
+           The method to be employed to calculate the hyperparameters.
+        metric : str
+           The metric which should be used to assess the model.
+        hyperpriors : list
+           The hyperprior distributions for the hyperparameters. Defaults to None, in which 
+           case the prior is uniform over all real numbers.
+        """
+
+        if method=="MCMC":
+            samples, burn = run_training_mcmc(self, metric = metric, samplertype=sampler, **kwargs)
+            return samples, burn
+        elif method == "MAP":
+            MAP = run_training_map(self, metric = metric, **kwargs)
+            return MAP
+
+    def _lnlikelihood(self, p):
+        """
+        Calculates the lnlikelihood for the entire system of GPs in the multitask setup.
+
+        Parameters
+        ----------
+        p : list
+           The vector of hyperparameters at which the lnlikelihood should be evaluated.
+
+        Returns
+        -------
+        float 
+           The lnlikelihood for the system.
+
+        """
+        self.set_hyperparameters(p)
+        lnlike = [gp._lnlikelihood(p) for gp in self.gps]
+        return np.sum(lnlike)
+        
+    def ln_likelihood(self, p):
+        """Provides a wrapper to the ln_likelihood functions for each
+        component Gaussian process in the multi-task system.
+
+        Notes
+        -----
+        This is implemented in a separate function because of the mild 
+        peculiarities of how the pickle module needs to serialise 
+        functions, which means that instancemethods (which this would 
+        become) can't be serialised.
+
+        """
+        return ln_likelihood(p, self)
+
+    def prediction(self, new_datum):
+        """
+        Produce a prediction at a new point, or set of points.
+
+        Parameters
+        ----------
+        new_datum : array
+           The coordinates of the new point(s) at which the GPR model should be evaluated.
+
+        Returns
+        -------
+        prediction means : array
+           The mean values of the function drawn from the Gaussian Process.
+        prediction variances : array
+           The variance values for the function drawn from the GP.
+        """
+        means, variances = [], []
+        for gp in self.gps:
+            training_y = gp.training_y
+            new_datum = np.atleast_2d(new_datum).T
+            new_datum = gp.training_object.normalise(new_datum, "target")
+
+            mean, variance = gp.predict(gp.training_y, new_datum, return_var=True)
+            means.append(gp.training_object.denormalise(mean, "label"))
+            variances.append(gp.training_object.denormalise(variance, "label"))
+        return means, variances
+
+# For backwards compatibility...
+Regressor = SingleTaskGP

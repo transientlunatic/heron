@@ -6,6 +6,7 @@ for use in machine learning algorithms.
 """
 
 import numpy as np
+import copy
 
 class Data():
     """
@@ -69,14 +70,11 @@ class Data():
         """
 
         self.normaliser = {}
-
         targets = np.atleast_2d(targets)
         labels = np.atleast_2d(labels)
         self.targets = self.normalise(targets, "target")
         self.labels = self.normalise(labels, "label")
-
-
-
+        
         # Prepare the sigmas
         if target_sigma:
             # A full array of sigmas for each point
@@ -95,10 +93,10 @@ class Data():
         if label_sigma:
             # A full array of sigmas for each point
             if hasattr(label_sigma, '__len__') and (not isinstance(label_sigma, str)):
-                if len(label_sigma) == len(labels):
+                if len(label_sigma) == labels.shape[0]:
                     self.label_sigma = self.normalise(label_sigma, "label")
                 else:
-                    raise ValueError("The length of the uncertainty array doesn't match the data")
+                    raise ValueError("The length of the label uncertainty array doesn't match the data")
             # An array with a fixed sigma for each column
             else:
                 self.label_sigma = np.ones(len(label_sigma))*self.normalise(label_sigma, "label")
@@ -116,16 +114,16 @@ class Data():
         else:
             # Otherwise we use a portion of the training data.
             # Prepare the test entries
-            test_entries = int(np.floor(test_size * len(self.labels[0])))
-            test_entries = np.random.random_integers(0, len(self.labels[0])-1, test_entries)
+            test_entries = int(np.floor(test_size * len(self.labels)))
+            test_entries = np.random.random_integers(0, len(self.labels)-1, test_entries)
             #
             self.test_targets = self.targets[test_entries]
-            self.test_labels = self.labels[0][test_entries]
+            self.test_labels = self.labels[test_entries]
             #
             self.targets = np.delete(self.targets, test_entries, axis=0)
-            self.labels = np.delete(self.labels[0], test_entries, axis=0)
+            self.labels = np.delete(self.labels, test_entries, axis=0)
             self.target_sigma = np.delete(self.target_sigma, test_entries, axis=0)
-            self.label_sigma = np.delete(self.label_sigma[0], test_entries, axis=0)
+            self.label_sigma = np.delete(self.label_sigma, test_entries, axis=0)
 
         if target_names:
             self.target_names = target_names
@@ -138,6 +136,12 @@ class Data():
         else:
             self.label_names = range(self.labels.shape[-1])
 
+    def copy(self):
+        """
+        Return a copy of this data object.
+        """
+        return copy.copy(self)
+            
     def name2ix(self, name):
         """
         Convert the name of a column to a column index.
