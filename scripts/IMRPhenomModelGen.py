@@ -33,39 +33,31 @@ class Normal(Prior):
     def logp(self, x):
         return distro.logpdf(x)
 
-def get_starting(data):
-    values = []
-    for ax in xrange(data.targets.shape[1]):
-        print ax
-        values.append(np.median(np.unique(np.diff(data.targets[:, ax])))/2)
-    return np.array(values)
-
-data = data.Data(training_data[:2,::5].T, training_data[2,::5],
-                 label_sigma = [0.1],
+data = data.Data(np.atleast_2d(training_data[(0,1),:].T),
+                 np.atleast_2d(training_data[(2),:]).T,
+                 label_sigma = 5e-26,
+                 test_size=0.0,
                  target_names = ["t", "q"],
                  label_names = ["hx"],)
 
-sep = get_starting(data)# np.array([1/0.21, 1/1.3,])# 1/3., 0.001, 0.001, 0.001, 0.001, 0.001])
+#print len(data.label_sigma), len(data.labels)
+sep = data.get_starting()
+#sep = get_starting(data)# np.array([1/0.21, 1/1.3,])# 1/3., 0.001, 0.001, 0.001, 0.001, 0.001])
 hyper_priors = [Normal(hyper, 1) for hyper in sep]
-k3 = np.std(data.labels) * kernels.Matern52Kernel(sep, ndim=len(sep))
+k3 = np.std(data.labels) * kernels.Matern32Kernel(sep, ndim=len(sep))
 kernel = k3
-gp = regression.Regressor(data, kernel = kernel, hyperpriors = hyper_priors)
+gp = regression.SingleTaskGP(data, kernel = kernel, hyperpriors = hyper_priors)
 
 from heron import training
 #print training.ln_likelihood(sep, gp)
 
-samples, burn = gp.train("MCMC")
+samples = gp.train("MAP", repeats=5)
 
-import corner
+#import corner
 
-corner.corner(samples, labels=gp.gp.kernel.get_parameter_names())
-plt.savefig("corner_test.png")
-
-import pickle
-with open("IMRPhenomPv2.gp", "wb") as filedump:
-    pickle.dump(gp, filedump)
-
+#corner.corner(samples, labels=gp.gp.kernel.get_parameter_names())
+#plt.savefig("corner_test.png")
     
-gp.kernel.set_vector(np.max(samples, axis=0))
+#gp.kernel.set_vector(np.max(samples, axis=0))
 
 gp.save("IMRPhenomPv2.gp")
