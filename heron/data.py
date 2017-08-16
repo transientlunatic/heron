@@ -96,10 +96,11 @@ class Data():
                 if len(label_sigma) == labels.shape[0]:
                     self.label_sigma = self.normalise(label_sigma, "label")
                 else:
+                    
                     raise ValueError("The length of the label uncertainty array doesn't match the data")
             # An array with a fixed sigma for each column
             else:
-                self.label_sigma = np.ones(len(label_sigma))*self.normalise(label_sigma, "label")
+                self.label_sigma = np.ones(len(labels))*self.normalise(label_sigma, "label")
         # If no sigma is provided, assume it equals zero
         else:
             self.label_sigma = np.zeros_like(labels)
@@ -189,7 +190,6 @@ class Data():
         """
         values = []
         for ax in xrange(self.targets.shape[1]):
-            print ax
             values.append(np.median(np.unique(np.diff(self.targets[:, ax])))/2)
         return np.array(values)
 
@@ -226,10 +226,11 @@ class Data():
             dc, range = self.normaliser[name]
         else:
             dc, range = self.calculate_normalisation(data, name)
-
+        print dc, range
         normalised = (data - dc) / range
 
         return normalised
+        #return data
         
 
     def denormalise(self, data, name):
@@ -253,6 +254,7 @@ class Data():
             raise ValueError("There is no normalisation for {}".format(name))
         dc, range = self.normaliser[name]
         return data*range + dc
+        #return data
 
     def add_data(self, targets, labels, target_sigma, label_sigma):
         """

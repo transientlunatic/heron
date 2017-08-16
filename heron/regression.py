@@ -8,6 +8,13 @@ import scipy
 from .training import *
 import copy
 
+def load(filename):
+    """
+    Load a pickled heron Gaussian Process.
+    """
+    import pickle
+    with open(filename, "rb") as gp_file:
+        return pickle.load(gp_file)
 
 class SingleTaskGP(object):
     """
@@ -185,8 +192,7 @@ class SingleTaskGP(object):
         training_y = self.training_y
         new_datum = np.atleast_2d(new_datum).T
         new_datum = self.training_object.normalise(new_datum, "target")
-
-        mean, variance = self.gp.predict(self.training_y, new_datum, return_var=True)
+        mean, variance = self.gp.predict(self.training_y.T[0], new_datum, return_var=True)
         return self.training_object.denormalise(mean, "label"), self.training_object.denormalise(variance, "label")
 
 
@@ -285,7 +291,7 @@ class SingleTaskGP(object):
 
         """
         self.set_hyperparameters(p)
-        return  self.gp.lnlikelihood(self.training_y)
+        return  self.gp.lnlikelihood(self.training_y[:,0])
     
     def neg_ln_likelihood(self, p):
         """
@@ -370,8 +376,7 @@ class SingleTaskGP(object):
         elif method == "MAP":
             MAP = run_training_map(self, metric = metric, **kwargs)
             return MAP
-
-
+        
     def save(self, filename):
         """
         Save the Gaussian Process to a file which can be reloaded later.
@@ -549,15 +554,18 @@ class MultiTaskGP(SingleTaskGP):
            The variance values for the function drawn from the GP.
         """
         means, variances = [], []
-        for gp in self.gps:
-            training_y = gp.training_y
+        for ix, gp in enumerate(self.gps):
+            training_y = gp.training_y[:,ix]
             new_datum = np.atleast_2d(new_datum).T
             new_datum = gp.training_object.normalise(new_datum, "target")
 
-            mean, variance = gp.predict(gp.training_y, new_datum, return_var=True)
-            means.append(gp.training_object.denormalise(mean, "label"))
+            print new_datum
+            
+            mean, variance = gp.predict(training_y, new_datum, return_var=True)
+            means.append(mean) #gp.training_object.denormalise(mean, "label"))
             variances.append(gp.training_object.denormalise(variance, "label"))
         return means, variances
 
 # For backwards compatibility...
-Regressor = SingleTaskGP
+class Regressor(SingleTaskGP):
+    pass
