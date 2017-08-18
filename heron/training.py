@@ -10,7 +10,7 @@ import scipy.optimize
 from scipy.optimize import minimize
 import emcee
 import numpy as np
-
+from functools import partial
 
 
 def ln_likelihood(p, gp):
@@ -189,17 +189,18 @@ def cross_validation(p, gp):
     cv : float
        The cross validation of the test data and the model.
     """
-    if p:
-        old_p = gp.get_vector()
-        gp.set_vector(p)
-    prediction = gp.predict(gp.training_y, gp.training_oject.test_targets, return_var=True)
+    
+    old_p = gp.get_hyperparameters()
+    gp.set_hyperparameters(p)
+    prediction = gp.prediction(gp.training_object.test_targets)
     
     return (gp.training_object.test_labels-prediction[0]).max()
 
 
 
 def train_cv(gp):
-    MAP = minimize(cross_validation, gp.gp.get_vector())
+    cross_validation_f = partial(cross_validation, gp=gp)
+    MAP = minimize(cross_validation_f, gp.gp.get_vector())
     gp.gp.set_vector(MAP.x)
     #gp.compute(training_x_batch, yerr=1e-6, seed=1234)
     return MAP

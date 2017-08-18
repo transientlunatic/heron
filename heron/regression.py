@@ -190,7 +190,7 @@ class SingleTaskGP(object):
         """
         
         training_y = self.training_y
-        new_datum = np.atleast_2d(new_datum).T
+        new_datum = np.atleast_2d(new_datum)
         new_datum = self.training_object.normalise(new_datum, "target")
         mean, variance = self.gp.predict(self.training_y.T[0], new_datum, return_var=True)
         return self.training_object.denormalise(mean, "label"), self.training_object.denormalise(variance, "label")
@@ -291,7 +291,10 @@ class SingleTaskGP(object):
 
         """
         self.set_hyperparameters(p)
-        return  self.gp.lnlikelihood(self.training_y[:,0])
+        if self.training_y.ndim > 1:
+            return  self.gp.lnlikelihood(self.training_y[:,0])
+        else:
+            return self.gp.lnlikelihood(self.training_y)
     
     def neg_ln_likelihood(self, p):
         """
@@ -313,7 +316,21 @@ class SingleTaskGP(object):
         """
         return -self.ln_likelihood(p)
 
+    def entropy(self):
+        """Return the entropy of the Gaussian Process distribution. This can
+        be calculated directly from the covariance matrix, making this
+        a nice, quick calculation to perform.
+
+        Returns
+        -------
+        entropy : float
+           The differential entropy of the GP.
+        """
+        
+        return 0.5 * ( np.log((2*np.pi*np.e)**self.training_data.shape[1]) + self.gp.solver.log_determinant)
+    
     def loghyperpriors(self, p):
+
         """
         Calculate the log of the hyperprior distributions at a given 
         point.

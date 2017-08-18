@@ -229,7 +229,7 @@ class Data():
         print dc, range
         normalised = (data - dc) / range
 
-        return normalised
+        return normalised - 0.5
         #return data
         
 
@@ -253,7 +253,7 @@ class Data():
         if not name in self.normaliser:
             raise ValueError("There is no normalisation for {}".format(name))
         dc, range = self.normaliser[name]
-        return data*range + dc
+        return (data + 0.5)*range + dc
         #return data
 
     def add_data(self, targets, labels, target_sigma, label_sigma):
