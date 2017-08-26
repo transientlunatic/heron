@@ -101,8 +101,7 @@ def run_training_map(gp, metric = "loglikelihood", repeats=20, **kwargs):
        MAP = minimize(minfunc, gp.get_hyperparameters(),)
        minima.append(MAP.fun)
        locs.append(MAP.x)
-    gp.gp.set_vector(locs[np.argmin(minima)])
-
+    gp.set_hyperparameters(locs[np.argmin(minima)])
     #MAP = scipy.optimize.basinhopping(minfunc, gp.gp.get_vector(),
     #                                  niter=repeats, **kwargs)
 
@@ -192,16 +191,16 @@ def cross_validation(p, gp):
     
     old_p = gp.get_hyperparameters()
     gp.set_hyperparameters(p)
-    prediction = gp.prediction(gp.training_object.test_targets)
+    prediction = gp.prediction(gp.training_object.test_targets.T)
     
-    return (gp.training_object.test_labels-prediction[0]).max()
+    return (gp.training_object.test_labels-np.array(prediction[0]).T).max()
 
 
 
 def train_cv(gp):
     cross_validation_f = partial(cross_validation, gp=gp)
-    MAP = minimize(cross_validation_f, gp.gp.get_vector())
-    gp.gp.set_vector(MAP.x)
+    MAP = minimize(cross_validation_f, gp.get_hyperparameters())
+    gp.set_hyperparameters(MAP.x)
     #gp.compute(training_x_batch, yerr=1e-6, seed=1234)
     return MAP
 

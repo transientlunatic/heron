@@ -292,7 +292,7 @@ class SingleTaskGP(object):
         """
         self.set_hyperparameters(p)
         if self.training_y.ndim > 1:
-            return  self.gp.lnlikelihood(self.training_y[:,0])
+            return  self.gp.lnlikelihood(self.training_y[0])
         else:
             return self.gp.lnlikelihood(self.training_y)
     
@@ -571,16 +571,14 @@ class MultiTaskGP(SingleTaskGP):
            The variance values for the function drawn from the GP.
         """
         means, variances = [], []
+        new_datum = np.atleast_2d(new_datum).T
+        new_datum = self.training_object.normalise(new_datum, "target")
+        
         for ix, gp in enumerate(self.gps):
-            training_y = gp.training_y[:,ix]
-            new_datum = np.atleast_2d(new_datum).T
-            new_datum = gp.training_object.normalise(new_datum, "target")
-
-            print new_datum
-            
-            mean, variance = gp.predict(training_y, new_datum, return_var=True)
-            means.append(mean) #gp.training_object.denormalise(mean, "label"))
-            variances.append(gp.training_object.denormalise(variance, "label"))
+            training_y = self.training_y[:,ix]
+            mean, variance = gp.gp.predict(training_y, new_datum, return_var=True)
+            means.append(mean)#gp.training_object.denormalise(mean, "label"))
+            variances.append(variance) #gp.training_object.denormalise(variance, "label"))
         return means, variances
 
 # For backwards compatibility...
