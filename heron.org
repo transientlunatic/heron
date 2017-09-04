@@ -1,0 +1,78 @@
+#+TITLE: Heron
+
+The heron project is an attempt to use Gaussian Process Regression to
+improve gravitational wave searches for compact binary coalesences
+from black holes. 
+
+Heron builds a GPR surrogate model trained off data from numerical
+relativity simulations which can then be used to generate waveforms at
+locations in the BBH parameter space which have not been sampled by
+NR. By exaxmining the quality of the GPR's predictions we can also
+identify the locations in the parameter space which are most in need
+of new samples being taken.
+
+The paper draft for this project is in a git repository [[http://git.ligo.org/daniel-williams/heron-paper][here]].
+
+* Training the Gaussian Process
+The GPR used to produce the surrogate is trained off data from the
+Georgia Tech waveform catalogue and consists of ~100000 training
+points. The model uses the Matérn-3/2 covariance function to generate
+the covariance matrix, and the hyperparameters are optimised using a
+Markov Chain Monte Carlo process with 2000 iterations.
+
+* Related Papers
+** Gravitational Waves
+*** Optimizing gravitational waveforms using Gaussian Process Regression
+    :PROPERTIES:
+    :TITLE:    Optimizing gravitational waveforms using Gaussian Process Regression
+    :BTYPE:    article
+    :AUTHOR:   {D}octor, {Z}oheyr and {F}arr, {B}enjamin and Holz {D}aniel and {P}\"{u}rrer, Michael
+    :JOURNAL:  \apj
+    :YEAR:     2017
+    :CUSTOM_ID: zoheyrgprwaveform
+    :DCC:      P1700124
+    :END:
+**** Abstract                                                      :abstract:
+     Models of gravitational waveforms play a principal role in
+     detecting and estimating parameters of grav- itational waves
+     (GWs) from compact binary coalescences. We present a
+     Gaussian-process-regression ( GPR ) method which optimizes three
+     aspects of compact binary coalescence gravitational
+     waveforms. Using only a training set of accurate waveforms, the
+     method (a) regresses waveforms with uncertain- ties to reduce
+     biases in parameter estimates, (b) suggests where new accurate
+     waveforms should be generated to minimize model error, and (c)
+     allows fast waveform evaluation. As a proof of concept, we use a
+     training set of IMRPhenomD waveforms with varied mass ratios and
+     equal, aligned spins to build a GPR model which is compared back
+     to IMRPhenomD. With 1000 training waveforms, a waveform with
+     uncertainties from the GPR model can be evaluated in ∼ 3 ms. We
+     then describe how the GPR uncertainties can be used to select
+     parameter values at which to add new training waveforms.  The
+     benefit of such a method is that numerical relativity waveforms
+     can be used as the training set to train a GPR model for use in
+     parameter estimation, and the GPR can then in turn suggest
+     parameter values for new numerical relativity simulations.
+
+**** Method
+     This method is comparable to the HERON method except that the
+     training data is generated from IMRPhenom waveforms, which are
+     then reprojected into a ROM basis. The GP is then trained with
+     these waveforms, using a Matérn-5/2 kernel (which they justify
+     because of its differentiation properties, but there are
+     advantages to it for the optimisation of the hyperparameters
+     too). They appear to perform a MAP-based optimisation, however
+     they do provide plots of the hyperposterior for a range of
+     hyperparameter values in the case of non-spinning waveforms.
+
+**** Placing new training waveforms
+     They propose using posterior uncertainties to guide the placement
+     of future waveforms; this appears to work by training the GPR
+     with a small number of points near the boundary of the parameter
+     space, and then evaluating the model using a fine grid, and then
+     calculating the waveform mismatch at each point in that
+     grid. They then place a new waveform at the location with the
+     largest value of the mismatch. This is naiively a sensible idea,
+     and works for them in a 2D situation, but is computationally
+     inefficient, and will lead to an extremely large number of
+     samples being evaluated.
