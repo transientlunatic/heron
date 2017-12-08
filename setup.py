@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 import versioneer
-version=versioneer.get_version(),
-cmdclass=versioneer.get_cmdclass(),
+version=versioneer.get_version()
+cmdclass=versioneer.get_cmdclass()
 
 try:
     from setuptools import setup
@@ -26,9 +26,11 @@ test_requirements = [
     # TODO: put package test requirements here
 ]
 
+
+
 setup(
     name='heron',
-    version='0.1.0',
+    version=(version),
     description="Heron is a machine learning package for Python",
     long_description=readme + '\n\n' + history,
     author="Daniel Williams",
