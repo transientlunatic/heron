@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import versioneer
+version=versioneer.get_version(),
+cmdclass=versioneer.get_cmdclass(),
 
 try:
     from setuptools import setup
