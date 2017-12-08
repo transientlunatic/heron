@@ -70,8 +70,8 @@ class Data():
         """
 
         self.normaliser = {}
-        targets = np.atleast_2d(targets)
-        labels = np.atleast_2d(labels)
+        #targets = np.atleast_2d(targets)
+        #labels = np.atleast_2d(labels)
         self.targets = self.normalise(targets, "target")
         self.labels = self.normalise(labels, "label")
         
@@ -170,12 +170,12 @@ class Data():
         name : str
            The name to label the constants with.
         """
-        if data.shape[0]==1:
-            dc = data.min()
-            range = data.max() - data.min()
-        else:
-            dc = data.min(axis=0)
-            range = data.max(axis=0) - data.min(axis=0)
+        data = data
+        dc = np.array(data.min(axis=0))
+        range = np.array(np.abs(data.max(axis=0) - data.min(axis=0)))
+        dc[range==0.0] = np.array(data.min(axis=0))[range==0]
+        range[range==0.0] = 1.0
+
         self.normaliser[name] = (dc, range)
         return (dc, range)
 
@@ -222,15 +222,19 @@ class Data():
         1) Subtract the "DC Offset", which is the minimum of the data
         2) Divide by the range of the data
         """
+        data = np.array(data)
         if name in self.normaliser:
             dc, range = self.normaliser[name]
         else:
             dc, range = self.calculate_normalisation(data, name)
-        print dc, range
-        normalised = (data - dc) / range
 
-        return normalised - 0.5
-        #return data
+        if np.any(range) == 0.0:
+            return data - dc
+        else:
+            normalised = (data - dc)
+            normalised /= range
+
+        return normalised
         
 
     def denormalise(self, data, name):
@@ -253,10 +257,10 @@ class Data():
         if not name in self.normaliser:
             raise ValueError("There is no normalisation for {}".format(name))
         dc, range = self.normaliser[name]
-        return (data + 0.5)*range + dc
+        return data*range + dc
         #return data
 
-    def add_data(self, targets, labels, target_sigma, label_sigma):
+    def add_data(self, targets, labels, target_sigma=None, label_sigma=None):
         """
         Add new rows into the data object.
 
@@ -335,6 +339,9 @@ class Data():
             else:
                 self.label_sigma = np.vstack([self.label_sigma, np.zeros_like(labels)])
 
+
+
+                
 class Timeseries():
     """
     This is a class designed to hold timeseries data for machine
