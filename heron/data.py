@@ -76,19 +76,19 @@ class Data():
         self.labels = self.normalise(labels, "label")
         
         # Prepare the sigmas
-        if target_sigma:
-            # A full array of sigmas for each point
-            if hasattr(target_sigma, '__len__') and (not isinstance(target_sigma, str)):
-                if len(target_sigma) == len(targets):
-                    self.target_sigma = self.normalise(target_sigma, "target")
-                else:
-                    raise ValueError("The length of the uncertainty array doesn't match the data")
-            # An array with a fixed sigma for each column
-            else:
-                self.target_sigma = np.ones(len(target_sigma))*self.normalise(target_sigma, "target")
-        # If no sigma is provided, assume it equals zero
-        else:
-            self.target_sigma = np.zeros_like(targets)
+        # if target_sigma:
+        #     # A full array of sigmas for each point
+        #     if hasattr(target_sigma, '__len__') and (not isinstance(target_sigma, str)):
+        #         if len(target_sigma) == len(targets):
+        #             self.target_sigma = self.normalise(target_sigma, "target")
+        #         else:
+        #             raise ValueError("The length of the uncertainty array doesn't match the data")
+        #     # An array with a fixed sigma for each column
+        #     else:
+        #         self.target_sigma = np.ones(len(target_sigma))*self.normalise(target_sigma, "target")
+        # # If no sigma is provided, assume it equals zero
+        # else:
+        #     self.target_sigma = np.zeros_like(targets)
         # Do the same for the labels
         if label_sigma:
             # A full array of sigmas for each point
@@ -123,7 +123,7 @@ class Data():
             #
             self.targets = np.delete(self.targets, test_entries, axis=0)
             self.labels = np.delete(self.labels, test_entries, axis=0)
-            self.target_sigma = np.delete(self.target_sigma, test_entries, axis=0)
+            #self.target_sigma = np.delete(self.target_sigma, test_entries, axis=0)
             self.label_sigma = np.delete(self.label_sigma, test_entries, axis=0)
 
         if target_names:
@@ -293,28 +293,28 @@ class Data():
             self.labels = np.vstack([self.labels, self.normalise(labels, "label")])
 
         # Prepare the sigmas
-        if target_sigma:
-            # A full array of sigmas for each point
-            if hasattr(target_sigma, '__len__') and (not isinstance(target_sigma, str)):
-                if len(target_sigma) == len(targets):
-                    if self.target_sigma.shape[0]==1:
-                        self.target_sigma = np.vstack([self.target_sigma.T, self.normalise(target_sigma, "target")]).T
-                    else:
-                        self.target_sigma = np.vstack([self.target_sigma, self.normalise(target_sigma, "target")])
-                else:
-                    raise ValueError("The length of the uncertainty array doesn't match the data")
-            # An array with a fixed sigma for each column
-            else:
-                if self.target_sigma.shape[0]==1:
-                    self.target_sigma = np.vstack([self.target_sigma.T, np.ones(len(target_sigma))*self.normalise(target_sigma, "target")]).T
-                else:
-                    self.target_sigma = np.vstack([self.target_sigma, np.ones(len(target_sigma))*self.normalise(target_sigma, "target")])
-        # If no sigma is provided, assume it equals zero
-        else:
-            if self.target_sigma.shape[0]==1:
-                self.target_sigma = np.vstack([self.target_sigma.T, np.zeros_like(targets)]).T
-            else:
-                self.target_sigma = np.vstack([self.target_sigma, np.zeros_like(targets)])
+        # if target_sigma:
+        #     # A full array of sigmas for each point
+        #     if hasattr(target_sigma, '__len__') and (not isinstance(target_sigma, str)):
+        #         if len(target_sigma) == len(targets):
+        #             if self.target_sigma.shape[0]==1:
+        #                 self.target_sigma = np.vstack([self.target_sigma.T, self.normalise(target_sigma, "target")]).T
+        #             else:
+        #                 self.target_sigma = np.vstack([self.target_sigma, self.normalise(target_sigma, "target")])
+        #         else:
+        #             raise ValueError("The length of the uncertainty array doesn't match the data")
+        #     # An array with a fixed sigma for each column
+        #     else:
+        #         if self.target_sigma.shape[0]==1:
+        #             self.target_sigma = np.vstack([self.target_sigma.T, np.ones(len(target_sigma))*self.normalise(target_sigma, "target")]).T
+        #         else:
+        #             self.target_sigma = np.vstack([self.target_sigma, np.ones(len(target_sigma))*self.normalise(target_sigma, "target")])
+        # # If no sigma is provided, assume it equals zero
+        # else:
+        #     if self.target_sigma.shape[0]==1:
+        #         self.target_sigma = np.vstack([self.target_sigma.T, np.zeros_like(targets)]).T
+        #     else:
+        #         self.target_sigma = np.vstack([self.target_sigma, np.zeros_like(targets)])
         # Do the same for the labels
         if label_sigma:
             # A full array of sigmas for each point

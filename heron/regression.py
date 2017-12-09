@@ -190,9 +190,9 @@ class SingleTaskGP(object):
         """
         
         training_y = self.training_y
-        new_datum = np.atleast_2d(new_datum)
+        #new_datum = np.atleast_2d(new_datum)
         new_datum = self.training_object.normalise(new_datum, "target")
-        mean, variance = self.gp.predict(self.training_y.T[0], new_datum, return_var=True)
+        mean, variance = self.gp.predict(self.training_y, new_datum, return_var=True)
         return self.training_object.denormalise(mean, "label"), self.training_object.denormalise(variance, "label")
 
 
@@ -571,8 +571,10 @@ class MultiTaskGP(SingleTaskGP):
            The variance values for the function drawn from the GP.
         """
         means, variances = [], []
-        new_datum = np.atleast_2d(new_datum).T
+        #new_datum = np.atleast_2d(new_datum)#.T
         new_datum = self.training_object.normalise(new_datum, "target")
+
+        print(new_datum)
         
         for ix, gp in enumerate(self.gps):
             training_y = self.training_y[:,ix]
