@@ -6,3 +6,11 @@ test:
     - pip install numpy
     - pip install -r requirements.txt
     - python setup.py test
+
+build:linux_x86_64
+  image: quay.io/pypa/manylinux1_x86_64
+  script:
+    - bash .ci/python/build-wheels.sh
+    artifacts:
+      paths:
+        - wheelhouse/
