@@ -10,7 +10,7 @@ test:
 build:linux_x86_64:
   image: quay.io/pypa/manylinux1_x86_64
   script:
-    - bash .ci/python/build-wheels.sh
-    artifacts:
+  - bash .ci/python/build-wheels.sh
+  artifacts:
       paths:
         - wheelhouse/
