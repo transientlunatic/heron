@@ -12,7 +12,15 @@ build:linux_x86_64:
   stage: build
   image: quay.io/pypa/manylinux1_x86_64
   script:
-    - yum install python-numpy
+    - bash .ci/python/build-wheels.sh
+  artifacts:
+      paths:
+        - wheelhouse/
+
+build:linux_i686:
+  stage: build
+  image: quay.io/pypa/manylinux1_i686
+  script:
     - bash .ci/python/build-wheels.sh
   artifacts:
       paths:
