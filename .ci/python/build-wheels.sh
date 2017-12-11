@@ -6,8 +6,8 @@ set -e -x
 
 # Compile wheels
 for PYBIN in /opt/python/*/bin; do
-    "${PYBIN}/pip" install numpy
-    "${PYBIN}/pip" install -r requirements.txt
+    "${PYBIN}/pip" install numpy, pybind11
+    #"${PYBIN}/pip" install -r requirements.txt
     "${PYBIN}/pip" install -r requirements_dev.txt
     "${PYBIN}/pip" wheel -w wheelhouse/
 done
