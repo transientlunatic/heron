@@ -1,4 +1,5 @@
 test:
+  stage: test
   image: ubuntu
   script:
     - apt-get update -qy
@@ -8,9 +9,11 @@ test:
     - python setup.py test
 
 build:linux_x86_64:
+  stage: build
   image: quay.io/pypa/manylinux1_x86_64
   script:
-  - bash .ci/python/build-wheels.sh
+    - pip install numpy
+    - bash .ci/python/build-wheels.sh
   artifacts:
       paths:
         - wheelhouse/
