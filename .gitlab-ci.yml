@@ -9,18 +9,22 @@ test:
     - python setup.py test
 
 build:linux_x86_64:
-  stage: build
+  stage: deploy
   image: quay.io/pypa/manylinux1_x86_64
   script:
+    - yum install libpng-devel
+    - yum install freetype-devel
     - bash .ci/python/build-wheels.sh
   artifacts:
       paths:
         - wheelhouse/
 
 build:linux_i686:
-  stage: build
+  stage: deploy
   image: quay.io/pypa/manylinux1_i686
   script:
+    - yum install libpng-devel
+    - yum install freetype-devel
     - bash .ci/python/build-wheels.sh
   artifacts:
       paths:
