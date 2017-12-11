@@ -95,7 +95,12 @@ class SingleTaskGP(object):
         self.input_dim = self.training_data.ndim
         self.output_dim = self.training_y.ndim
         self.kernel = kernel #kernel(self.training_data.ndim, *kernel_args)
-        self.gp = george.GP(kernel, solver=solver, tol=self.tikh, mean = 0, fit_mean=False, fit_white_noise=False)
+        self.gp = george.GP(kernel,
+                            solver=solver,
+                            #tol=self.tikh,
+                            mean = 0,
+                            fit_mean=False,
+                            fit_white_noise=False)
         self.kernel = self.gp.kernel
         self.hyperpriordistributions = hyperpriors
         self.update()
@@ -193,6 +198,7 @@ class SingleTaskGP(object):
         #new_datum = np.atleast_2d(new_datum)
         new_datum = self.training_object.normalise(new_datum, "target")
         mean, variance = self.gp.predict(self.training_y, new_datum, return_var=True)
+        #return mean, variance
         return self.training_object.denormalise(mean, "label"), self.training_object.denormalise(variance, "label")
 
 

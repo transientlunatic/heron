@@ -18,7 +18,7 @@ with open('HISTORY.rst') as history_file:
     history = history_file.read()
 
 requirements = [
-    "numpy", "matplotlib", "pyswarm", "scipy", 
+    "numpy", "matplotlib", "scipy", 
     # TODO: put package requirements here
 ]
 

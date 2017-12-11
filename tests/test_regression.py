@@ -2,7 +2,7 @@ import numpy as np
 from heron import regression, data, priors
 import copy
 from george import kernels
-
+import george
 """This test module aims to test the Gaussian process regressors
 included with this package, which take underlying numerical relativity
 data, and perform inferential regression on them in order to produce a
@@ -23,7 +23,7 @@ class TestSingleGP(unittest.TestCase):
         self.targets = np.linspace(0, 20, 200)
         self.labels = np.sin(self.targets) + np.random.rand(200)
 
-        self.targets_2d = np.array([np.linspace(0, 20, 200), np.linspace(5,10, 200)])
+        self.targets_2d = np.array([np.linspace(0, 20, 200), np.linspace(0,1, 200)])
         self.labels_2d_input_dull = np.sin(self.targets_2d[0,:])# + np.random.rand(200)
         
         self.dull_labels = np.sin(self.targets)
@@ -41,11 +41,8 @@ class TestSingleGP(unittest.TestCase):
 
         #sep = np.abs(data_object.get_starting() + 0.0001)
         sep = np.array([1])
-        
-        
         kernel = kernels.Matern52Kernel(sep**2, ndim = len(sep))
-        
-        GP = regression.SingleTaskGP(data_object, kernel = kernel)
+        GP = regression.SingleTaskGP(data_object, kernel = kernel, solver=george.BasicSolver)
 
         # Test that the underlying Gaussian process returns something
         # close to the input data for the locations of the training
@@ -73,7 +70,7 @@ class TestSingleGP(unittest.TestCase):
         )
         sep = np.array([1,1])
         kernel = kernels.Matern52Kernel(sep**2, ndim = len(sep))
-        GP = regression.SingleTaskGP(data_object, kernel = kernel)
+        GP = regression.SingleTaskGP(data_object, kernel = kernel, solver=george.BasicSolver)
 
         # Test that the underlying Gaussian process returns something
         # close to the input data for the locations of the training
