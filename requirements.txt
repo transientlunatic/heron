@@ -6,4 +6,4 @@ emcee
 pyyaml
 jinja2
 cython
-https://github.com/transientlunatic/george/archive/1.0-dev.zip
+george
