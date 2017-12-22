@@ -95,12 +95,16 @@ class SingleTaskGP(object):
         self.input_dim = self.training_data.ndim
         self.output_dim = self.training_y.ndim
         self.kernel = kernel #kernel(self.training_data.ndim, *kernel_args)
+        kwargs = {}
+        if solver == george.HODLRSolver:
+            kwargs['tol'] = self.tikh
         self.gp = george.GP(kernel,
                             solver=solver,
-                            #tol=self.tikh,
-                            mean = 0,
+                            mean = np.mean(self.training_y),
                             fit_mean=False,
-                            fit_white_noise=False)
+                            fit_white_noise=False,
+                            **kwargs
+        )
         self.kernel = self.gp.kernel
         self.hyperpriordistributions = hyperpriors
         self.update()
@@ -177,7 +181,7 @@ class SingleTaskGP(object):
         #self.test_predict()
 
 
-    def prediction(self, new_datum):
+    def prediction(self, new_datum, normalised=False):
         """
         Produce a prediction at a new point, or set of points.
 
@@ -185,6 +189,11 @@ class SingleTaskGP(object):
         ----------
         new_datum : array
            The coordinates of the new point(s) at which the GPR model should be evaluated.
+        normalised : bool
+           A flag to indicate if the input is already normalised 
+           (this might be the case if you're trying to efficiently sample to parameter 
+           space). If False the input will be normalised to the same range as the 
+           training data.
 
         Returns
         -------
@@ -195,8 +204,11 @@ class SingleTaskGP(object):
         """
         
         training_y = self.training_y
+        if training_y.ndim > 1:
+            training_y = training_y[0,:]
         #new_datum = np.atleast_2d(new_datum)
-        new_datum = self.training_object.normalise(new_datum, "target")
+        if not normalised:
+            new_datum = self.training_object.normalise(new_datum, "target")
         mean, variance = self.gp.predict(self.training_y, new_datum, return_var=True)
         #return mean, variance
         return self.training_object.denormalise(mean, "label"), self.training_object.denormalise(variance, "label")
@@ -394,7 +406,8 @@ class SingleTaskGP(object):
         """
 
         if method=="MCMC":
-            samples, burn = run_training_mcmc(self, metric = metric, samplertype=sampler, **kwargs)
+            gp, samples, burn = run_training_mcmc(self, metric = metric, samplertype=sampler, **kwargs)
+            self.gp = gp
             return samples, burn
         elif method == "MAP":
             MAP = run_training_map(self, metric = metric, **kwargs)

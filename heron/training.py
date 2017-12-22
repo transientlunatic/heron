@@ -97,13 +97,22 @@ def run_training_map(gp, metric = "loglikelihood", repeats=20, **kwargs):
         minfunc = gp.neg_cross_validation
 
     minima, locs = [], []
-    for run in range(repeats):
-       MAP = minimize(minfunc, gp.get_hyperparameters(),)
-       minima.append(MAP.fun)
-       locs.append(MAP.x)
-    gp.set_hyperparameters(locs[np.argmin(minima)])
-    #MAP = scipy.optimize.basinhopping(minfunc, gp.gp.get_vector(),
-    #                                  niter=repeats, **kwargs)
+
+    # non-basin-hopping
+    if "basinhopping" not in kwargs:
+        for run in range(repeats):
+            MAP = minimize(minfunc, gp.get_hyperparameters(),)
+            minima.append(MAP.fun)
+            locs.append(MAP.x)
+        gp.set_hyperparameters(locs[np.argmin(minima)])
+    else:
+        # Use basin hopping to find the global extreme
+        # First remove the basin-hopping keyword though
+        del kwargs['basinhopping']
+        # Then run the optimisation
+        MAP = scipy.optimize.basinhopping(minfunc, gp.gp.get_vector(),
+                                          niter=repeats, **kwargs)
+        gp.set_hyperparameters(MAP.x)
 
     gp.update()
     return MAP
@@ -169,7 +178,7 @@ def run_training_mcmc(gp, walkers = 200, burn = 500, samples = 1000, metric = "l
     probs = sampler.lnprobability[:,:].reshape((-1))
     samples = sampler.chain[:, :, :].reshape((-1, ndim))
     gp.gp.set_vector(samples[np.argmax(probs)])
-    return probs, samples
+    return gp.gp, probs, samples
 
 def cross_validation(p, gp):
     """
