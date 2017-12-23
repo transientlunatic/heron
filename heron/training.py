@@ -37,6 +37,16 @@ def ln_likelihood(p, gp):
     return gp.loghyperpriors(p) * gp._lnlikelihood(p)
 
 
+# Nested sampling
+import nestle
+def prior_transform(x): return x
+
+def run_nested(gp, metric="loglikelihood"):
+    
+    result = nestle.sample(gp.neg_ln_likelihood, prior_transform, 2, method='multi')
+    return result
+
+
 
 # MCMC Stuff using emcee
 

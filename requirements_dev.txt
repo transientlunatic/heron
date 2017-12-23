@@ -6,3 +6,4 @@ pyyaml
 jinja2
 cython
 george
+nestle
