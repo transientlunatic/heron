@@ -41,9 +41,12 @@ def ln_likelihood(p, gp):
 import nestle
 def prior_transform(x): return x
 
-def run_nested(gp, metric="loglikelihood"):
+def run_nested(gp, metric="loglikelihood", **kwargs):
     
     result = nestle.sample(gp.neg_ln_likelihood, prior_transform, 2, method='multi')
+    #gp.set_hyperparameters(MAP.x)
+
+    #gp.update()
     return result
 
 
