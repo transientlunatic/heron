@@ -156,12 +156,16 @@ gp = regression.SingleTaskGP(data, kernel = kernel, hyperpriors = hyper_priors)#
 print("Starting sep: {}".format(sep))
 
 import nestle
+from scipy.special import ndtri
 def prior_transform(x): 
     #scales =  np.array([25, 6, 4, 1, 1, 1, 1, 1, 1])
     #offsets = np.array([20, 3, 2, 0, 0, 0, 0, 0, 0])
-    scales = np.array([2, 20, 2, 2, 2, 2, 2, 2])
-    offsets = np.array([ 9, 10, 1, 1, 1, 1, 1, 1])  
-    return scales*x - offsets
+    #scales = np.array([2, 20, 2, 2, 2, 2, 2, 2])
+    #offsets = np.array([ 9, 10, 1, 1, 1, 1, 1, 1])
+    sigma = 2
+    return sep + sigma * ndtri(x)
+    
+    #return scales*x - offsets
 ndim = len(gp.gp.get_vector())
 nest = nestle.sample(gp.ln_likelihood, prior_transform, ndim, method='multi', npoints=500)
 nest_max = np.argmin(nest['logl'])
