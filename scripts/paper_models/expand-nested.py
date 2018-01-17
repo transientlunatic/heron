@@ -70,7 +70,7 @@ for j,row in enumerate(t.to_pandas().iterrows()):
         continue
     waveform_table.append(j)
     waveformsinc += 1
-    data = np.loadtxt(waveform_file[0])[::5]
+    data = np.loadtxt(waveform_file[0])[::10]
     
     hrss = np.sqrt(data[:,1]**2 + data[:,2]**2)
     
@@ -104,7 +104,7 @@ training_data_y = training_y #np.loadtxt("/home/daniel/data/heron/GT_training_y.
 data = heron.data.Data(
     training_data_x.T, #:4
     training_data_y,
-    label_sigma = 5e-5,
+    label_sigma = 1e-3,
     test_size=0,
     target_names = columns, 
     label_names = ["h+"])
