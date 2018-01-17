@@ -172,7 +172,7 @@ nest_max = np.argmin(nest['logl'])
 gp.gp.set_vector(nest['samples'][nest_max])
 print("Trained vector: {}".format(gp.gp.get_vector()))
 import corner
-fig = corner.corner(nest.samples, weights=-nest.weights)
+fig = corner.corner(nest.samples, weights=nest.weights)
 fig.set_size_inches(8., 8.)
 
 
