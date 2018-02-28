@@ -40,9 +40,9 @@ def corner(data_object, figsize=(10,10)):
                 ax[i,j].xaxis.set_ticks_position('bottom')
                 n, bins, rectangles = ax[i,j].hist(data[:,i], normed=True,alpha=0.6)
                 #try:
-                kernel = gaussian_kde(data[:,i].T)
-                positions = np.linspace(data[:,i].min(), data[:,i].max(), 100)
-                ax[i,j].plot(positions, n.max()*kernel(positions)/kernel(positions).max())
+                #kernel = gaussian_kde(data[:,i].T)
+                #positions = np.linspace(data[:,i].min(), data[:,i].max(), 100)
+                #ax[i,j].plot(positions, n.max()*kernel(positions)/kernel(positions).max())
 
 
                 continue

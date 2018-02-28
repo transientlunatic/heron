@@ -346,6 +346,26 @@ class SingleTaskGP(object):
         """
         
         return 0.5 * ( np.log((2*np.pi*np.e)**self.training_data.shape[1]) + self.gp.solver.log_determinant)
+
+    def hyperpriortransform(self, p):
+        """Return the true value in the desired hyperprior space, given an
+        input of a unit-hypercube prior space.
+
+        Parameters
+        ----------
+        p : array-like
+           The point in the unit hypercube space
+
+        Returns
+        -------
+        x : The position in the desired hyperparameter space of the point.
+        """
+
+        hypers = self.hyperpriordistributions
+        x = []
+        for hyper, pv in zip(hypers, p):
+            x.append(hyper.transform(p))
+        return np.array(x)
     
     def loghyperpriors(self, p):
 
@@ -411,6 +431,7 @@ class SingleTaskGP(object):
             return samples, burn
         elif method == "MAP":
             MAP = run_training_map(self, metric = metric, **kwargs)
+            
             return MAP
         
     def save(self, filename):
