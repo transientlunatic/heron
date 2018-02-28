@@ -396,7 +396,7 @@ class SingleTaskGP(object):
         
         Parameters
         ----------
-        method : str {"MCMC", "MAP"}
+        method : str {"MCMC", "MAP", "nested"}
            The method to be employed to calculate the hyperparameters.
         metric : str
            The metric which should be used to assess the model.
@@ -409,6 +409,11 @@ class SingleTaskGP(object):
             gp, samples, burn = run_training_mcmc(self, metric = metric, samplertype=sampler, **kwargs)
             self.gp = gp
             return samples, burn
+        elif method=="nested":
+            # Use nested sampling to train the model
+            # NB this is experimental
+            results = run_nested(gp, metric=metric, **kwargs)
+            return results
         elif method == "MAP":
             MAP = run_training_map(self, metric = metric, **kwargs)
             return MAP
