@@ -123,6 +123,11 @@ sep = np.array([0.0001, 0.2, 0.2, 20, 90, 50, 25,  10])
 k3 = kernels.Matern52Kernel(sep**2, ndim=8)
 kernel = k0+k3 
 gp = george.GP(kernel, tol=1e-10, solver=george.HODLRSolver, mean=0, nleaf=100, )
+
+training_x = np.array(training_x)
+
+print training_x.shape
+
 gp.compute(training_x, sort=False)
 
 from scipy.optimize import minimize
@@ -134,7 +139,19 @@ def grad_neg_ln_like(p):
     gp.set_vector(p)
     return gp.grad_lnlikelihood(training_y)
 
-minimize(neg_ln_like, gp.get_vector(), method="BFGS", jac=grad_neg_ln_like)
+#minimize(neg_ln_like, gp.get_vector(), method="BFGS", jac=grad_neg_ln_like)
+
+p0 = [gp.get_vector() for i in range(nwalkers)]
+
+sampler = emcee.EnsembleSampler(nwalkers, ndim, lnprob,)
+#burn-in
+pos, prob, state = sampler.run_mcmc(p0, 1000)
+a = sampler.reset()
+a = sampler.run_mcmc(p0, 10000)
+
+import corner
+samples = sampler.chain[:, 100:, :].reshape((-1, ndim))
+fig = corner.corner(samples, labels=cols)
 
 print gp.get_vector()
 

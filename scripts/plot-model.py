@@ -6,6 +6,8 @@ import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 
+plt.style.use("/home/daniel/papers/thesis/thesis-style.mpl")
+
 with open(sys.argv[1]) as data:
     gp, training_y = pickle.load(data)
 

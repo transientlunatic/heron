@@ -16,6 +16,7 @@ from cStringIO import StringIO
 import base64
 from IPython.display import display, HTML
 import pandas as pd
+import emcee
 # Turn off the max column width so the HTML 
 # image tags don't get truncated 
 pd.set_option('display.max_colwidth', -1)
@@ -128,11 +129,42 @@ gp = george.GP(kernel, tol=1e-10, solver=george.HODLRSolver, mean=0, nleaf=100, 
 gp.compute(training_x, sort=False)
 
 from scipy.optimize import minimize
-def neg_ln_like(p):
-    gp.set_vector(p)
-    return -gp.lnlikelihood(training_y)
 
-minimize(neg_ln_like, gp.get_vector(), method="BFGS")
+def ln_prior(p):
+    """Set some flat priors to make sure that the optimisation isn't
+    completely stupid; might want to put a bit more thought into this
+    further down the line.
+
+    """
+    if np.all(p>0) and np.all(p<100):
+        return 0
+    return - np.inf
+
+
+
+def lnprob(p):
+    gp.set_vector(p)
+    return ln_prior(p) + gp.lnlikelihood(training_y)
+
+#minimize(neg_ln_like, gp.get_vector(), method="BFGS")
+
+
+
+ndim, nwalkers = len(gp.get_vector()), 100
+
+p0 = [gp.get_vector() for i in range(nwalkers)]
+
+sampler = emcee.EnsembleSampler(nwalkers, ndim, lnprob,)
+#burn-in
+pos, prob, state = sampler.run_mcmc(p0, 1000)
+a = sampler.reset()
+a = sampler.run_mcmc(p0, 10000)
+
+import corner
+samples = sampler.chain[:, 100:, :].reshape((-1, ndim))
+fig = corner.corner(samples, labels=cols)
+
+fig.savefig("corner-hyper.pdf")
 
 print gp.get_vector()
 
@@ -140,6 +172,9 @@ print gp.get_vector()
 import pickle
 with open("full.gp", "wb") as savefile:
     pickle.dump([gp, training_y], savefile)
+
+with open("full-mcmc.gp", "wb") as savefile:
+    pickle.dump(sampler.chain, savefile)
 
 resolution = 100
 cols_axis = {

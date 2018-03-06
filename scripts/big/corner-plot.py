@@ -15,6 +15,10 @@ cat_f = nr.NRCatalogue('/scratch/aries/gt_bbh/')
 #cat.waveforms = cat.waveforms[cat.waveforms['series']=='S-series-v2']
 cols = ['q', 'a1','a2', 'th1L', 'ph1', 'th12', 'thSL', 'thJL']
 
+
+plt.style.use("/home/daniel/thesis/thesis-style.mpl")
+figsize = (10,10)
+
 SKIP = 5
 
 training_x = []
@@ -116,7 +120,7 @@ def sample_grid(col1, col2):
     return xv, yv
     
 
-f, ax = plt.subplots(len(cols), len(cols), figsize = (20,20))
+f, ax = plt.subplots(len(cols), len(cols), figsize = figsize)
 for i in range(len(cols)):
     for j in range(len(cols)):
         print i,j
@@ -149,5 +153,4 @@ for i,val in enumerate(cols):
     plt.setp(ax[-1,i].get_xticklabels(), visible=True, rotation='vertical');
     ax[i, 0].set_ylabel(val);
     plt.setp(ax[i, 0].get_yticklabels(), visible=True)
-    
 plt.savefig("spacings.pdf")

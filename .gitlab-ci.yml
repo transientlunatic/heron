@@ -1,0 +1,31 @@
+test:
+  stage: test
+  image: ubuntu
+  script:
+    - apt-get update -qy
+    - apt-get install -y python-dev python-pip
+    - pip install numpy
+    - pip install -r requirements.txt
+    - python setup.py test
+
+build:linux_x86_64:
+  stage: deploy
+  image: quay.io/pypa/manylinux1_x86_64
+  script:
+    - yum install -y libpng-devel
+    - yum install -y freetype-devel
+    - bash .ci/python/build-wheels.sh
+  artifacts:
+      paths:
+        - wheelhouse/
+
+build:linux_i686:
+  stage: deploy
+  image: quay.io/pypa/manylinux1_i686
+  script:
+    - yum install -y libpng-devel
+    - yum install -y freetype-devel
+    - bash .ci/python/build-wheels.sh
+  artifacts:
+      paths:
+        - wheelhouse/
