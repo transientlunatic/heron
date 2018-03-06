@@ -1,4 +1,5 @@
 from scipy import stats
+from scipy.special import ndtri
 
 class Prior(object):
     """
@@ -18,3 +19,15 @@ class Normal(Prior):
         
     def logp(self, x):
         return distro.logpdf(x)
+
+    def transform(self, x):
+        """
+        Transform from unit normalisation to this prior.
+
+        Parameters
+        ----------
+        x : float
+           The position in the normalised hyperparameter space
+        """
+        
+        return self.mean + self.srd * ndtri(x)

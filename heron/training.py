@@ -131,7 +131,40 @@ def run_training_map(gp, metric = "loglikelihood", repeats=20, **kwargs):
     return MAP
 
 
+def run_training_nested(gp, method="multi", maxiter=None, npoints = 1000):
+    """Train the Gaussian Process model using nested sampling.
+
+    Parameters
+    ----------
+    gp : heron.Regressor
+       The Gaussian Process object.
+    method : {"single", "multi"}
+       The nested sampling method to be used.
+    maxiter : int
+       The maximum number of iterations which should be carried out on
+       the marginal likelihood. Optional.
+    npoints : int
+       The number of live-points to use in the optimisation.
+    """
+    if not maxiter: maxiter = 10000000
+    ndim = len(gp.gp.get_vector())
+
+    prior_transform = gp.hyperpriortransform
+    
+    nest = nestle.sample(gp.neg_ln_likelihood,
+                             prior_transform,
+                             ndim,
+                             method=method,
+                             callback=nestle.print_progress,
+                             maxiter=maxiter,
+                             npoints=1000)
+                            #decline_factor = 0.5)
+    nest_max = np.argmax(nest['logl'])
+    gp.set_hyperparameters(nest['samples'][nest_max])
+
+
 def run_training_mcmc(gp, walkers = 200, burn = 500, samples = 1000, metric = "loglikelihood", samplertype="ensemble"):
+
     """
     Train a Gaussian process using an MCMC process to find the maximum evidence.
 
