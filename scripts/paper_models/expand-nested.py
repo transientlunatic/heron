@@ -195,7 +195,7 @@ def main(waveforms, optimizer, livepoints, label, maxiter, data):
                              npoints=livepoints)
                             #decline_factor = 0.5)
         nest_max = np.argmax(nest['logl'])
-        gp.gp.set_vector(nest['samples'][nest_max])
+        gp.gp.set_parameter_vector(nest['samples'][nest_max])
 
 
         

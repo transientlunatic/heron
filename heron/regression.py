@@ -381,10 +381,7 @@ class SingleTaskGP(object):
         hypers = self.hyperpriordistributions
         probs = 1
         for hyper, pv in zip(hypers, p):
-            if isinstance(hyper, scipy.stats._distn_infrastructure.rv_frozen):
-                probs *= hyper.logpdf(pv)
-            else:
-                probs *= 1
+            probs *= hyper.logp(pv)
         return probs
         
 
