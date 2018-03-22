@@ -162,7 +162,7 @@ class SingleTaskGP(object):
         """
         Set the hyperparameters of the kernel function.
         """
-        self.gp.set_vector(hypers)
+        self.gp.set_parameter_vector(hypers)
         self.update()
         #return self.loglikelihood()
 
@@ -406,7 +406,7 @@ class SingleTaskGP(object):
            The gradient of log-likelihood for the Gaussian process
         """
 
-        self.gp.set_vector(p)
+        self.gp.set_parameter_vector(p)
         return self.gp.grad_lnlikelihood(self.training_y)
 
     def train(self, method="MCMC", metric="loglikelihood", sampler="ensemble", **kwargs):
