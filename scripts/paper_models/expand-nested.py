@@ -155,7 +155,9 @@ def main(waveforms, optimizer, livepoints, label, maxiter, data):
 
     #model_row + "Rough estimate of initial values for hyperparameters: {}\n".format(sep**2)
     #model_row + "Data standard deviation squared: {}\n".format(np.std(data.labels[0,:])**2)
-    hyper_priors = [priors.Normal(1.0/hyper**2, 2) for hyper in sep]
+    hyper_priors = [priors.Normal(25, 5)]
+    for hyper in sep:
+        hyper_priors.append( priors.Normal(hyper**2, 5)  )
     k3 = kernels.Matern52Kernel(sep**2, ndim=len(sep))
     k4 = 1.0 * kernels.Matern52Kernel(sep**2, ndim=len(sep))
     report + model_row
@@ -175,15 +177,17 @@ def main(waveforms, optimizer, livepoints, label, maxiter, data):
         from scipy.special import ndtri
         
         def prior_transform(x):
-
+            #return x
             #sep[0] = -11
-            sep[0] = 0
-            sep[2] = -4
-            sep[4] = -4
-            sep2 = np.insert(sep, 0,14)
+            #sep[0] = 0
+            #sep[2] = -4
+            #sep[4] = -4
+            sep2 = np.insert(sep, 0, 25)
             #sigma = [0.1, 3, 0.5, 3, 0.5, 3, 3, 3]
-            sigma = [5.0, 0.5, 3, 0.5, 3, 0.5, 3, 3, 3]
-            return sep2 + sigma * ndtri(x)
+            #sigma = [5.0, 0.5, 3, 0.5, 3, 0.5, 3, 3, 3]
+            #sigma = 2
+            #return sep2 + sigma * ndtri(x)
+            return 60 * x - 30# + sep2
 
         ndim = len(gp.gp.get_parameter_vector())
         nest = nestle.sample(gp.neg_ln_likelihood,
