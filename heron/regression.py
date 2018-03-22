@@ -170,7 +170,7 @@ class SingleTaskGP(object):
         """
         Return the kernel hyperparameters.
         """
-        return self.gp.get_vector()
+        return self.gp.get_parameter_vector()
         
     
     def update(self):
