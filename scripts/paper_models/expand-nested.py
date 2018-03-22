@@ -184,7 +184,7 @@ def main(waveforms, optimizer, livepoints, label, maxiter, data):
             sigma = [0.5, 0.5, 3, 0.5, 3, 0.5, 3, 3, 3]
             return sep2 + sigma * ndtri(x)
 
-        ndim = len(gp.gp.get_vector())
+        ndim = len(gp.gp.get_parameter_vector())
         nest = nestle.sample(gp.neg_ln_likelihood,
                              prior_transform,
                              ndim,
@@ -194,7 +194,7 @@ def main(waveforms, optimizer, livepoints, label, maxiter, data):
                              npoints=livepoints)
                             #decline_factor = 0.5)
         nest_max = np.argmax(nest['logl'])
-        gp.gp.set_vector(nest['samples'][nest_max])
+        gp.gp.set_parameter_vector(nest['samples'][nest_max])
 
 
         
@@ -213,7 +213,7 @@ def main(waveforms, optimizer, livepoints, label, maxiter, data):
     report_row + "Optimisation strategy: {}".format(optimizer)
     report_row + "Nested sampling live points: {}".format(livepoints)
     report_row + "Nested sampling iter-limit: {}".format(maxiter)
-    report_row + "Trained vector: {}".format(gp.gp.get_vector())
+    report_row + "Trained vector: {}".format(gp.gp.get_parameter_vector())
     report_row + "Training iterations: {}".format(nest['niter'])
     report_row + "log(z): {}".format(nest['logz'])
     report_row + "max(l): {}".format(np.max(nest['logl']))
