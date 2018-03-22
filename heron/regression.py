@@ -381,7 +381,7 @@ class SingleTaskGP(object):
         hypers = self.hyperpriordistributions
         probs = 1
         for hyper, pv in zip(hypers, p):
-            probs *= hyper.logp(pv)
+            probs += hyper.logp(pv)
         return probs
         
 
