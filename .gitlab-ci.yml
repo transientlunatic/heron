@@ -1,31 +1,39 @@
+<<<<<<< HEAD
+=======
+stages:
+  - test
+  - build
+  - deploy
+
+image: ubuntu
+
+>>>>>>> master
 test:
   stage: test
   image: ubuntu
   script:
     - apt-get update -qy
-    - apt-get install -y python-dev python-pip
+    - apt-get install -y python-dev python-pip python-matplotlib
     - pip install numpy
-    - pip install -r requirements.txt
-    - python setup.py test
-
-build:linux_x86_64:
-  stage: deploy
-  image: quay.io/pypa/manylinux1_x86_64
-  script:
-    - yum install -y libpng-devel
-    - yum install -y freetype-devel
-    - bash .ci/python/build-wheels.sh
+    # - pip install -r requirements.txt
+    - pip install coverage
+    - coverage run setup.py test
+    - coverage report -m
+  coverage: '/TOTAL.+ ([0-9]{1,3}%)/'
   artifacts:
-      paths:
-        - wheelhouse/
+    expire_in: 3h
+    paths:
+      - testout
+      - public
 
-build:linux_i686:
-  stage: deploy
-  image: quay.io/pypa/manylinux1_i686
+pages:
+  stage: build
   script:
-    - yum install -y libpng-devel
-    - yum install -y freetype-devel
-    - bash .ci/python/build-wheels.sh
+  - pip install sphinx sphinx-bootstrap-theme numpydoc # sphinxcontrib-versioning
+  - make docs
+  - mv docs/_build/html/ public/
   artifacts:
-      paths:
-        - wheelhouse/
+    paths:
+    - public
+  only:
+  - master
