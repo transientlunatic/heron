@@ -1,3 +1,10 @@
+stages:
+  - test
+  - build
+  - deploy
+
+image: ubuntu
+
 test:
   stage: test
   image: ubuntu
