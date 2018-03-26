@@ -12,7 +12,8 @@ test:
     - apt-get update -qy
     - apt-get install -y python-dev python-pip
     - pip install numpy
-    - pip install -r requirements.txt
+    # - pip install -r requirements.txt
+    - pip install coverage
     - coverage run setup.py test
     - coverage report -m
   coverage: '/TOTAL.+ ([0-9]{1,3}%)/'
