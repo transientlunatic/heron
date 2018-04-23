@@ -16,6 +16,8 @@
 
 import numpy as np
 from matplotlib.mlab import psd
+from heron.sampling import draw_samples
+from scipy import signal
 
 def inner_product_noise(x, y, sigma, psd=None,  srate=16834):
     """

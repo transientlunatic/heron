@@ -14,7 +14,7 @@ ptimes = {}
 headers = ['Index', 'Name', 'tag', '$q$', '$a_{1x}$', '$a_{1y}$', '$a_{1z}$', '$a_{2x}$', '$a_{2y}$', '$a_{2z}$', '$L_x$', '$L_y$', '$L_z$', 'mf', 'af', 'mW']
 t = Table.read('/home/daniel/data/gravitational-waves/gt-new/training_waveforms.txt', format="ascii", names=headers)
 
-columns = ['t', '$q$', '$a_{1x}$', '$a_{1y}$', '$a_{1z}$', '$a_{2x}$', '$a_{2y}$', '$a_{2z}$', '$L_z$']
+columns = ['t', '$q$', '$a_{1x}$', '$a_{1y}$', '$a_{1z}$', '$a_{2x}$', '$a_{2y}$', '$a_{2z}$', '$L_x$', '$L_y$', '$L_z$']
 
 def get_dataset(t, query, waveforms = 40, inspiral = 250, ringdown = 50, skip = 10):
     default_path = "/home/daniel/data/gravitational-waves/gt-old/"
@@ -29,7 +29,7 @@ def get_dataset(t, query, waveforms = 40, inspiral = 250, ringdown = 50, skip = 
     #
     t = t[query]
     inspiral = -1 * inspiral
-    columns = ['t', '$q$', '$a_{1x}$', '$a_{1y}$', '$a_{1z}$', '$a_{2x}$', '$a_{2y}$', '$a_{2z}$']
+    columns = ['t', '$q$', '$a_{1x}$', '$a_{1y}$', '$a_{1z}$', '$a_{2x}$', '$a_{2y}$', '$a_{2z}$', '$L_x$', '$L_y$', '$L_z$']
 
 
     total_waveforms = waveforms
@@ -47,13 +47,17 @@ def get_dataset(t, query, waveforms = 40, inspiral = 250, ringdown = 50, skip = 
         #print waveform_file
         if len(waveform_file)!=1:
             print "{} missing.".format(row['Name'])
-            print "It will be added to the test data."
+            
 
-            data = np.loadtxt(test_path+row['Name']+".txt")[::skip]
+            try:
+                data = np.loadtxt(test_path+row['Name']+".txt")[::skip]
+                print "It will be added to the test data."
+            except IOError:
+                continue
             
             hrss = np.sqrt(data[:,1]**2 + data[:,2]**2)
 
-            data[:,0] = data[:,0] - data[np.argmax(data[:,1]),0]
+            data[:,0] = data[:,0] - data[np.argmax(data[:,2]),0]
             times = data[:,0]#[hrss.argmax()-200:hrss.argmax() + 50]
             if len(times)==0:
                 print "{} missing.".format(row['Name'])
@@ -77,10 +81,14 @@ def get_dataset(t, query, waveforms = 40, inspiral = 250, ringdown = 50, skip = 
         waveform_table.append(j)
         waveformsinc += 1
         data = np.loadtxt(waveform_file[0])[::skip]
-
+        #try:
+        #    data = np.loadtxt(test_path+row['Name']+".txt")[::skip]
+        #except IOError:
+        #    print "-- {}".format(row['Name'])
+        #    continue
         hrss = np.sqrt(data[:,1]**2 + data[:,2]**2)
 
-        data[:,0] = data[:,0] - data[np.argmax(hrss),0]
+        data[:,0] = data[:,0] - data[np.argmax(data[:,2]),0]
         times = data[:,0]#[hrss.argmax()-200:hrss.argmax() + 50]
         if len(times)==0:
             print "{} missing.".format(row['Name'])
@@ -169,18 +177,58 @@ def plot_plane(gp, training, i, j, intersept=None, figsize=(5,10)):
 
 #### The monster
 
-query = (    (t["$a_{1x}$"]==0)
-           & (t["$a_{1y}$"]==0)
-           & (t["$a_{1z}$"]==0)
-           & (t["$a_{2x}$"]==0)
-             & (t["$a_{2y}$"]==0)
-             & (t["$a_{2z}$"]==0)
+query = (    (t["$a_{1x}$"]>=-100)
+#           & (t["$a_{1y}$"]==0)
+#           & (t["$a_{1z}$"]==0)
+#           & (t["$a_{2x}$"]==0)
+#             & (t["$a_{2y}$"]==0)
+#             & (t["$a_{2z}$"]>=-100)
 )
 
+#
+# Building the Kernel
+#
+k1 = kernels.Matern52Kernel(0.001, ndim=len(columns), axes=0)
+k2 = kernels.Matern52Kernel(0.05, ndim=len(columns), axes=0)
+k_massr = kernels.ExpKernel((.15), ndim=len(columns), axes=(1))
+k_spinx = kernels.ExpKernel((0.125, 0.125, 0.125), ndim=len(columns), axes=(2,3,4))
+k_spiny = kernels.ExpKernel((0.125, 0.125, 0.125), ndim=len(columns), axes=(5,6,7))
+kL = kernels.ExpKernel((.01, .01, .01), ndim=len(columns), axes=(8,9,10))
+kernel = 3.5 * ( 0.1 * k1 + 1.0 * k2) * (1.0* k_massr) * (1 * kL) * (1*k_spinx) * (1*k_spiny)
 
 
+#
+# First, generate a model without the timeseries, so that we can train
+# on something small, then introduce the times.
+#
 
-training_x, training_y, test_x, test_y = get_dataset(t, query = query, waveforms = 49, inspiral=150, ringdown=50, skip=15)
+training_x, training_y, test_x, test_y = get_dataset(t, query = query, waveforms = 490, inspiral=1, ringdown=1, skip=1)
+
+print "Training data assembled. {} training points.".format(len(training_y))
+
+
+training_spin_monster_simple = heron.data.Data(targets=training_x.T, labels=np.array(training_y),
+                                               label_sigma = 0,
+                                               target_names = columns, label_names = ["h+"] )
+print "Simple data object created."
+
+gp_spin_monster_simple = george.GP(kernel, mean = 0.5, solver=george.HODLRSolver, seed=1, tol=0.000000001, min_size=100) 
+gp_spin_monster_simple.compute(x=training_spin_monster_simple.targets,
+                               yerr=training_spin_monster_simple.label_sigma)
+trained_vector = scipy.optimize.minimize(neglk,
+                            np.exp(gp_spin_monster_simple.get_parameter_vector()),
+                            args=(gp_spin_monster_simple, training_spin_monster_simple), method = "L-BFGS-B")
+
+print(trained_vector)
+
+gp_spin_monster_simple.set_parameter_vector(np.log(trained_vector.x))
+
+
+#
+# Now build the full, slow model, using the trained values off the simpler model
+#
+
+training_x, training_y, test_x, test_y = get_dataset(t, query = query, waveforms = 490, inspiral=50, ringdown=50, skip=20)
 
 print "Training data assembled. {} training points.".format(len(training_y))
 
@@ -190,17 +238,14 @@ training_spin_monster = heron.data.Data(targets=training_x.T, labels=np.array(tr
                           target_names = columns, label_names = ["h+"] )
 print "Data object created."
 
-k1 = kernels.Matern52Kernel(0.01, ndim=len(training_x.T[0]), axes=0)
-k2 = kernels.Matern52Kernel(0.1, ndim=len(training_x.T[0]), axes=0)
-k3 = kernels.ExpKernel((.2), ndim=len(training_x.T[0]), axes=(1))
-k4 = kernels.ExpKernel((0.125, 0.125, 0.125), ndim=len(training_x.T[0]), axes=(2,3,4))
-k5 = kernels.ExpKernel((0.125, 0.125, 0.125), ndim=len(training_x.T[0]), axes=(5,6,7))
-kernel = 1.0 * ( 0.1 * k1 + 1.0 * k2) * (1.0* k3) # * (1*k4) * (1*k5)
+
 gp_spin_monster = george.GP(kernel, mean = 0.5, solver=george.HODLRSolver, seed=1, tol=0.000000001, min_size=100) 
 gp_spin_monster.compute(x=training_spin_monster.targets, yerr=training_spin_monster.label_sigma)
 
 gp = gp_spin_monster
 training = training_spin_monster
+
+gp.set_parameter_vector(np.log(trained_vector.x))
 
 print "Model Created."
 
@@ -209,35 +254,53 @@ print "Model Created."
 
 # f.savefig("monster_qplane_untrained.pdf")
 
-intersept = [0, 3 , 0, 0,0,0,0,0]
-points = np.ones((250, training.targets.shape[1]))
+intersept = [0, 3 , 0, 0,0,0,0,0,0,0, 0.7458]
+
+data = np.genfromtxt("/home/daniel/data-nosync/GW_Waveforms-master/Waveform_txtFiles/GT/GT0453.txt")
+
+points = np.ones((len(data[:,0]), training.targets.shape[1]))
 
 intersept = training.normalise(intersept, "target")
 
 points *= intersept
-points[:,0] = np.linspace(0, 1, 250)
+points[:,0] =  np.linspace(0,1,len(data[:,0])) # data[:,0] #training.normalise(data[:,0], "target")  # np.linspace(0, 1, 250)
+
+#points = training.normalise(points, "target")
+
 
 prediction = gp.predict(training.labels, points, return_var=True)
-f, ax = plt.subplots(1,1)
-#xaxis = np.linspace(training.denormalise([0], "target"),training.denormalise([1], "target"), 250)
-xaxis = np.linspace(-150,50,250)
-ax.plot(xaxis, prediction[0]-0.5, label="Prediction")
-ax.fill_between(xaxis, prediction[0]-0.5-prediction[1], prediction[0]-0.5+prediction[1], alpha = 0.5)
+f, ax = plt.subplots(2,1, sharex = True)
+xaxis = np.linspace(training.denormalise([0], "target")[0],training.denormalise([1], "target")[0], len(data[:,0]))
+#xaxis = np.linspace(-150,50,250)
+ax[0].plot(xaxis, prediction[0]-0.5, label="Prediction")
+ax[0].fill_between(xaxis, prediction[0]-0.5-prediction[1], prediction[0]-0.5+prediction[1], alpha = 0.3)
 
 
 data = np.genfromtxt("/home/daniel/data-nosync/GW_Waveforms-master/Waveform_txtFiles/GT/GT0453.txt")
 
 hrss = np.sqrt(data[:,1]**2 + data[:,2]**2)
 
-data[:,0] = data[:,0] - data[np.argmax(data[:,1]),0]
+data[:,0] = data[:,0] - data[np.argmax(data[:,2]),0]
       
 
-ax.plot(data[:,0], -data[:,1], label="Test data")
-ax.legend()
+ax[0].plot(data[:,0], data[:,1], label="Test data")
+ax[0].plot(data[:,0], data[:,2], label="Test data")
+#ax[0].legend()
 
-ax.set_xlim([-150,50])
+ax[0].set_xlim([-150,50])
 
-f.savefig("test.png")
+ax[1].plot(xaxis, np.sqrt(((data[:,2] - prediction[0]-0.5) / (prediction[0]-0.5))**2))
+ax[1].set_ylim([0,10])
+ax[1].fill_between(xaxis,-np.sqrt(prediction[1]), +np.sqrt(prediction[1]), alpha = 0.3)
+f.savefig("test.png", dpi=300)
+
+# points = test_x
+# pred = gp.predict(training.labels, test_x, return_var=True)
+
+# diff = (test_y - pred[0])**2
+# rmse = np.sqrt(diff / len(test_y))
+
+# print "RMSE: {}".format(rmse)
 
 # print "Training."
 

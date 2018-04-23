@@ -34,7 +34,7 @@ def ln_likelihood(p, gp):
     -----
     * TODO Add the ability to specify the priors on each hyperparameter.
     """
-    return gp.loghyperpriors(p) * gp._lnlikelihood(p)
+    return gp.loghyperpriors(p) + gp._lnlikelihood(p)
 
 
 # Nested sampling
@@ -123,7 +123,7 @@ def run_training_map(gp, metric = "loglikelihood", repeats=20, **kwargs):
         # First remove the basin-hopping keyword though
         del kwargs['basinhopping']
         # Then run the optimisation
-        MAP = scipy.optimize.basinhopping(minfunc, gp.gp.get_vector(),
+        MAP = scipy.optimize.basinhopping(minfunc, gp.gp.get_parameter_vector(),
                                           niter=repeats, **kwargs)
         gp.set_hyperparameters(MAP.x)
 
@@ -147,7 +147,7 @@ def run_training_nested(gp, method="multi", maxiter=None, npoints = 1000):
        The number of live-points to use in the optimisation.
     """
     if not maxiter: maxiter = 10000000
-    ndim = len(gp.gp.get_vector())
+    ndim = len(gp.gp.get_parameter_vector())
 
     prior_transform = gp.hyperpriortransform
     
@@ -201,7 +201,7 @@ def run_training_mcmc(gp, walkers = 200, burn = 500, samples = 1000, metric = "l
 
     * TODO Add ability to change median to other statistics for training
     """
-    start = gp.gp.get_vector()
+    start = gp.gp.get_parameter_vector()
     ndim, nwalkers, ntemps = len(start), walkers, 20
     
     #
@@ -223,7 +223,7 @@ def run_training_mcmc(gp, walkers = 200, burn = 500, samples = 1000, metric = "l
     sampler = run_sampler(sampler, p0, samples)
     probs = sampler.lnprobability[:,:].reshape((-1))
     samples = sampler.chain[:, :, :].reshape((-1, ndim))
-    gp.gp.set_vector(samples[np.argmax(probs)])
+    gp.gp.set_parameter_vector(samples[np.argmax(probs)])
     return gp.gp, probs, samples
 
 def cross_validation(p, gp):
