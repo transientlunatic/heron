@@ -34,7 +34,8 @@ def ln_likelihood(p, gp):
     -----
     * TODO Add the ability to specify the priors on each hyperparameter.
     """
-    return gp.loghyperpriors(p) + gp._lnlikelihood(p)
+    #return gp.loghyperpriors(p) +
+    return gp._lnlikelihood(p)
 
 
 # Nested sampling

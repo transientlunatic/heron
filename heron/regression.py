@@ -71,7 +71,7 @@ class SingleTaskGP(object):
         output += "</table>"
         return output
 
-    def __init__(self, training_data, kernel, tikh=1e-6, solver=george.HODLRSolver, hyperpriors = None):
+    def __init__(self, training_data, kernel, tikh=1e-6, solver=george.HODLRSolver, hyperpriors = None, **kwargs):
         """
         Set up the Gaussian process regression.
 
@@ -95,7 +95,7 @@ class SingleTaskGP(object):
         self.input_dim = self.training_data.ndim
         self.output_dim = self.training_y.ndim
         self.kernel = kernel #kernel(self.training_data.ndim, *kernel_args)
-        kwargs = {}
+        #kwargs = {}
         if solver == george.HODLRSolver:
             kwargs['tol'] = self.tikh
         self.gp = george.GP(kernel,
