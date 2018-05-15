@@ -33,6 +33,8 @@ sys.path.insert(0, project_root)
 
 import heron
 
+# Load the bootstrap theme
+import sphinx_bootstrap_theme
 # -- General configuration ---------------------------------------------
 
 # If your documentation needs a minimal Sphinx version, state it here.
@@ -40,8 +42,7 @@ import heron
 
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
-extensions = ['sphinx.ext.autodoc', 'sphinx.ext.viewcode', 'sphinx.ext.autosummary']
-autosummary_generate = True
+extensions = ['sphinx.ext.autodoc', 'sphinx.ext.viewcode', 'numpydoc', 'sphinx.ext.autosummary']
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -56,7 +57,7 @@ source_suffix = '.rst'
 master_doc = 'index'
 
 # General information about the project.
-project = u'heron'
+project = u'Heron'
 copyright = u'2016, Daniel Williams'
 
 # The version info for the project you're documenting, acts as replacement
@@ -112,7 +113,9 @@ pygments_style = 'sphinx'
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
-html_theme = 'default'
+
+html_theme = 'bootstrap'
+html_theme_path = sphinx_bootstrap_theme.get_html_theme_path()
 
 # Theme options are theme-specific and customize the look and feel of a
 # theme further.  For a list of options available for each theme, see the
@@ -144,6 +147,7 @@ html_theme = 'default'
 # static files, so a file named "default.css" will overwrite the builtin
 # "default.css".
 html_static_path = ['_static']
+templates_path = ['_templates']
 
 # If not '', a 'Last updated on:' timestamp is inserted at every page
 # bottom, using the given strftime format.
@@ -151,10 +155,12 @@ html_static_path = ['_static']
 
 # If true, SmartyPants will be used to convert quotes and dashes to
 # typographically correct entities.
-#html_use_smartypants = True
+html_use_smartypants = True
 
 # Custom sidebar templates, maps document names to template names.
-#html_sidebars = {}
+
+html_sidebars = {'**': ['localtoc.html', 'sourcelink.html', 'searchbox.html']}
+
 
 # Additional templates that should be rendered to pages, maps page names
 # to template names.
@@ -210,7 +216,7 @@ latex_elements = {
 # [howto/manual]).
 latex_documents = [
     ('index', 'heron.tex',
-     u'heron Documentation',
+     u'Heron: The Burst MDC Factory Documentation',
      u'Daniel Williams', 'manual'),
 ]
 
@@ -241,7 +247,7 @@ latex_documents = [
 # (source start file, name, description, authors, manual section).
 man_pages = [
     ('index', 'heron',
-     u'heron Documentation',
+     u'Heron: The Burst MDC Factory Documentation',
      [u'Daniel Williams'], 1)
 ]
 
@@ -256,7 +262,7 @@ man_pages = [
 #  dir menu entry, description, category)
 texinfo_documents = [
     ('index', 'heron',
-     u'heron Documentation',
+     u'Heron: The Burst MDC Factory Documentation',
      u'Daniel Williams',
      'heron',
      'One line description of project.',

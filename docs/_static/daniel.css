@@ -1,0 +1,61 @@
+h1 {
+  font-family: "Open Sans", sans-serif; }
+
+a {
+  color: #FF327A; }
+
+a.sidebar {
+  color: white; }
+
+.jumbotron {
+  background-color: #FF327A;
+  background: linear-gradient(to bottom right, #FF327A, #cb0047);
+  color: white;
+  font-weight: 400; }
+
+.panel-default > .panel-heading {
+  background-color: #FF327A;
+  background: linear-gradient(to bottom right, #FF327A, #cb0047);
+  color: white; }
+
+.hexagon {
+  color: white;
+  position: relative;
+  width: 300px;
+  height: 173.21px;
+  background-color: #FF327A;
+  margin: 86.60px 0;
+  padding: 25px;
+  margin-top: 150px; }
+
+.hexagon:before,
+.hexagon:after {
+  content: "";
+  position: absolute;
+  width: 0;
+  border-left: 150px solid transparent;
+  border-right: 150px solid transparent;
+  padding: -10px; }
+
+.hexagon:before {
+  bottom: 100%;
+  border-bottom: 86.6px solid #FF327A;
+  margin-left: -25px;
+  margin-top: 20px; }
+
+.hexagon:after {
+  top: 100%;
+  width: 0;
+  margin-left: -120px;
+  border-top: 86.6px solid #FF327A; }
+
+.list-group-item.active, .list-group-item.active:focus, .list-group-item.active:hover {
+  background-color: #FF327A;
+  color: white;
+  border: 1px solid #FF327A; }
+
+.list-group-item.active, .list-group-item.active:focus, .list-group-item.active:hover a {
+  color: white; }
+
+body {
+  padding-top: 0; }
