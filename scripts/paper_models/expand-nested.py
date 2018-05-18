@@ -34,6 +34,114 @@ import time
 
 plt.style.use("/home/daniel/papers/thesis/thesis-style.mpl")
 
+columns = ['t', '$q$', '$a_{1x}$', '$a_{1y}$', '$a_{1z}$', '$a_{2x}$', '$a_{2y}$', '$a_{2z}$', '$L_x$', '$L_y$', '$L_z$']
+
+def get_dataset(t, query, waveforms = 40, inspiral = 250, ringdown = 50, skip = 10,
+                data_path  = "/home/daniel/data/gravitational-waves/gt-old/",
+                test_path = "/home/daniel/data-nosync/GW_Waveforms-master/Waveform_txtFiles/GT/"
+):
+    def find_data(tag, path = data_path):
+        """
+        Find the data files which contain the NR data for a given tag.
+        """
+        result = [y for x in os.walk(path) for y in glob(os.path.join(x[0], '*{}*.asc'.format(tag)))]
+        return result
+
+    #
+    t = t[query]
+    inspiral = -1 * inspiral
+    columns = ['t', '$q$', '$a_{1x}$', '$a_{1y}$', '$a_{1z}$', '$a_{2x}$', '$a_{2y}$', '$a_{2z}$', '$L_x$', '$L_y$', '$L_z$']
+
+
+    total_waveforms = waveforms
+    test_waveforms = []
+    test_parameters = []
+    training_x = []
+    training_y = []
+    missing_x = []
+    missing_y = []
+    waveformsinc = 0
+    waveform_table = []
+    for j,row in enumerate(t):
+        if waveformsinc >= total_waveforms:  break
+        waveform_file = find_data(row['tag'])
+        #print waveform_file
+        #print waveform_file
+        if len(waveform_file)!=1:
+            #print "{} missing.".format(row['Name'])
+            
+
+            try:
+                data = np.loadtxt(test_path+row['Name']+".txt")[::skip]
+                #print "It will be added to the test data."
+                test_waveforms.append(row['Name'])
+                rowdata = np.zeros(len(columns))
+                for i, col in enumerate(columns[1:]):
+                    rowdata[i+1] = row[col]
+                #print(rowdata)
+                test_parameters.append(rowdata)
+            except IOError:
+                continue
+            
+            hrss = np.sqrt(data[:,1]**2 + data[:,2]**2)
+
+            data[:,0] = data[:,0] - data[np.argmax(data[:,2]),0]
+            times = data[:,0]
+            if len(times)==0:
+                #print "{} missing.".format(row['Name'])
+                continue
+        
+            ix_selection = (times>=inspiral) & (times<=ringdown)
+            times = times[ix_selection]
+        
+        
+            rowdata = np.zeros((len(columns), len(times)))
+            for i, col in enumerate(columns):
+                if i == 0: 
+                    rowdata[i,:] = data[:,0][ix_selection]
+                else:
+                    rowdata[i,:] = np.tile(row[col], len(times))
+                    missing_y.append(data[:,2][ix_selection])
+                    missing_x.append(np.atleast_2d(rowdata))
+
+            
+            continue
+        waveform_table.append(j)
+        waveformsinc += 1
+        data = np.loadtxt(waveform_file[0])[::skip]
+        #try:
+        #    data = np.loadtxt(test_path+row['Name']+".txt")[::skip]
+        #except IOError:
+        #    print "-- {}".format(row['Name'])
+        #    continue
+        hrss = np.sqrt(data[:,1]**2 + data[:,2]**2)
+
+        data[:,0] = data[:,0] - data[np.argmax(data[:,2]),0]
+        times = data[:,0]
+        if len(times)==0:
+            print "{} missing.".format(row['Name'])
+            continue
+        
+        ix_selection = (times>=inspiral) & (times<=ringdown)
+        times = times[ix_selection]
+       
+        
+        rowdata = np.zeros((len(columns), len(times)))
+        for i, col in enumerate(columns):
+            if i == 0: 
+                rowdata[i,:] = data[:,0][ix_selection]
+            else:
+                rowdata[i,:] = np.tile(row[col], len(times))
+        training_y.append(data[:,2][ix_selection])
+        training_x.append(np.atleast_2d(rowdata))
+    training_y = np.hstack(training_y)
+    training_x = np.hstack(training_x)
+    return training_x, training_y, missing_x, missing_y, test_waveforms, test_parameters, waveform_table
+
+
+
+
+
 #
 
 #
@@ -50,73 +158,36 @@ import click
 @click.option('--maxiter', default = 10000000, help = "The maximum number of nested iterations.")
 @click.option('--data', default="/home/daniel/data/gravitational-waves/gt-test/",
               help="A directory containing the waveforms which should be loaded to form the model.")
-def main(waveforms, optimizer, livepoints, label, maxiter, data):
+@click.option('--inspiral', default=250,
+              help = "The number of time units of inspiral to be included from each waveform")
+@click.option('--ringdown', default=50,
+              help = "The number of time units of ringdown to be included from each waveform")
 
-    # Keep track of the various times that things happen at
-    ptimes = {}
-
-    headers = ['Index', 'Name', 'tag', '$q$', '$a_{1x}$', '$a_{1y}$', '$a_{1z}$', '$a_{2x}$', '$a_{2y}$', '$a_{2z}$', '$L_x$', '$L_y$', '$L_z$', 'mf', 'af', 'mW']
-    t = Table.read('/home/daniel/data/gravitational-waves/gt-new/GT_CATALOG_TABLE.txt', format="ascii", names=headers)
-
-    def find_data(tag, path = data):
-        """
-        Find the data files which contain the NR data for a given tag.
-        """
-        result = [y for x in os.walk(path) for y in glob(os.path.join(x[0], '*{}*.asc'.format(tag)))]
-        return result
-
-    #
-
-    columns = ['t', '$q$', '$a_{1x}$', '$a_{1y}$', '$a_{1z}$', '$a_{2x}$', '$a_{2y}$', '$a_{2z}$']
-
-
-    total_waveforms = waveforms #int(sys.argv[1])
+def main(waveforms, optimizer, livepoints, label, maxiter, data, inspiral, ringdown):
 
     if not label:
-        label = generate_codename() #waveforms
-        label.replace(' ', '-')
-    print("This model has label '{}'".format(label))
+        label = generate_codename()
+    print "HERON Model {}".format(label)
 
     report = otter.Otter("/home/daniel/www/reports/heron/expansion/{}.html".format(label),
-                         "/home/daniel/.otter",
-                         author="Daniel Williams",
-                         title="Test report for Heron BBH",
-                         subtitle="{}".format(label)
+                     "/home/daniel/.otter",
+                     author="Daniel Williams",
+                     title="Test report for Heron BBH",
+                     subtitle="{}".format(label)
     )
+    
+    ptimes = {}
 
-    #
-
-    training_x = []
-    training_y = []
-    waveformsinc = 0
-    waveform_table = []
-    for j,row in enumerate(t.to_pandas().iterrows()):
-        if waveformsinc >= total_waveforms:
-            break
-
-
-        waveform_file = find_data(row[1]['tag'])
-        #print waveform_file
-        if len(waveform_file)!=1:
-            continue
-        waveform_table.append(j)
-        waveformsinc += 1
-        data = np.loadtxt(waveform_file[0])[::10]
-
-        hrss = np.sqrt(data[:,1]**2 + data[:,2]**2)
-
-        data[:,0] = data[:,0] - data[np.argmax(hrss),0]
-        times = data[:,0][hrss.argmax()-500:hrss.argmax() + 100]
-        # Use ~250 times from each waveform
-        if len(times)==0: continue
-        rowdata = np.zeros((len(columns), len(times)))
-        for i, col in enumerate(columns):
-            if i == 0: 
-                rowdata[i,:] = data[:,0][hrss.argmax()-500:hrss.argmax() + 100]
-            else:
-                rowdata[i,:] = np.tile(row[1][col], len(times))
-        training_y.append(data[:,2][hrss.argmax() - 500:hrss.argmax() + 100])
-        training_x.append(np.atleast_2d(rowdata))
+    headers = ['Index', 'Name', 'tag', '$q$',
+               '$a_{1x}$', '$a_{1y}$', '$a_{1z}$', '$a_{2x}$', '$a_{2y}$', '$a_{2z}$',
+               '$L_x$', '$L_y$', '$L_z$', 'mf', 'af', 'mW']
+    t = Table.read('/home/daniel/data/gravitational-waves/gt-new/training_waveforms.txt',
+                   format="ascii", names=headers)
+    
+    query = (    (t["$a_{1x}$"]>=-100) )
+    
+    training_x, training_y, test_x, test_y, test_waveforms, test_pars, waveform_table = get_dataset(t, query = query, waveforms = 490, inspiral=inspiral, ringdown=ringdown, skip=20)
+    
 
     export_table = tabulate.tabulate(t.to_pandas().ix[waveform_table], headers = t.to_pandas( ).columns.values, tablefmt="pipe")
 
@@ -127,21 +198,14 @@ def main(waveforms, optimizer, livepoints, label, maxiter, data):
     table_row + "Model contains {} waveforms".format(waveforms)
     table_row + "<pre>{}</pre>".format(export_table)
     report + table_row
-    training_y = np.hstack(training_y)
-    training_x = np.hstack(training_x)
-
 
     np.savetxt("data/GT_training_x_{}.txt".format(label), training_x)
     np.savetxt("data/GT_training_y_{}.txt".format(label), training_y)
 
-
-    training_data_x = training_x # np.loadtxt("/home/daniel/data/heron/GT_training_x.txt")
-    training_data_y = training_y #np.loadtxt("/home/daniel/data/heron/GT_training_y.txt")
-
     data = heron.data.Data(
-        training_data_x.T, #:4
-        training_data_y,
-        label_sigma = 1e-3,
+        training_x.T, #:4
+        training_y,
+        label_sigma = 0,
         test_size=0,
         target_names = columns, 
         label_names = ["h+"])
@@ -155,18 +219,30 @@ def main(waveforms, optimizer, livepoints, label, maxiter, data):
 
     #model_row + "Rough estimate of initial values for hyperparameters: {}\n".format(sep**2)
     #model_row + "Data standard deviation squared: {}\n".format(np.std(data.labels[0,:])**2)
-    hyper_priors = [priors.Normal(25, 5)]
-    for hyper in sep:
-        hyper_priors.append( priors.Normal(hyper**2, 5)  )
-    k3 = kernels.Matern52Kernel(sep**2, ndim=len(sep))
-    k4 = 1.0 * kernels.Matern52Kernel(sep**2, ndim=len(sep))
+    #hyper_priors = [priors.Normal(25, 5)]
+    #for hyper in sep:
+    #    hyper_priors.append( priors.Normal(hyper**2, 5)  )
     report + model_row
 
-    kernel = k4
+    #kernel = k4
+
+
+    k1 = kernels.Matern52Kernel(0.001, ndim=len(columns), axes=0)
+    k2 = kernels.Matern52Kernel(0.05, ndim=len(columns), axes=0)
+    k_massr = kernels.ExpKernel((.15), ndim=len(columns), axes=(1))
+    k_spinx = kernels.ExpKernel((0.125, 0.125, 0.125), ndim=len(columns), axes=(2,3,4))
+    k_spiny = kernels.ExpKernel((0.125, 0.125, 0.125), ndim=len(columns), axes=(5,6,7))
+    kL = kernels.ExpKernel((.01, .01, .01), ndim=len(columns), axes=(8,9,10))
+    kernel = 3.5 * k2 * (1.0* k_massr) * (1 * kL) * (1*k_spinx) * (1*k_spiny)
+
+
+    
     import george
 
     ptimes['build start'] = time.time()
-    gp = regression.SingleTaskGP(data, kernel = kernel, hyperpriors = hyper_priors)
+    gp = regression.SingleTaskGP(data, kernel = kernel,
+                                 tikh=0.000000001,
+                                 )
     ptimes['build end'] = time.time()
 
 
@@ -177,17 +253,7 @@ def main(waveforms, optimizer, livepoints, label, maxiter, data):
         from scipy.special import ndtri
         
         def prior_transform(x):
-            #return x
-            #sep[0] = -11
-            #sep[0] = 0
-            #sep[2] = -4
-            #sep[4] = -4
-            sep2 = np.insert(sep, 0, 25)
-            #sigma = [0.1, 3, 0.5, 3, 0.5, 3, 3, 3]
-            #sigma = [5.0, 0.5, 3, 0.5, 3, 0.5, 3, 3, 3]
-            #sigma = 2
-            #return sep2 + sigma * ndtri(x)
-            return 60 * x - 30# + sep2
+            return 1 * x - .5# + sep2
 
         ndim = len(gp.gp.get_parameter_vector())
         nest = nestle.sample(gp.neg_ln_likelihood,
@@ -214,6 +280,8 @@ def main(waveforms, optimizer, livepoints, label, maxiter, data):
     report_row + "##Performance Information"
     report_row + "Model build time: {}s".format(ptimes['build end'] - ptimes['build start'])
     report_row + "Model training time: {}s".format(ptimes['optim end'] - ptimes['optim start'])
+    report_row + "## Covariance information"
+    report_row + "HERON Monster Kernel"
     report_row + "##Training Information"
     report_row + "Optimisation strategy: {}".format(optimizer)
     report_row + "Nested sampling live points: {}".format(livepoints)
@@ -232,11 +300,11 @@ def main(waveforms, optimizer, livepoints, label, maxiter, data):
     gp.save("models/{}.gp".format(label))
     #---
 
-    pdata, udata = gp.prediction(training_data_x[:,:5000].T)
+    pdata, udata = gp.prediction(training_x[:,:5000].T)
     f,ax = plt.subplots(2,1, sharey=True, sharex=True)
     ax[1].plot(pdata, label="Prediction")
     ax[1].legend()
-    ax[0].plot(training_data_y[:5000], label="Training data")
+    ax[0].plot(training_y[:5000], label="Training data")
     ax[0].legend()
 
 
