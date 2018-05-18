@@ -251,7 +251,7 @@ kernel = 3.5 * k2 * (0.5* k_massr) * (1 * kL) * (1*k_spinx) * (1*k_spiny)
 # Now build the full, slow model, using the trained values off the simpler model
 #
 
-training_x, training_y, test_x, test_y, test_waveforms, test_pars, train_wave, train_pars = get_dataset(t, query = query, waveforms = 100, inspiral=50, ringdown=50, skip=20)
+training_x, training_y, test_x, test_y, test_waveforms, test_pars, train_wave, train_pars = get_dataset(t, query = query, waveforms = 500, inspiral=50, ringdown=50, skip=25)
 
 print "Training data assembled. {} training points.".format(len(training_y))
 
@@ -264,8 +264,8 @@ gp_spin_monster = gp = regression.SingleTaskGP(training_spin_monster, kernel = k
 
 print "Beginning model training."
 trained_vector = scipy.optimize.minimize(gp.neg_ln_likelihood,
-                            gp_spin_monster.gp.get_parameter_vector(),
-                            method = "L-BFGS-B")
+                           gp_spin_monster.gp.get_parameter_vector(),
+                           method = "L-BFGS-B")
 
 print(trained_vector)
 
