@@ -10,7 +10,7 @@ test:
   image: ubuntu
   script:
     - apt-get update -qy
-    - apt-get install -y python-pip python-matplotlib
+    - apt-get install -y python-pip python-matplotlib python-scipy
     - pip install numpy
     - pip install -r requirements.txt
     - python setup.py test
