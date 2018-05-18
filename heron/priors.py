@@ -15,10 +15,10 @@ class Normal(Prior):
     def __init__(self, mean, std):
         self.mean = mean
         self.std = std
-        distro = stats.norm(self.mean, self.std)
+        self.distro = stats.norm
         
     def logp(self, x):
-        return distro.logpdf(x)
+        return self.distro.logpdf(x, loc = self.mean, scale = self.std)
 
     def transform(self, x):
         """

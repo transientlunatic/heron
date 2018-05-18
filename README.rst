@@ -3,15 +3,26 @@ heron
 ===============================
 
 
-Heron is a toolkit for Gaussian Process Regression build ontop of George_ and emcee_.
+The ``heron`` package is a python library for using Gaussian Process
+Regression to generate and train Gaussian Process regression models
+for surrogate modelling.
+
+It was originally built for producing a surrogate model for numerical
+relativity waveforms from binary black hole coalesences, but the code
+should be sufficiently general to allow other surrogate models to be
+built.
+
+In order to handle very large models, ``heron`` can use the `george`_
+python package to generate the underlying Gaussian Process, which can
+handle very large models thanks to its use of a hierarchical matrix
+inverter.
 
 
 Features
 --------
 
-* TODO Gaussian Process Regression
+* Single-valued function surrogate production from multivalued inputs
+* Handling very large datasets.
 
-.. _George: http://dan.iel.fm/george/
+.. _george: http://dan.iel.fm/george/
 .. _emcee: http://dan.iel.fm/emcee/
-.. _Cookiecutter: https://github.com/audreyr/cookiecutter
-.. _`audreyr/cookiecutter-pypackage`: https://github.com/audreyr/cookiecutter-pypackage

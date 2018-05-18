@@ -188,11 +188,11 @@ class Data():
         hyperparameters : ndarray
            An array of values for the various hyperparameters.
         """
-        values = []
-        for ax in xrange(self.targets.shape[1]):
-            values.append(np.median(np.unique(np.diff(self.targets[:, ax])))/2)
-        return np.array(values)
-
+        #values = []
+        #for ax in xrange(self.targets.shape[1]):
+        #    values.append(np.median(np.unique(np.diff(self.targets[:, ax])))/2)
+        #return np.array(values)
+        return np.median(np.unique(np.diff(self.targets, axis=0), axis=0), axis=0).T[0]/2
     
     def normalise(self, data, name):
         """

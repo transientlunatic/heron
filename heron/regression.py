@@ -71,7 +71,7 @@ class SingleTaskGP(object):
         output += "</table>"
         return output
 
-    def __init__(self, training_data, kernel, tikh=1e-6, solver=george.HODLRSolver, hyperpriors = None):
+    def __init__(self, training_data, kernel, tikh=1e-6, solver=george.HODLRSolver, hyperpriors = None, **kwargs):
         """
         Set up the Gaussian process regression.
 
@@ -95,7 +95,7 @@ class SingleTaskGP(object):
         self.input_dim = self.training_data.ndim
         self.output_dim = self.training_y.ndim
         self.kernel = kernel #kernel(self.training_data.ndim, *kernel_args)
-        kwargs = {}
+        #kwargs = {}
         if solver == george.HODLRSolver:
             kwargs['tol'] = self.tikh
         self.gp = george.GP(kernel,
@@ -162,7 +162,7 @@ class SingleTaskGP(object):
         """
         Set the hyperparameters of the kernel function.
         """
-        self.gp.set_vector(hypers)
+        self.gp.set_parameter_vector(hypers)
         self.update()
         #return self.loglikelihood()
 
@@ -170,7 +170,7 @@ class SingleTaskGP(object):
         """
         Return the kernel hyperparameters.
         """
-        return self.gp.get_vector()
+        return self.gp.get_parameter_vector()
         
     
     def update(self):
@@ -381,10 +381,7 @@ class SingleTaskGP(object):
         hypers = self.hyperpriordistributions
         probs = 1
         for hyper, pv in zip(hypers, p):
-            if isinstance(hyper, scipy.stats._distn_infrastructure.rv_frozen):
-                probs *= hyper.logpdf(pv)
-            else:
-                probs *= 1
+            probs += hyper.logp(pv)
         return probs
         
 
@@ -406,7 +403,7 @@ class SingleTaskGP(object):
            The gradient of log-likelihood for the Gaussian process
         """
 
-        self.gp.set_vector(p)
+        self.gp.set_parameter_vector(p)
         return self.gp.grad_lnlikelihood(self.training_y)
 
     def train(self, method="MCMC", metric="loglikelihood", sampler="ensemble", **kwargs):

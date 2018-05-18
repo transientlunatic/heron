@@ -8,3 +8,5 @@ jinja2
 cython
 george
 nestle
+numpydoc
+sphinx-bootstrap-theme
