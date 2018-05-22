@@ -26,8 +26,12 @@ Automagic API documentation
 .. autosummary::
    :toctree: _autosummary
 
+   heron.data
    heron.regression
    heron.training
+   heron.filtering
+   heron.priors
+   heron.kernels
    
 
    
