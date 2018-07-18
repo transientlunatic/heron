@@ -1,3 +1,7 @@
+"""
+Prior distributions for GP hyperpriors.
+"""
+
 from scipy import stats
 from scipy.special import ndtri
 

@@ -1,7 +1,6 @@
 """
 HERON: A Gaussian Process framework for Python
 ----------------------------------------------
-
 """
 
 

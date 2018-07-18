@@ -1,3 +1,7 @@
+"""
+Functions and classes for contructing regression surrogate models.
+"""
+
 import math as m
 import numpy as np
 import emcee

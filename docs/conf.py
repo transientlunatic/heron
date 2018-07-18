@@ -58,7 +58,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = u'Heron'
-copyright = u'2016, Daniel Williams'
+copyright = u'2018, Daniel Williams'
 
 # The version info for the project you're documenting, acts as replacement
 # for |version| and |release|, also used in various other places throughout
@@ -216,7 +216,7 @@ latex_elements = {
 # [howto/manual]).
 latex_documents = [
     ('index', 'heron.tex',
-     u'Heron: The Burst MDC Factory Documentation',
+     u'Heron: Gaussian Process Surrogate Modelling',
      u'Daniel Williams', 'manual'),
 ]
 
@@ -247,7 +247,7 @@ latex_documents = [
 # (source start file, name, description, authors, manual section).
 man_pages = [
     ('index', 'heron',
-     u'Heron: The Burst MDC Factory Documentation',
+     u'Heron: Gaussian Process Surrogate Modelling',
      [u'Daniel Williams'], 1)
 ]
 
@@ -262,7 +262,7 @@ man_pages = [
 #  dir menu entry, description, category)
 texinfo_documents = [
     ('index', 'heron',
-     u'Heron: The Burst MDC Factory Documentation',
+     u'Heron: Gaussian Process Surrogate Modelling',
      u'Daniel Williams',
      'heron',
      'One line description of project.',

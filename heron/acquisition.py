@@ -1,3 +1,8 @@
+"""
+Acquisition functions for Bayesian optimisation.
+"""
+
+
 import numpy as np
 from scipy.stats import norm
 

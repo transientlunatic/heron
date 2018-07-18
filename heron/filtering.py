@@ -1,18 +1,21 @@
-#
-# ░█░█░█▀▀░█▀▄░█▀█░█▀█
-# ░█▀█░█▀▀░█▀▄░█░█░█░█
-# ░▀░▀░▀▀▀░▀░▀░▀▀▀░▀░▀
-#
-# ---------------------------------------------------
-# Heron is a matched filtering framework for Python.
-# ---------------------------------------------------
-#
-# --------------------------------------------------------------
-# Matched Filtering Routines
-# ----
-# This code is designed for performing matched filtering using a
-# Gaussian Process Surrogate model.
-# ---------------------------------------------------------------
+"""
+Matched filtering functions.
+
+░█░█░█▀▀░█▀▄░█▀█░█▀█
+░█▀█░█▀▀░█▀▄░█░█░█░█
+░▀░▀░▀▀▀░▀░▀░▀▀▀░▀░▀
+
+---------------------------------------------------
+Heron is a matched filtering framework for Python.
+---------------------------------------------------
+
+--------------------------------------------------------------
+Matched Filtering Routines
+----
+This code is designed for performing matched filtering using a
+Gaussian Process Surrogate model.
+---------------------------------------------------------------
+"""
 
 import numpy as np
 from matplotlib.mlab import psd
