@@ -57,7 +57,7 @@ def main():
     # on something small, then introduce the times.
     #
 
-    training_x, training_y, test_x, test_y, test_waveforms, test_pars, train_wave, train_pars, train_table, test_table = get_dataset(t, query = query, waveforms = 500, inspiral=50, ringdown=50, skip=1)
+    training_x, training_y, test_x, test_y, test_waveforms, test_pars, train_wave, train_pars, train_table, test_table = get_dataset(t, query = query, waveforms = 500, inspiral=150, ringdown=50, skip=5)
     print("Shape of training data: {}".format(training_x.shape))
 
     print "Training data assembled. {} training points.".format(len(training_y))
@@ -67,8 +67,8 @@ def main():
                               target_names = columns, label_names = ["h+"] )
     print "Data object created."
 
-    gp_spin_monster = gp = regression.SingleTaskGP(training_spin_monster, kernel = kernel, solver=george.HODLRSolver, tikh=0.000000001)
-
+    gp_spin_monster = gp = regression.SingleTaskGP(training_spin_monster, kernel = kernel, solver=george.HODLRSolver, tikh=1e-8)
+    #
     saveout = "models/{}.gp".format(codename)
 
     print "Model Created."

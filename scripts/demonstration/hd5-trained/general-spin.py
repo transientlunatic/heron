@@ -3,50 +3,95 @@ from george import kernels
 import numpy as np
 import elk.catalogue
 from heron import data, regression, corner, priors, sampling
-
+from heron import waveform
 import otter
 from otter import bootstrap as bt
 
-report = otter.Otter(filename="nonspinning.html",
-                     title="Heron non-spinning BBH Model",
-                     subtitle="Trained off the GT HDF5 files."
+from collections import OrderedDict
+
+import yaml
+
+with open("general.yaml") as f:
+    config = yaml.safe_load(f)
+
+print(config["report"]["title"])
+
+report = otter.Otter(filename=config["report"]["path"],
+                     title=config["report"]["title"],
+                     subtitle=config["report"]["subtitle"]
 )
 
-root = "/home/daniel/data/gravitational-waves/heron/training/"
-#data = np.genfromtxt(root+"training_data_GT_4096Hz_1MPc_MTOT20.dat")
-#data_sxs = np.genfromtxt(root+"training_data_SXS_4096Hz_1MPc_MTOT20.dat")
-#data_imr = np.genfromtxt(root+"training_data_IMR_GT_4096Hz_1MPc_MTOT20.dat")
+catalogue = elk.catalogue.NRCatalogue(origin=config["training_data"]["catalogue"])
+#catalogue = catalogue.query("spin_1x == 0 & spin_1y == 0 & spin_2x == 0 & spin_2y ==0")
+catalogue_test = elk.catalogue.NRCatalogue(origin=config["test_data"]["catalogue"])
+# catalogue_test = catalogue_test.spin_free()
 
-catalogue = elk.catalogue(origin="GeorgiaTech")
-non_spinning_catalogue = catalogue.spin_free()
+c_ind = catalogue.c_ind
 
-data = catalogue.create_training_data(100, fmin=90).T
+total_mass = float(config["training_data"]["total mass"])
 
-
-columns = {0:  "time",
-           1:  "mass ratio",
-           2:  "spin 1x",
-           3:  "spin 1y",
-           4:  "spin 1z",
-           5:  "spin 2x",
-           6:  "spin 2y",
-           7:  "spin 2z",
-           8: "h+",
-           9: "hx"
-}
-c_ind = {j:i for i,j in columns.items()}
+problem_dims = 8
+# kernels_list = []
 
 
-data[c_ind['time']] *= 10000
+time_covariance = kernels.RationalQuadraticKernel(.05, 400,
+#time_covariance = kernels.ExpSquaredKernel(450,
+                                           ndim=problem_dims,
+                                           axes=c_ind['time'],)
 
-problem_dims = 2#8 #len(columns.keys())
+#mass_covariance = kernels.RationalQuadraticKernel(0.5, 0.5,
+mass_covariance = kernels.ExpSquaredKernel(0.005, #0.09
+                                           ndim=problem_dims,
+                                           axes=c_ind['mass ratio'])
+#[.003, 0.48, 0.48, 0.48, 0.48, 0.48]
+spin_covariance = kernels.ExpSquaredKernel([0.005, 0.005, 0.005, 0.005, 0.005, 0.005], ndim=problem_dims, axes=[2,3,4,5,6,7])
+
+covariance =  1e1 * mass_covariance * time_covariance  * spin_covariance #* L_covariance
+
+gp = gp_cat = waveform.GPCatalogue(catalogue, covariance,
+                                   total_mass=total_mass, fsample=4*1024,
+                                   solver=None,
+                                   mean=0.0,
+                                   white_noise=1e-1,
+                                   fmin=95,)
+imr_cat = elk.catalogue.PPCatalogue("IMRPhenomPv2", total_mass=total_mass)
+
+#gp_cat.optimise(max_iter=1000)
+# So these are the parameters which are *easiest* to find, which give a really boring and
+# fairly unpredictive model.
+# gp_cat.gp.set_parameter_vector(np.log([2.07429046e+00, 5.76056375e-05, 1.49288141e+00, 2.26176799e+02,
+#                                        5.75947665e-01, 3.17516612e1, 7.22846480e-01, 1.05775480e-01,
+#                                        1.39420724e-01, 1.57279701e-01]
+# ))
+
+#gp_cat.gp.set_parameter_vector(np.log([1.43070199e+00,
+#                                       4.53999298e-04,
+#                                       2.20264658e+00, 4.53999298e+02,
+#                                       1e-4,1e-4,1e-4,#2.05790712e-04, 4.11457123e-04, 1.21732870e-04,
+#                                       1e-4,1e-4,1e-4#1.61567205e-04, 1.69408025e-04, 4.53999298e-05
+#]))
+
+# After 1000 training iterations with ADMA
+gp_cat.gp.set_parameter_vector(np.log([1.72104338e+00,
+                                       3.75605402e-04,
+                                       1.85927706e+00, 3.79218372e+02,
+                                       8.53034888e-05, 8.48911219e-05, 8.38426260e-05,
+                                       8.53171760e-05, 8.48904881e-05, 8.24766499e-05,]))
+
+#gp_cat.optimise("adam", max_iter=1000)
+
+
 
 with report:
     report += "# Training Data"
 
     report += """
-Non-spinning waveforms only.
-"""
+    Non-spinning waveforms only.
+    """
+
+with report:
+    report += "## Data Coverage"
+    report += catalogue.coverage_plot()
 
 with report:
 
@@ -55,391 +100,162 @@ with report:
     report += "### Georgia Tech NR Waveforms"
     
     f, ax = plt.subplots(1,1)
-    ax.scatter(data[c_ind['time']], data[c_ind['mass ratio']],
+    ax.scatter(gp.training_data[:,c_ind['time']], gp.training_data[:,c_ind['mass ratio']],
                s = 1,
-               c = data[c_ind['h+']], cmap="RdBu",)
+               c = gp.training_data[:,c_ind['h+']], cmap="RdBu",)
     ax.set_xlabel("Time")
     ax.set_ylabel("Mass ratio")
     f.tight_layout()
     report + f
 
-
-    report += "### SXS Waveforms"
     
-    f, ax = plt.subplots(1,1)
-    
-    cax = f.add_axes([0.27, 0.95, 0.5, 0.05])
-    sca = ax.scatter(data_sxs[c_ind['time']], data_sxs[c_ind['mass ratio']],
-               s = 1,
-               c = data_sxs[c_ind['h+']], cmap="RdBu",)
-    
-    f.colorbar(sca, cax=cax, orientation='horizontal')
-    ax.set_xlabel("Time")
-    ax.set_ylabel("Mass ratio")
-    f.tight_layout()
-    report + f
-    
-    report += "### IMRPhenomPv2 Waveforms"
-    
-    f, ax = plt.subplots(1,1)
-    cax = f.add_axes([0.27, 0.95, 0.5, 0.05])
-
-    sca = ax.scatter(data_imr[c_ind['time']], data_imr[c_ind['mass ratio']],
-               s = 1,
-               c = data_imr[c_ind['h+']], cmap="RdBu",)
-
-    
-    f.colorbar(sca, cax=cax, orientation='horizontal')
-    
-    ax.set_xlabel("Time")
-    ax.set_ylabel("Mass ratio")
-    f.tight_layout()
-    report + f
-
 
 with report:
     report + "# Gaussian process"
 
 with report:
     report + "## GT waveform data"
-    
-time_covariance = kernels.ExpSquaredKernel(50,
-                                           ndim=problem_dims,
-                                           axes=c_ind['time'],)
-##kernels.RationalQuadraticKernel(0.5, 0.75,
-mass_covariance = kernels.ExpSquaredKernel(0.5, #0.09
-                                                  ndim=problem_dims,
-                                           axes=c_ind['mass ratio'])
-#[.003, 0.48, 0.48, 0.48, 0.48, 0.48]
-#spin_covariance = kernels.ExpSquaredKernel([0.01, 0.01, 0.01, 0.01, 0.01, 0.01], ndim=problem_dims, axes=[2,3,4,5,6,7])
-#L_covariance = kernels.ExpSquaredKernel(.005, ndim=problem_dims, axes=[8])
-
-covariance = 1.1 * mass_covariance * time_covariance  #* spin_covariance #* L_covariance
 
 
-import george
-gp = george.GP(covariance)#, solver = george.HODLRSolver, tol=1e-6)
-yerr = np.ones(len(data.T))*1e-7
-
-
-import scipy.optimize as op
-
-# Define the objective function (negative log-likelihood in this case).
-def nll(p):
-    gp.set_parameter_vector(p)
-    print(np.exp(p))
-    ll = gp.log_likelihood(data[c_ind['h+']]*1e19, quiet=True)
-    print(-ll)
-    return -ll if np.isfinite(ll) else 1e25
-
-# And the gradient of the objective function.
-def grad_nll(p):
-    print(np.exp(p))
-    gp.set_parameter_vector(p)
-    print(gp.log_likelihood(data[c_ind['h+']]*1e19, quiet=True))
-    return -gp.grad_log_likelihood(data[c_ind['h+']]*1e19, quiet=True)
-
-# You need to compute the GP once before starting the optimization.
-
-gp.compute(data[:problem_dims].T, yerr)
-
-# Print the initial ln-likelihood.
-print(gp.log_likelihood(data[c_ind['h+']]*1e19))
-
-# # # Run the optimization routine.
-# p0 = gp.get_parameter_vector()
-
-# import climin
-# import climin.adam
-# import cPickle
-# opt = climin.Adadelta(p0, grad_nll, step_rate=0.1, momentum=0.9)
-
-# for i in opt:
-#     #with open('state.pkl', 'w') as fp:
-#     #    cPickle.dump(i, fp)
-#     if i['n_iter'] > 100: break
-    
-# results = op.minimize(nll, p0, jac=grad_nll, method="BFGS")
-
-#Update the kernel and print the final log-likelihood.
-#gp.set_parameter_vector(results.x)
-
-# gp.set_parameter_vector(np.log([9.90155239e-08, 1.42572275e-03, 3.06422789e+01, 8.63975784e-04,
-#                                 8.99052567e-02, 8.76127346e-02, 3.10985928e-02, 9.96816887e-02,
-#                                 4.15039126e-03]))
-
-print(gp.log_likelihood(data[c_ind['h+']]*1e19))
-
-
-x = np.linspace(-50, 50, 100)
-y = np.linspace(0.2, 1., 50)
-gridpoints = np.meshgrid(x,y)
-points = np.zeros((100*50, problem_dims))
-#points[:,[2]] *= 1.0
-points[:,[c_ind['time'],c_ind['mass ratio']]] = np.dstack(gridpoints).reshape(-1,2)
-
-mean_gt, var_gt = gp.predict(data[c_ind['h+']]*1e19, points)
+mean_gt, var_gt = gp_cat.mean({"time": [-150, 50, 200], "mass ratio": [0.2, 1.0, 50]},
+                         fixed = {"spin 1x": 0,
+                                  "spin 1y": 0,
+                                  "spin 1z": 0,
+                                  "spin 2x": 0,
+                                  "spin 2y": 0,
+                                  "spin 2z": 0,})
 
 f, ax = plt.subplots(1,1)
-im = ax.imshow(mean_gt.T.reshape(50,100), origin="lower",
-               cmap = "magma",
-               extent=(points[:,0].min(),
-                       points[:,0].max(),
-                       points[:,1].min(),
-                       points[:,1].max()),
-               aspect=50,
-)
-cax = f.add_axes([0.27, 0.8, 0.5, 0.05])
-f.colorbar(im, cax=cax, orientation='horizontal')
+im = ax.imshow(mean_gt, origin="lower", cmap = "magma", vmin=-3, vmax=3,
+               extent = (-150, 50, 0.2, 1.0),
+               aspect = (200 / 0.8))
+cax = f.add_axes([0.9, 0.1, 0.02, 0.8])
+f.colorbar(im, cax=cax, orientation='vertical')
 
-#ax.set_ylim([0,5])
+ax.set_xlabel("Time [s * 1e4]")
+ax.set_ylabel("Mass Ratio")
+
 g, ax = plt.subplots(1,1)
-im = ax.imshow(np.diag(var_gt).T.reshape(50,100), origin="lower",
-          cmap = "magma",
-          extent=(points[:,0].min(),
-                  points[:,0].max(),
-                  points[:,1].min(),
-                  points[:,1].max()),
-          aspect=50
-)
+im = ax.imshow(var_gt, origin="lower",
+               cmap = "magma",
+               extent = (-150, 50, 0.2, 1.0),
+               aspect = (200 / 0.8))
+
+cax = g.add_axes([0.8, 0.1, 0.02, 0.8])
+g.colorbar(im, cax=cax, orientation='vertical')
+
+ax.set_xlabel("Time [s * 1e4]")
+ax.set_ylabel("Mass Ratio")
 
 with report:
     report += f
     report += g
 
-# x = np.linspace(-50, 50, 100)
-# y = np.linspace(-1, 1, 50)
-# gridpoints = np.meshgrid(x,y)
-# points = np.zeros((100*50, problem_dims))
-# #points[:,[2]] *= 1.0
-# points[:,[c_ind['time'],c_ind['spin 1x']]] = np.dstack(gridpoints).reshape(-1,2)
 
-# points[:,c_ind['mass ratio']] = np.ones(50*100)
-
-# mean_gt, var_gt = gp.predict(data[c_ind['h+']]*1e19, points)
-
-# f, ax = plt.subplots(1,1)
-# im = ax.imshow(mean_gt.T.reshape(50,100), origin="lower",
-#                cmap = "magma_r",
-#                extent=(points[:,0].min(),
-#                        points[:,0].max(),
-#                        points[:,c_ind['spin 1x']].min(),
-#                        points[:,c_ind['spin 1x']].max()),
-#                aspect=150,
-# )
-# cax = f.add_axes([0.27, 0.8, 0.5, 0.05])
-# f.colorbar(im, cax=cax, orientation='horizontal')
-
-# #ax.set_ylim([0,5])
-# g, ax = plt.subplots(1,1)
-# im = ax.imshow(np.diag(var_gt).T.reshape(50,100), origin="lower",
-#           cmap = "magma_r",
-#           extent=(points[:,0].min(),
-#                   points[:,0].max(),
-#                   points[:,c_ind['spin 1x']].min(),
-#                   points[:,c_ind['spin 1x']].max()),
-#           aspect=150
-# )
-
-# with report:
-#     report += "###Spin 1x"
-#     report += f
-#     report += g
-    
 with report:
-    report + "## Evaluated at IMR locations"
-    points = data_imr[:problem_dims, ::2].T
-    mean, var = gp.predict(data[c_ind['h+']], points)
+    report += "## GPR surrogate comparisons"
 
-    diff = (data_imr[c_ind['h+'],::2] - mean)**2/np.diag(var)
-    print(diff)
+    report += "### GT Comparisons"
 
+for waveform in catalogue.waveforms:
     f, ax = plt.subplots(1,1)
-    cax = f.add_axes([0.27, 0.8, 0.5, 0.05])
-    sca = ax.scatter(data_imr[c_ind['time'],::2], data_imr[c_ind['mass ratio'],::2],
-               s = 1,
-               c = diff, cmap="viridis",)
-    f.colorbar(sca, cax=cax, orientation='horizontal')
-    ax.set_xlabel("Time")
-    ax.set_ylabel("Mass ratio")
+    test_wave = waveform
 
-    report += f
+    with report:
+        report += "Waveform {}".format(waveform.tag)
+        report += "Mass ratio: {}".format(waveform.mass_ratio)
+        report += "Spin: {}".format(waveform.spins)
+    
+    samples = gp_cat.waveform_samples(p={"mass ratio": test_wave.mass_ratio,
+                                         "spin 1x": test_wave.spin_1x,
+                                         "spin 1y": test_wave.spin_1y,
+                                         "spin 1z": test_wave.spin_1z,
+                                         "spin 2x": test_wave.spin_2x,
+                                         "spin 2y": test_wave.spin_2y,
+                                         "spin 2z": test_wave.spin_2z,},
+                                      time_range=[-150, 100, 400])
+    ax.plot(np.linspace(-15, 10, 400), samples.T/1e19, alpha=0.01, color='k', linewidth=1)
+
+    try:
+        hp, hx = test_wave.timeseries(total_mass=total_mass,
+                                      sample_rate=4096,
+                                      flow=93.0,
+                                      distance=1)
 
 
+        ax.plot(hp.times*1e3, -hp.data);
+        ax.plot(hp.times*1e3,  hp.data);
+    except:
+        pass
+    
 with report:
-    report + "## Waveforms at GT Locations"
-    mean, var = gp.predict(data[c_ind['h+']], data[:problem_dims,:1000].T)
-
+    report += "SXS Comparisons"
+        
+for waveform in catalogue_test.waveforms:
     f, ax = plt.subplots(1,1)
-    ax.plot(mean, alpha=0.5)
-    ax.plot(data[c_ind['h+'],:1000], alpha=0.5)
-    #ax.plot(data_imr[c_ind['h+'],:1000]*1e19)
-    ax.set_xlabel("Time")
-    plt.close()
+    test_wave = waveform
 
-    report += f
-
-with report:
-    report + "## Waveforms at IMR Locations"
-    mean, var = gp.predict(data[c_ind['h+']], data_imr[:problem_dims,:1000].T)
-
-    f, ax = plt.subplots(1,1)
-    ax.plot(mean, alpha=0.5)
-    ax.plot(data_imr[c_ind['h+'],:1000], alpha=0.5)
-    ax.set_ylim([-3e-19, 3e-19]);
-    ax.set_xlabel("Time")
-    plt.close()
-
-    report += f
+    with report:
+        report += "Waveform {}".format(waveform.tag)
+        report += "Mass ratio: {}".format(waveform.mass_ratio)
+        report += "Spin: {}".format(waveform.spins)
     
-    
+    samples = gp_cat.waveform_samples(p={"mass ratio": test_wave.mass_ratio,
+                                         "spin 1x": test_wave.spin_1x,
+                                         "spin 1y": test_wave.spin_1y,
+                                         "spin 1z": test_wave.spin_1z,
+                                         "spin 2x": test_wave.spin_2x,
+                                         "spin 2y": test_wave.spin_2y,
+                                         "spin 2z": test_wave.spin_2z,},
+                                      time_range=[-150, 100, 400])
+    ax.plot(np.linspace(-15, 10, 400), samples.T/1e19, alpha=0.01, color='k', linewidth=1)
 
-# with report:
-#     report + "## Evaluated at SXS locations"
-#     points = data_sxs[:problem_dims, ::2].T
-#     mean, var = gp.predict(data[c_ind['h+']], points)
+    #nearest_nr = catalogue.find_closest([0.5,0,0,0,0,0,0])
 
-#     diff = (data_sxs[c_ind['h+'],::2] - mean)**2 / np.diag(var)
-#     print(diff)
-#     f, ax = plt.subplots(1,1)
-#     cax = f.add_axes([0.27, 0.8, 0.5, 0.05])
-#     sca = ax.scatter(data_sxs[c_ind['time'],::2], data_sxs[c_ind['mass ratio'],::2],
-#                s = 1,
-#                c = diff, cmap="viridis",)
-#     f.colorbar(sca, cax=cax, orientation='horizontal')
-#     ax.set_xlabel("Time")
-#     ax.set_ylabel("Mass ratio")
+    # imr = imr_cat.waveform(p={"mass ratio": test_wave.mass_ratio,
+    #                           "spin 1x": test_wave.spin_1x,
+    #                           "spin 1y": test_wave.spin_1y,
+    #                           "spin 1z": test_wave.spin_1z,
+    #                           "spin 2x": test_wave.spin_2x,
+    #                           "spin 2y": test_wave.spin_2y,
+    #                           "spin 2z": test_wave.spin_2z,},
+    #                        time_range=[-150, 100, 8000])
 
-#     report += f
-    
-# with report:
-#     report + "## SXS waveform data"
+    # ax.plot(imr[0].times*1e3, imr[0].data);
+    # ax.plot(imr[0].times*1e3, -imr[0].data);
 
-
-# import george
-# gp = george.GP(covariance)#, solver = george.HODLRSolver, tol=0)
-# yerr = np.ones(len(data_sxs.T))*1e-7
-
-# print(np.mean(data_sxs[c_ind['h+']]*1e19))
-
-# gp.compute(data_sxs[:problem_dims].T, yerr)
+    try:
+        hp, hx = test_wave.timeseries(total_mass=total_mass,
+                                      sample_rate=4096,
+                                      flow=93.0,
+                                      distance=1)
 
 
-# x = np.linspace(-50, 50, 100)
-# y = np.linspace(0.1,  0.9, 50)
-# gridpoints = np.meshgrid(x,y)
-# points = np.zeros((100*50, problem_dims))
-# #points[:,[2]] *= 1.0
-# points[:,[c_ind['time'],c_ind['mass ratio']]] = np.dstack(gridpoints).reshape(-1,2)
+        ax.plot(hp.times*1e3, -hp.data);
+        ax.plot(hp.times*1e3,  hp.data);
 
-# mean_sxs, var_sxs = gp.predict(data_sxs[c_ind['h+']]*1e19, points)
+    except:
+        pass
 
-# f, ax = plt.subplots(1,1)
-# im = ax.imshow(mean_sxs.T.reshape(50,100), origin="lower",
-#                cmap = "magma",
-#                extent=(points[:,0].min(),
-#                        points[:,0].max(),
-#                        points[:,1].min(),
-#                        points[:,1].max()),
-#                aspect=50,
-# )
-# cax = f.add_axes([0.27, 0.8, 0.5, 0.05])
-# f.colorbar(im, cax=cax, orientation='horizontal')
+    ax.set_ylabel("Strain at 1Mpc")
+    ax.set_xlabel("Time from merger at 60 solMass [ms]")
 
-# #ax.set_ylim([0,5])
-# g, ax = plt.subplots(1,1)
-# im = ax.imshow(np.diag(var_sxs).T.reshape(50,100), origin="lower",
-#           cmap = "magma",
-#           extent=(points[:,0].min(),
-#                   points[:,0].max(),
-#                   points[:,1].min(),
-#                   points[:,1].max()),
-#           aspect=150
-# )
+    ax.set_xlim([-15, 10]);
 
-# with report:
-#     report += f
-#     report += g
+    f.tight_layout();
+
+    def faithfulness(a,b):
+        top = np.dot(a,b)
+        aa = np.sqrt(np.dot(a,a))
+        bb = np.sqrt(np.dot(b,b))
+
+        return (top)/(aa * bb)
+
+    #faith = [faithfulness(
 
     
+    with report:
 
-with report:
-    report + "## IMR Data"
+        
+        report += f
 
-import george
-gp = george.GP(covariance)#, solver = george.HODLRSolver)
-yerr = np.ones(len(data_imr.T))*1e-7
-
-
-gp.compute(data_imr[:problem_dims].T, yerr)
-
-
-x = np.linspace(-50, 50, 100)
-y = np.linspace(0.1, 0.9, 50)
-gridpoints = np.meshgrid(x,y)
-points = np.zeros((100*50, problem_dims))
-#points[:,[2]] *= 1.0
-points[:,[c_ind['time'],c_ind['mass ratio']]] = np.dstack(gridpoints).reshape(-1,2)
-
-mean_imr, var_imr = gp.predict(data_imr[c_ind['h+']]*1e19, points)
-
-f, ax = plt.subplots(1,1)
-im = ax.imshow(mean_imr.T.reshape(50,100), origin="lower",
-               cmap = "magma",
-               extent=(points[:,0].min(),
-                       points[:,0].max(),
-                       points[:,1].min(),
-                       points[:,1].max()),
-               aspect=150,
-)
-cax = f.add_axes([0.27, 0.8, 0.5, 0.05])
-f.colorbar(im, cax=cax, orientation='horizontal')
-
-#ax.set_ylim([0,5])
-g, ax = plt.subplots(1,1)
-im = ax.imshow(np.diag(var_imr).T.reshape(50,100), origin="lower",
-          cmap = "magma",
-          extent=(points[:,0].min(),
-                  points[:,0].max(),
-                  points[:,1].min(),
-                  points[:,1].max()),
-          aspect=150
-)
-
-with report:
-    report += f
-
-
-# f, ax = plt.subplots(1,1)
-# im = ax.imshow(mean_imr.T.reshape(50,100) - mean_sxs.T.reshape(50,100), origin="lower",
-#                cmap = "magma",
-#                extent=(points[:,0].min(),
-#                        points[:,0].max(),
-#                        points[:,1].min(),
-#                        points[:,1].max()),
-#                aspect=150,
-# )
-# cax = f.add_axes([0.27, 0.8, 0.5, 0.05])
-# f.colorbar(im, cax=cax, orientation='horizontal')
-
-# with report:
-#     report + "# Difference"
-#     report + "## IMRPhenomP and SXS"
-#     report + f
-
-f, ax = plt.subplots(1,1)
-im = ax.imshow(mean_imr.T.reshape(50,100) - mean_gt.T.reshape(50,100), origin="lower",
-               cmap = "magma",
-               extent=(points[:,0].min(),
-                       points[:,0].max(),
-                       points[:,1].min(),
-                       points[:,1].max()),
-               aspect=150,
-)
-cax = f.add_axes([0.27, 0.8, 0.5, 0.05])
-f.colorbar(im, cax=cax, orientation='horizontal')
-
-with report:
-    report + "# Difference"
-    report + "## IMRPhenomP and GT"
-    report + f
