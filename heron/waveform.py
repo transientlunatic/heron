@@ -8,6 +8,7 @@ from george import HODLRSolver
 from elk.waveform import Waveform, Timeseries
 from elk.catalogue import Catalogue
 import numpy as np
+import matplotlib.pyplot as plt
 
 class GPCatalogue(Catalogue):
     """
@@ -19,10 +20,12 @@ class GPCatalogue(Catalogue):
     of the underlying NR catalogue.
     """
 
-    def __init__(self, nrcat, kernel, total_mass=100, fmin=90, solver="hodlr",
+    def __init__(self, nrcat, kernel, total_mass=100, f_min=None, solver="hodlr",
                  tmax=0.01,
+                 tmin=-0.015,
                  mean=0.0,
                  white_noise=0,
+                 ma = None,
                  fsample=4096):
         """
         Build the GP Catalogue from a numerical relativity catalogue.
@@ -35,16 +38,19 @@ class GPCatalogue(Catalogue):
            The covariance function to be used for the Gaussian process.
         total_mass : float
            The total mass of the system to be simulated.
-        fmin : float
+        f_min : float
            The minimum frequency to be included in the waveform.
         """
 
         self.kernel = kernel
         
         self.nr_data = nrcat
-        self.training_data = self.nr_data.create_training_data(total_mass, fmin,
+        self.training_data = self.nr_data.create_training_data(total_mass,
+                                                               f_min = f_min,
                                                                sample_rate=fsample,
-                                                               tmax = tmax
+                                                               ma=ma,
+                                                               tmax = tmax,
+                                                               tmin=tmin,
         )
         
         self.columns = {0: "time",
@@ -61,6 +67,8 @@ class GPCatalogue(Catalogue):
         self.c_ind = {j:i for i,j in self.columns.items()}
 
         self.training_data[:,self.c_ind['time']] *= 10000
+        #self.training_data[:,self.c_ind['mass ratio']] = np.log(self.training_data[:,self.c_ind['mass ratio']])
+        #self.training_data[:,self.c_ind['time']] -= self.training_data[np.argmax(self.training_data[:,self.c_ind['time']]),self.c_ind['time']]
         self.training_data[:,self.c_ind['h+']] *= 1e19
         self.training_data[:,self.c_ind['hx']] *= 1e19
 
@@ -145,8 +153,8 @@ class GPCatalogue(Catalogue):
         if not solver:
             self.gp = GP(self.kernel, mean=mean, white_noise=white_noise)
         else:
-            self.gp = GP(self.kernel, solver=HODLRSolver, tol=1e-6, min_size=1000, mean=mean, white_noise=white_noise)
-        self.yerr = np.ones(len(self.training_data)) * 1e-8
+            self.gp = GP(self.kernel, solver=HODLRSolver, tol=1e-6, min_size=100, mean=mean, white_noise=white_noise)
+        self.yerr = np.ones(len(self.training_data)) * 0 #1e-8
 
         self.gp.compute(self.training_data[:, :self.x_dimensions], self.yerr)
 
@@ -171,7 +179,7 @@ class GPCatalogue(Catalogue):
 
     def waveform_samples(self, p, time_range, samples=100):
         """
-        Return the mean waveform at a given location in the 
+       Return the mean waveform at a given location in the 
         BBH parameter space.
         """
 
@@ -297,3 +305,5 @@ class GPCatalogue(Catalogue):
 
         ax.set_xlabel("Time [s * 1e4]")
         ax.set_ylabel(list(ranges.keys())[1])
+
+        return f, g
