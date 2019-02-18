@@ -24,6 +24,7 @@ class GPCatalogue(Catalogue):
                  tmax=0.01,
                  tmin=-0.015,
                  mean=0.0,
+                 tol=1e-6,
                  white_noise=0,
                  ma = None,
                  fsample=4096):
@@ -73,9 +74,9 @@ class GPCatalogue(Catalogue):
         self.training_data[:,self.c_ind['hx']] *= 1e19
 
         self.x_dimensions = self.kernel.ndim
-	print("Building")        
-        self.build(solver, mean, white_noise)
-	print("Built")
+
+        self.build(solver, mean, white_noise, tol)
+
 
     def optimise(self, algorithm="adam", max_iter = 100, **kwargs):
         
@@ -146,7 +147,7 @@ class GPCatalogue(Catalogue):
                          bounds=bounds,
                          callback=callback, **kwargs)
         
-    def build(self, solver="hodlr", mean=0.0, white_noise=0):
+    def build(self, solver="hodlr", mean=0.0, white_noise=0, tol=1e-6):
         """
         Construct the GP
         """
@@ -154,7 +155,10 @@ class GPCatalogue(Catalogue):
         if not solver:
             self.gp = GP(self.kernel, mean=mean, white_noise=white_noise)
         else:
-            self.gp = GP(self.kernel, solver=HODLRSolver, tol=1e-6, min_size=100, mean=mean, white_noise=white_noise)
+            self.gp = GP(self.kernel, solver=HODLRSolver,
+                         tol=tol,
+                         min_size=100,
+                         mean=mean, white_noise=white_noise)
         self.yerr = np.ones(len(self.training_data)) * 0 #1e-8
 	print("Computing")
         self.gp.compute(self.training_data[:, :self.x_dimensions], self.yerr)
@@ -176,7 +180,7 @@ class GPCatalogue(Catalogue):
                                     points,
                                     return_var=True,
         )
-        return mean, var
+        return Timeseries(data=mean/1e19, times=points[:,self.c_ind['time']]), var
 
     def waveform_samples(self, p, time_range, samples=100):
         """
@@ -197,7 +201,7 @@ class GPCatalogue(Catalogue):
                                              size=samples
         )
 
-        return_samples = [Timeseries(data=sample, times=times) for sample in samples]
+        return_samples = [Timeseries(data=sample/1e19, times=times/1e4) for sample in samples]
         
         return np.array(return_samples)
         
