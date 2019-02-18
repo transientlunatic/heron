@@ -73,8 +73,9 @@ class GPCatalogue(Catalogue):
         self.training_data[:,self.c_ind['hx']] *= 1e19
 
         self.x_dimensions = self.kernel.ndim
-        
+	print("Building")        
         self.build(solver, mean, white_noise)
+	print("Built")
 
     def optimise(self, algorithm="adam", max_iter = 100, **kwargs):
         
@@ -155,7 +156,7 @@ class GPCatalogue(Catalogue):
         else:
             self.gp = GP(self.kernel, solver=HODLRSolver, tol=1e-6, min_size=100, mean=mean, white_noise=white_noise)
         self.yerr = np.ones(len(self.training_data)) * 0 #1e-8
-
+	print("Computing")
         self.gp.compute(self.training_data[:, :self.x_dimensions], self.yerr)
 
     def waveform(self, p, time_range):
