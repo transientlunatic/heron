@@ -180,7 +180,7 @@ class GPCatalogue(Catalogue):
                                     points,
                                     return_var=True,
         )
-        return Timeseries(data=mean/1e19, times=points[:,self.c_ind['time']]), var
+        return Timeseries(data=mean/1e19, times=points[:,self.c_ind['time']]), Timeseries(data=var/1e19, times=points[:,self.c_ind['time']])
 
     def waveform_samples(self, p, time_range, samples=100):
         """
