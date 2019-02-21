@@ -160,7 +160,7 @@ class GPCatalogue(Catalogue):
                          min_size=100,
                          mean=mean, white_noise=white_noise)
         self.yerr = np.ones(len(self.training_data)) * 0 #1e-8
-	print("Computing")
+	
         self.gp.compute(self.training_data[:, :self.x_dimensions], self.yerr)
 
     def waveform(self, p, time_range):
@@ -200,7 +200,6 @@ class GPCatalogue(Catalogue):
                                              points,
                                              size=samples
         )
-
         return_samples = [Timeseries(data=sample/1e19, times=times/1e4) for sample in samples]
         
         return np.array(return_samples)
