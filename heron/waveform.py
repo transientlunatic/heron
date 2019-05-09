@@ -3,13 +3,52 @@ This module is designed to allow for Gaussian Process modelling of
 gravitational waveforms.
 """
 
-from george import kernels, GP
+import george
 from george import HODLRSolver
+import elk
 from elk.waveform import Waveform, Timeseries
 from elk.catalogue import Catalogue
 import numpy as np
 import matplotlib.pyplot as plt
 
+class Generator(Catalogue):
+    """
+    This class is a waveform generator which uses some underlying statistical model
+    (for example, a Gaussian Process regressor) to produce waveforms.
+    """
+
+    def __init__(self, model):
+        """
+        Produce a waveform generator given a specific model.
+        """
+        self.model = model
+
+    def _generate(self, theta):
+        """
+        Produce a single waveform at a location `theta` in the intrinsic parameter space.
+
+        Parameters
+        ----------
+        theta : array-like
+           A location in the intrinsic parameter space.
+        """
+        return self.model(theta)
+
+    def __call__(self, theta):
+        """
+        Produce a single waveform at a location `theta` in the /extrinsic/ parameter space.
+
+        TODO: Make this actually return the /extrinsic/ waveform.
+        """
+        intrinsic =  self._generate(theta)
+        return intrinsic
+
+
+
+
+
+
+    
 class GPCatalogue(Catalogue):
     """
     This class represents a 'catalogue' of waveform built out of
@@ -19,7 +58,7 @@ class GPCatalogue(Catalogue):
     to be represented continuously, as opposed to in the discrete manner
     of the underlying NR catalogue.
     """
-
+    
     def __init__(self, nrcat, kernel, total_mass=100, f_min=None, solver="hodlr",
                  tmax=0.01,
                  tmin=-0.015,
