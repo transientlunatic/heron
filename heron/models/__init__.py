@@ -1,4 +1,5 @@
 
+import numpy as np
 
 class Model(object):
     """
@@ -10,4 +11,36 @@ class Model(object):
     - `train` : provide an interface for training the model
     """
 
+    def _process_inputs(self, times, p):
+        """
+        Apply regularisations and normalisations to any input point dictionary.
+
+        Parameters
+        ----------
+        times: list, array-like
+           An array of time stamps.
+        p : dict
+           A dictionary of the input locations
+        """
+
+        # The default implementation of this method just passes the data straight through.
+       
+        return times, p
+    
+    def _generate_eval_matrix(self, p, times):
+        """
+        Create the matrix of parameter points at which to evaluate the model.
+        """
+
+        times, p = self._process_inputs(times, p)
+        
+        nt = len(times)
+        points = np.ones((nt, self.x_dimensions))
+        points[:,self.c_ind['time']] = times
+
+        for column, value in p.items():
+            points[:, self.c_ind[column]] *= value
+
+        return points
+    
     pass
