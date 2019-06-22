@@ -13,14 +13,929 @@ of new samples being taken.
 
 The paper draft for this project is in a git repository [[http://git.ligo.org/daniel-williams/heron-paper][here]].
 
+The detection and analysis of gravitational wave signals is heavily
+dependent on matched filtering, a process which matches pre-computed
+template waveforms to signals in noisy data. In the case of
+gravitational wave detection, problems which can be fruitfully
+addressed by this technique include the detection of signals from
+compact binary coalesences (CBCs), such as binary black hole (BBH) and
+binary neutron star (BNS) mergers, where it is possible to predict the
+waveform that the event will produce, and the analysis of the features
+of the signal to identify the properties of the generating physical
+system—a process known as `parameter estimation' (PE).
+
+Accurate parameter estimation requires accurate templates; highly
+accurate templates can be generated using numerical relativity (NR)
+simulations, however doing so is computationally costly, and as a
+result only a small number of these high-accuracy templates are
+available. To provide greater coverage of the physical parameter space
+it is necessary to form an interpolant to these simulations, which
+maintains accuracy over the entire waveform.
+
+A number of approaches to this problem exist, including the production
+of "post-Newtonian approximants" (PN) such as the TaylorT2
+approximant, or Inspiral-Merger-Ringdown models, which are calibrated
+against the NR data, such as the effective one-body-NR (EOBNR) and
+IMRPhenom families of waveforms, spline interpolant surrogate
+models. While these models of the waveform can be evaluated with
+comparitive speed, they are prone to introducing a systematic error
+into the PE process, as the parameter-space values of the
+best-matching template generated from them is generally different from
+those of the true source parameters.
+
+Methods for improving this situation were suggested in [Moore et al],
+who propose a method for incorporating a measure of the difference
+between the NR waveform and the approximant which is itself
+interpolated over the entire parameter space using Gaussian Process
+Regression (GPR), having been sampled at a number of locations
+constrained by the existence of NR waveforms.
+
+The approach presented here attempts to by-pass this two-stage
+interpolation by combining the interpolation of the waveforms and the
+associated uncertainty, using GPR to interpolate the entire waveform,
+trained from NR data. GPR assumes that the waveform data are drawn
+from a Gaussian Process (GP) over the physical parameter space, wWith
+the mean and the covariance of the estimated from the NR data, and the
+covariance structure pre-defined by the smoothness conditions on the
+waveform. This GPR approach is capable not only of producing an
+interpolated function, but also a Gaussian probability distribution
+for that waveform, encapsulating the uncertainty in the interpolant at
+each point in parameter space. This provides a means not only of
+improving the accuracy of matched filtering, but also provides
+information about which regions of the parameter space are most poorly
+understood, and can therefore motivate the placement of future
+waveform simulations.
+
+This note outlines the theory behind GPR, and briefly discusses the
+problems which are encountered with thiss technique when addressing a
+large problem such as this using Gaussian Processes; we then discuss
+the implementation which we use to by-pass some of these
+difficulties. We then discuss the training data which was used to
+produce our GPR surrogate model, and the details of the model itself:
+GPR is a "non-parametric" regression technique, and as such a minimal
+number of choices are made about the form of the interpolant, with
+most learned from the training data, however we did need to make
+specific choices with regards to the covariance function used to
+generate the GP. After discussing the details of the model, we cover
+the process of training that model (selecting the correct
+hyperparameters for the covariance function), and then address the
+methods for testing the trained model.
+
+* Theory of Gaussian Processes
+
+Gaussian processes are Bayesian models which associate every point an
+some /input space/ with a probability distribution---specifically a
+normal distribution, and a collection of input points will form a
+multi-variate normal distribution. Gaussian processes are a
+non-parametric supervised machine learning
+technique\cite{barberBRML2012,mackay2003information}.
+
+To make a prediction, we need to first have a set of prior observations
+and information about the parameters of the physical system which
+produced those observations. These combined form the /training data/ for
+the predictor.
+
+A completely untrained Gaussian process forms the job of a prior
+probability distribution in a Bayesian analysis; where it is more
+conventional to consider a prior over a set of, for example, real
+values, such as a normal distribution, the Gaussian process forms a
+prior over the functions which might form the regression fit to any
+observed data. While this prior is intially untrained it still contains
+information about our preconceptions of the data, for example, whether
+or not we expect the fit to be analytic, and the average of the
+functions. By providing training data we can update the Gaussian
+process, in the same way that the posterior distribution is updated by
+the addition of new data in a standard Bayesian context, and a posterior
+on the set of all possible functions to fit the data is produced. We can
+take the mean of this posterior in the place of the "best fit line"
+which other techniques produce, and then use the variance to produce an
+estimate of the uncertainty of the prediction.
+
+The possibility of using Gaussian Processes in the analysis of data from
+gravitational wave detectors has been proposed by Moore and
+Gair\cite{2014PhRvL.113y1101M,2016PhRvD..93f4001M} who propose its use
+to calculate the uncertainties in current generation post-Newtonian
+approximants to numerical relativity simulations, and to incorporate
+this into the current matched-filtering analyses which are conducted on
+triggers from gravitational wave detectors.
+
+Gaussian processes trained with $N$ data require the ability to both
+store and invert an $N\times N$ matrix of covariances between
+observations; this can be a considerable computational challenge, and
+there are a number of approaches to get around this problem, including
+/sparse Gaussian processes/, where a limit on the parameter-space
+distance between training points is set, and the covariance of points
+outside this radius are ignored\cite{EPFL-CONF-161319}, and heirarchical
+methods\cite{hodlr}.
+
+Gaussian processes can be extended from the case of a single-dimensional
+input predicting a single-dimensional output to the ability to predict a
+multi-dimensional output from a multi-dimensional
+input\cite{Alvarez2011,Alvarez2011a,Bonilla2007}.
+
+* Covariance Functions
+
+The covariance function defines the similarity of a pair of data points,
+according to some relationship with suitable properties. The similarity
+of input data is assumed to be related to the similarity of the output,
+and therefore the more similar two inputs are the more likely their
+outputs are to be similar.
+
+As such, the form of the covariance function represents prior knowledge
+about the data, and can encode understanding of effects such as
+periodicity within the data.
+
+- Stationary Covariance Function :: A stationary covariance function is a
+function $f(\vec{x} - \vec{x}')$, and which is thus invariant to
+translations in the input space.
+
+- Isotropic Covariance Function :: If a covariance function is a function of
+the form $f(|\vec{x} - \vec{x}'|)$ then it is isotropic, and invariant
+under all rigid motions.
+
+One of the most frequently encountered covariance functions in the
+literature is the exponential squared covariance functions
+\cite{rasmussen2006gaussian}
+
+$$\label{eq:squaredexponentialkernel}
+  k_{\mathrm{SE}}(r) = \exp( - \frac{r^2}{2 l^2} )$$
+
+for $r$ the Euclidean distance of a datum from the centre of the
+parameter space, and $l$ is a scale factor associated with the axis
+along which the data are defined.
+
+** Kernel algebra
+
+It is possible to define new kernels from the standard set through a
+series of defined operations.
+
+Consider two covariance functions, $f_1$ and $f_2$, then
+
+Kernel Addition $f = f_1 + f_2$ is a covariance function.
+
+Kernel product $f = f_1 f_2$ is a covariance function.
+
+** Non-stationarity of the parameter space
+
+
+* Gaussian Process implementation
+
+** Computational Complexity
+
+ One severe disadvantage of Gaussian Processes as a data analysis tool
+ are their high computational complexity. Producing a prediction from a
+ GP requires inverting the covariance matrix; matrix inversion is an
+ $\mathcal{O}(N^3)$ process in time, and scales with $\mathcal{O}(N^2)$
+ in memory use. This effectively limits the number of training points
+ which can be input to a GP to fewer than $10^4$. A number of approaches
+ have been developed in the literature to address this short-coming by
+ utilising computationally tractable approximations to either the matrix
+ inversion or the Gaussian process.
+
+ These approaches can be grouped into three broad categories; sparse
+ Gaussian processes, which use a modified covariance function to force
+ the covariance matrix to have a near-diagonal structure; hierarchical
+ approaches, which do not modify the covariancec function, but
+ approximate the off-diagonal terms' influence on the inversion; and
+ local expert approaches, in which the parameter space is divided into
+ many sub-spaces, and each sub-space is modelled using an independent
+ Gaussian process.
+
+*** Sparse Gaussian proceses
+
+*** Hierarchical Gaussian processes
+
+*** Gaussian process local experts
+
+ Local expert approaches attempt to improve the computational performance
+ of GPs by diving the parameter space of the model into multiple
+ sub-spaces. In a conventional GP the training data,
+ $\mathcal{D} = \{ (x^n, y^n), n=1,\dots,N \} = \mathcal{X} \cup
+ \mathcal{Y},$ is used in its entirity to train a single GP. If these
+ data were instead divided into $M$ subsets, of size $K$, we can train
+ $M$ separate GPs, which will each provide an independent prediction for
+ any given point in the parameter space. The network structure which is
+ established by this subdivision of the parameter space is known as a
+ /gating network/.
+
+ Early approaches to using local experts in GPs used
+ kd-trees\cite{shen2005fast} to sub-divide the parameter space, and then
+ modelled each subspace with its own GP. The GPs were trained together,
+ with each having the same kernel hyper-parameters. Final predictions
+ were then produced as a weighted sum of the individual GPs' predictions.
+ While this approach was somewhat effective, it enforced a stationary
+ structure on the covariance matrix, and the paper does not treat the
+ combination of the prediction uncertainties.
+
+ Approaches which follow the work of
+ \cite{Jacobs:1991:AML:1351011.1351018} on mixtures of local experts have
+ had some more promise, allowing each GP to have its own set of
+ hyper-parameters, allowing greater freedom in modelling heteroscedastic
+ and non-stationary data.
+
+ Deciding on the number of sub-models is a non-trivial problem; one
+ approach is to model the parameter space using an infinite mixture model
+ (IMM)\cite{rasmussen2002infinite}, in which the gating network is
+ effectively a Dirichlet process over the training data. The predictions
+ from each sub-model are then summed to find the global prediction. While
+ this approach offers greater flexibility for modelling more complex
+ underlying functions, it does little to improve the speed of GP
+ predictions. Additional IMM approaches are proposed by
+ \cite{meeds2006alternative}, and a comparable, variational approach is
+ taken by \cite{yuan2009variational}.
+
+ All of these approaches have the difficulty of requiring the gating
+ network to assign a weight (often called a /responsibility/ to each
+ sub-model's prediction when calculating the global prediction, adding an
+ additional layer of inference, which normally requires an MCMC sampler
+ to perform. /Product-of-experts/ models avoid this complication by
+ multiplying the sub-model predictions, but these models have either
+ turned out to be excessively confident,\cite{2014arXiv1412.3078N}, or
+ excessively conservative\cite{2014arXiv1410.7827C}.
+
+ These problems have lead to the development of the Bayesian Committee
+ Machine (BCM)\cite{tresp2000bayesian}, which assigns a weight to each
+ sub-model's prediction which is equal to the inverse of the prediction's
+ covariance, in order that sub-models which better observe the predicted
+ region are given a greater weight in the global prediction. This
+ approach can suffer as a result of models which contains week experts,
+ and so the /robust Bayesian Committee
+ Machine/\cite{deisenroth2015distributed} has been proposed to provide a
+ more robust framework for Gaussian process regression with many experts.
+ This approach also allows for the computation of the model's prediction
+ to be highly-parallelised, with the potential for each sub-model being
+ evaluated on separate compute nodes, and combined together by another
+ process running on another node.
+
+
+* Training Data
+The data set being used for initial testing of heron is from the Georgia tech catalogue.
+
+
+** Spin-free catalogue
+
+| 107 | GT0448 | 1.000000 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 1673.544207 |
+| 120 | GT0905 | 1.000000 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2108.784247 |
+| 154 | GT0717 | 0.909091 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2218.726677 |
+|  40 | GT0370 | 0.869565 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 1933.067607 |
+|  47 | GT0898 | 0.833333 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 1482.263604 |
+|   1 | GT0371 | 0.769231 | -0.0 | 0.0 | 0.0 | -0.0 | 0.0 | 0.0 | 1928.511674 |
+|  38 | GT0730 | 0.714286 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2211.053781 |
+|  50 | GT0372 | 0.689655 | -0.0 | 0.0 | 0.0 | -0.0 | 0.0 | 0.0 | 1924.333143 |
+|  67 | GT0477 | 0.666667 | -0.0 | 0.0 | 0.0 | -0.0 | 0.0 | 0.0 | 1677.553681 |
+| 109 | GT0374 | 0.625000 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 1931.951263 |
+| 135 | GT0615 | 0.588235 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2202.255101 |
+| 164 | GT0727 | 0.571429 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 1677.225057 |
+|  22 | GT0618 | 0.555556 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2198.091865 |
+|  43 | GT0376 | 0.526316 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 1869.599581 |
+|   8 | GT0446 | 0.500000 | -0.0 | 0.0 | 0.0 | -0.0 | 0.0 | 0.0 | 1669.850828 |
+| 114 | GT0378 | 0.487805 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 1866.705100 |
+|  72 | GT0617 | 0.476190 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2183.817521 |
+|  74 | GT0757 | 0.444444 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 1662.185370 |
+|  83 | GT0621 | 0.434783 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2173.230497 |
+|  11 | GT0380 | 0.425532 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 1858.792677 |
+| 113 | GT0622 | 0.416667 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2172.392097 |
+| 103 | GT0565 | 0.400000 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 1665.310903 |
+|  92 | GT0651 | 0.384615 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2163.291158 |
+| 130 | GT0650 | 0.370370 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2157.575325 |
+|   0 | GT0653 | 0.357143 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2153.499315 |
+|  55 | GT0654 | 0.344828 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2149.934886 |
+|  46 | GT0453 | 0.333333 | -0.0 | 0.0 | 0.0 | -0.0 | 0.0 | 0.0 | 1655.664652 |
+|  95 | GT0758 | 0.322581 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2137.921256 |
+|  77 | GT0759 | 0.312500 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2136.142217 |
+|  15 | GT0760 | 0.303030 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2133.003306 |
+|  16 | GT0761 | 0.294118 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2132.212652 |
+| 101 | GT0748 | 0.277778 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2120.306087 |
+|   6 | GT0778 | 0.270270 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2120.665927 |
+|  10 | GT0777 | 0.256410 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2113.319336 |
+| 163 | GT0454 | 0.250000 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 1589.495511 |
+|  73 | GT0797 | 0.243902 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2106.858417 |
+| 126 | GT0798 | 0.238095 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2099.965688 |
+|  78 | GT0791 | 0.232558 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2101.702718 |
+|  21 | GT0795 | 0.227273 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2101.245038 |
+|  27 | GT0656 | 0.222222 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2094.168849 |
+|  84 | GT0577 | 0.200000 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 1801.025328 |
+| 112 | GT0604 | 0.166667 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 1783.645872 |
+|  91 | GT0818 | 0.142857 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 1958.621094 |
+|  49 | GT0568 | 0.100000 |  0.0 | 0.0 | 0.0 |  0.0 | 0.0 | 0.0 | 2296.274219 |
+
+** Catalogue
+
+|   | Row | GTID   | GT-Tag                                       | Mass Ratio (q) |        a1x |        a1y |        a1z |        a2x |        a2y |        a2z | Lx |       Ly |      Lz |     mf |       af |  Momega |
+|---+-----+--------+----------------------------------------------+----------------+------------+------------+------------+------------+------------+------------+----+----------+---------+--------+----------+---------|
+|   | 389 | GT0830 | D09_q1.00_a0.35_Q20                          |              1 |          0 |          0 |       0.35 |          0 |          0 |       0.35 |  0 |       -0 |  0.9073 | 0.9395 |   0.7903 | 0.06416 |
+|   |  51 | GT0355 | D11_a0.2_q1.00_m103_As                       |              1 |          0 |          0 |        0.2 |          0 |          0 |       -0.2 |  0 |       -0 |  0.9911 | 0.9515 |   0.6861 | 0.04918 |
+|   |  52 | GT0356 | D11_a0.4_q1.00_m103_As                       |              1 |          0 |          0 |     0.3999 |          0 |          0 |    -0.4001 |  0 |       -0 |  0.9911 | 0.9514 |   0.6857 |  0.0492 |
+|   |  53 | GT0357 | D11_a0.6_q1.00_m103_As                       |              1 |          0 |          0 |     0.5999 |          0 |          0 |    -0.6001 |  0 |       -0 |  0.9911 | 0.9512 |   0.6849 | 0.04919 |
+|   |  54 | GT0358 | D11_a0.8_q1.00_m103_As                       |              1 |          0 |          0 |     0.7999 |          0 |          0 |    -0.8001 |  0 |       -0 |  0.9911 | 0.9509 |   0.6839 | 0.04922 |
+|   | 123 | GT0476 | D11_q1.00_a-0.2_m200                         |              1 |          0 |          0 |       -0.2 |          0 |          0 |       -0.2 |  0 |       -0 |   1.003 | 0.9564 |    0.624 | 0.04975 |
+|   | 195 | GT0564 | D11_q1.00_a-0.4_m200                         |              1 |          0 |          0 |       -0.4 |          0 |          0 |       -0.4 |  0 |       -0 |   1.015 | 0.9605 |     0.56 | 0.05046 |
+|   | 183 | GT0546 | D11_q1.00_a0.00_0.20_m160                    |              1 |          0 |          0 |          0 |          0 |          0 |        0.2 |  0 |       -0 |  0.9853 | 0.9487 |   0.7164 |  0.0489 |
+|   | 184 | GT0547 | D11_q1.00_a0.00_0.40_m160                    |              1 |          0 |          0 |          0 |          0 |          0 |        0.4 |  0 |       -0 |  0.9796 | 0.9454 |   0.7459 | 0.04866 |
+|   | 185 | GT0548 | D11_q1.00_a0.00_0.60_m160                    |              1 |          0 |          0 |          0 |          0 |          0 |        0.6 |  0 |       -0 |  0.9739 | 0.9416 |   0.7747 | 0.04823 |
+|   | 188 | GT0551 | D11_q1.00_a0.00_0.80_m160                    |              1 |          0 |          0 |          0 |          0 |          0 |        0.8 |  0 |       -0 |  0.9683 | 0.9372 |   0.8024 | 0.04832 |
+|   | 101 | GT0448 | D11_q1.00_a0.0_m240                          |              1 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.9911 | 0.9516 |   0.6862 | 0.04914 |
+|   | 202 | GT0574 | D11_q1.00_a0.1_m200                          |              1 |          0 |          0 |        0.1 |          0 |          0 |        0.1 |  0 |       -0 |  0.9853 | 0.9487 |   0.7165 | 0.04889 |
+|   | 186 | GT0549 | D11_q1.00_a0.20_0.40_m160                    |              1 |          0 |          0 |        0.2 |          0 |          0 |        0.4 |  0 |       -0 |  0.9739 | 0.9417 |   0.7751 |  0.0484 |
+|   | 189 | GT0554 | D11_q1.00_a0.20_0.60_m160                    |              1 |          0 |          0 |        0.2 |          0 |          0 |        0.6 |  0 |       -0 |  0.9683 | 0.9374 |   0.8033 |   0.048 |
+|   | 190 | GT0555 | D11_q1.00_a0.20_0.80_m160                    |              1 |          0 |          0 |        0.2 |          0 |          0 |        0.8 |  0 |       -0 |  0.9627 | 0.9324 |   0.8304 | 0.04813 |
+|   |  85 | GT0420 | D11_q1.00_a0.2_m200                          |              1 |          0 |          0 |        0.2 |          0 |          0 |        0.2 |  0 |       -0 |  0.9796 | 0.9455 |   0.7462 | 0.04862 |
+|   | 205 | GT0579 | D11_q1.00_a0.3_m200                          |              1 |          0 |          0 |        0.3 |          0 |          0 |        0.3 |  0 |       -0 |  0.9739 | 0.9418 |   0.7753 | 0.04837 |
+|   |  86 | GT0422 | D11_q1.00_a0.4_m200                          |              1 |          0 |          0 |        0.4 |          0 |          0 |        0.4 |  0 |       -0 |  0.9683 | 0.9376 |   0.8036 | 0.04811 |
+|   | 206 | GT0580 | D11_q1.00_a0.5_m200                          |              1 |          0 |          0 |        0.5 |          0 |          0 |        0.5 |  0 |       -0 |  0.9627 | 0.9327 |   0.8313 | 0.04784 |
+|   | 208 | GT0583 | D11_q1.00_a0.7_m200                          |              1 |          0 |          0 |        0.7 |          0 |          0 |        0.7 |  0 |       -0 |  0.9516 |   0.92 |    0.884 |  0.0471 |
+|   |  87 | GT0424 | D11_q1.00_a0.8_m200                          |              1 |          0 |          0 |        0.8 |          0 |          0 |        0.8 |  0 |       -0 |  0.9461 | 0.9117 |   0.9086 | 0.04772 |
+|   | 209 | GT0584 | D12_q1.00_a0.60_m200                         |              1 |          0 |          0 |        0.6 |          0 |          0 |        0.6 |  0 |       -0 |  0.9888 | 0.9269 |    0.858 | 0.04204 |
+|   |  67 | GT0389 | D6.2_q1_a-0.6_m100                           |              1 |          0 |          0 |       -0.6 |          0 |          0 |       -0.6 |  0 |       -0 |  0.8844 | 0.9651 |   0.4876 |  0.1168 |
+|   |  70 | GT0392 | D6.2_q1_a-0.8_m100                           |              1 |          0 |          0 |       -0.8 |          0 |          0 |       -0.8 |  0 |       -0 |  0.9012 | 0.9675 |   0.4122 |    0.12 |
+|   | 414 | GT0860 | D8_q1.0_a0.6_0.6_th90_0_r100_res140_CE-all   |              1 |     0.1093 |     0.4806 |     0.3421 |     0.4599 |    -0.2874 |     0.2567 |  0 |       -0 |  0.8756 | 0.9399 |   0.7827 | 0.07765 |
+|   | 415 | GT0861 | D8_q1.0_a0.6_0.6_th90_135_r100_res140_CE-all |              1 |    -0.1588 |    -0.4137 |    -0.4045 |     0.2971 |      0.521 |   -0.02011 |  0 |       -0 |  0.9141 | 0.9567 |   0.6201 | 0.08503 |
+|   | 416 | GT0862 | D8_q1.0_a0.6_0.6_th90_180_r100_res140_CE-all |              1 |     0.5423 |    -0.2546 |    -0.0338 |    0.05283 |     0.1879 |    -0.5674 |  0 |       -0 |  0.9185 |  0.958 |   0.6071 |  0.0727 |
+|   | 417 | GT0863 | D8_q1.0_a0.6_0.6_th90_225_r100_res140_CE-all |              1 |    -0.5122 |     0.2699 |    -0.1574 |    -0.5064 |    -0.1753 |      -0.27 |  0 |       -0 |  0.9077 | 0.9555 |   0.6629 |  0.0867 |
+|   | 418 | GT0864 | D8_q1.0_a0.6_0.6_th90_270_r100_res140_CE-all |              1 |     -0.269 |    -0.5361 |   -0.01391 |     -0.269 |    -0.5361 |   -0.01391 | -0 |        0 |  0.8951 | 0.9493 |   0.7364 | 0.08353 |
+|   | 419 | GT0865 | D8_q1.0_a0.6_0.6_th90_315_r100_res140_CE-all |              1 |   -0.09605 |     0.4669 |     0.3644 |     0.2076 |      0.562 |    0.03321 |  0 |       -0 |  0.8821 | 0.9432 |    0.782 | 0.07936 |
+|   | 420 | GT0866 | D8_q1.0_a0.6_0.6_th90_45_r100_res140_CE-all  |              1 |    -0.3544 |     0.2327 |     0.4245 |     0.4938 |    -0.3409 | -0.0005569 | -0 |        0 |  0.8836 | 0.9447 |   0.7486 | 0.07808 |
+|   | 421 | GT0867 | D8_q1.0_a0.6_0.6_th90_90_r100_res140_CE-all  |              1 |     0.5993 |    0.02989 |         -0 |    -0.5993 |   -0.02989 |         -0 |  0 |       -0 |  0.8988 | 0.9493 |   0.6789 | 0.08106 |
+|   | 128 | GT0482 | EK_D6.2_a0.6_th030_M77                       |              1 |     0.5196 |        0.3 |          0 |    -0.5196 |       -0.3 |          0 |  0 |        0 |  0.8473 | 0.9509 |   0.6842 |  0.1012 |
+|   | 129 | GT0483 | EK_D6.2_a0.6_th045_M77                       |              1 |     0.4243 |     0.4243 |          0 |    -0.4243 |    -0.4243 |          0 |  0 |        0 |  0.8473 | 0.9504 |   0.6826 |  0.1012 |
+|   | 130 | GT0484 | EK_D6.2_a0.6_th060_M77                       |              1 |        0.3 |     0.5196 |          0 |       -0.3 |    -0.5196 |          0 |  0 |        0 |  0.8473 | 0.9499 |   0.6811 |  0.1013 |
+|   | 131 | GT0485 | EK_D6.2_a0.6_th090_M77                       |              1 |  3.674E-17 |        0.6 |          0 | -3.674E-17 |       -0.6 |          0 |  0 |        0 |  0.8473 | 0.9494 |   0.6798 |  0.1014 |
+|   | 132 | GT0486 | EK_D6.2_a0.6_th120_M77                       |              1 |       -0.3 |     0.5196 |          0 |        0.3 |    -0.5196 |          0 |  0 |        0 |  0.8473 | 0.9498 |   0.6817 |  0.1013 |
+|   | 133 | GT0487 | EK_D6.2_a0.6_th150_M77                       |              1 |    -0.5196 |        0.3 |          0 |     0.5196 |       -0.3 |          0 |  0 |        0 |  0.8473 | 0.9507 |   0.6846 |  0.1013 |
+|   | 134 | GT0489 | EK_D6.2_a0.6_th210_M77                       |              1 |    -0.5196 |       -0.3 |          0 |     0.5196 |        0.3 |          0 |  0 |        0 |  0.8473 | 0.9509 |   0.6842 |  0.1012 |
+|   | 135 | GT0490 | EK_D6.2_a0.6_th240_M77                       |              1 |       -0.3 |    -0.5196 |          0 |        0.3 |     0.5196 |          0 |  0 |        0 |  0.8473 | 0.9499 |   0.6811 |  0.1013 |
+|   | 136 | GT0491 | EK_D6.2_a0.6_th270_M77                       |              1 | -1.102E-16 |       -0.6 |          0 |  1.102E-16 |        0.6 |          0 |  0 |        0 |  0.8473 | 0.9494 |   0.6798 |  0.1014 |
+|   | 137 | GT0492 | EK_D6.2_a0.6_th300_M77                       |              1 |        0.3 |    -0.5196 |          0 |       -0.3 |     0.5196 |          0 |  0 |        0 |  0.8473 | 0.9498 |   0.6817 |  0.1013 |
+|   | 138 | GT0493 | EK_D6.2_a0.6_th330_M77                       |              1 |     0.5196 |       -0.3 |          0 |    -0.5196 |        0.3 |          0 |  0 |        0 |  0.8473 | 0.9507 |   0.6846 |  0.1013 |
+|   | 139 | GT0500 | LZ_D6.2_a0.6_th034_ph000_M77                 |              1 |     0.3355 |          0 |     0.4974 |    -0.3355 |          0 |     0.4974 |  0 |        0 |  0.7979 |    NaN |      NaN |  0.0977 |
+|   | 140 | GT0501 | LZ_D6.2_a0.6_th034_ph030_M77                 |              1 |     0.2906 |     0.1678 |     0.4974 |    -0.2906 |    -0.1678 |     0.4974 |  0 |        0 |  0.7979 |    NaN |      NaN | 0.09769 |
+|   | 141 | GT0502 | LZ_D6.2_a0.6_th034_ph045_M77                 |              1 |     0.2372 |     0.2372 |     0.4974 |    -0.2372 |    -0.2372 |     0.4974 |  0 |        0 |  0.7979 |    NaN |      NaN |  0.0977 |
+|   | 142 | GT0503 | LZ_D6.2_a0.6_th034_ph060_M77                 |              1 |     0.1678 |     0.2906 |     0.4974 |    -0.1678 |    -0.2906 |     0.4974 |  0 |        0 |  0.7979 |    NaN |      NaN | 0.09772 |
+|   | 143 | GT0504 | LZ_D6.2_a0.6_th034_ph090_M77                 |              1 |  2.054E-17 |     0.3355 |     0.4974 | -2.054E-17 |    -0.3355 |     0.4974 |  0 |        0 |  0.7979 |  0.932 |   0.8268 | 0.09774 |
+|   | 144 | GT0505 | LZ_D6.2_a0.6_th034_ph120_M77                 |              1 |    -0.1678 |     0.2906 |     0.4974 |     0.1678 |    -0.2906 |     0.4974 |  0 |        0 |  0.7979 | 0.9326 |   0.8281 | 0.09775 |
+|   | 145 | GT0506 | LZ_D6.2_a0.6_th034_ph150_M77                 |              1 |    -0.2906 |     0.1678 |     0.4974 |     0.2906 |    -0.1678 |     0.4974 |  0 |        0 |  0.7979 | 0.9329 |   0.8286 | 0.09773 |
+|   | 146 | GT0507 | LZ_D6.2_a0.6_th034_ph180_M77                 |              1 |    -0.3355 |  4.109E-17 |     0.4974 |     0.3355 | -4.109E-17 |     0.4974 |  0 |        0 |  0.7979 |    NaN |      NaN |  0.0977 |
+|   | 147 | GT0508 | LZ_D6.2_a0.6_th034_ph210_M77                 |              1 |    -0.2906 |    -0.1678 |     0.4974 |     0.2906 |     0.1678 |     0.4974 |  0 |        0 |  0.7979 |    NaN |      NaN | 0.09769 |
+|   | 148 | GT0509 | LZ_D6.2_a0.6_th034_ph240_M77                 |              1 |    -0.1678 |    -0.2906 |     0.4974 |     0.1678 |     0.2906 |     0.4974 |  0 |        0 |  0.7979 |    NaN |      NaN | 0.09772 |
+|   | 149 | GT0510 | LZ_D6.2_a0.6_th034_ph270_M77                 |              1 | -6.163E-17 |    -0.3355 |     0.4974 |  6.163E-17 |     0.3355 |     0.4974 |  0 |        0 |  0.7979 |  0.932 |   0.8268 | 0.09774 |
+|   | 150 | GT0511 | LZ_D6.2_a0.6_th034_ph300_M77                 |              1 |     0.1678 |    -0.2906 |     0.4974 |    -0.1678 |     0.2906 |     0.4974 |  0 |        0 |  0.7979 | 0.9326 |   0.8281 | 0.09775 |
+|   | 151 | GT0512 | LZ_D6.2_a0.6_th034_ph330_M77                 |              1 |     0.2906 |    -0.1678 |     0.4974 |    -0.2906 |     0.1678 |     0.4974 |  0 |        0 |  0.7979 | 0.9329 |   0.8286 | 0.09773 |
+|   | 158 | GT0520 | SS_D6.2_a0.6_th015_M103                      |              1 |     0.1553 |          0 |     0.5796 |    -0.1553 |          0 |     0.5796 |  0 |        0 |  0.7899 | 0.9283 |   0.8523 | 0.09727 |
+|   | 159 | GT0521 | SS_D6.2_a0.6_th030_M103                      |              1 |        0.3 |          0 |     0.5196 |       -0.3 |          0 |     0.5196 |  0 |        0 |  0.7958 |    NaN |      NaN |  0.0976 |
+|   | 160 | GT0522 | SS_D6.2_a0.6_th045_M103                      |              1 |     0.4243 |          0 |     0.4243 |    -0.4243 |          0 |     0.4243 |  0 |        0 |  0.8051 |    NaN |      NaN | 0.09812 |
+|   | 161 | GT0523 | SS_D6.2_a0.6_th060_M103                      |              1 |     0.5196 |          0 |        0.3 |    -0.5196 |          0 |        0.3 |  0 |        0 |  0.8174 |    NaN |      NaN | 0.09891 |
+|   | 162 | GT0524 | SS_D6.2_a0.6_th075_M103                      |              1 |     0.5796 |          0 |     0.1553 |    -0.5796 |          0 |     0.1553 |  0 |        0 |  0.8318 |    NaN |      NaN | 0.09995 |
+|   | 163 | GT0525 | SS_D6.2_a0.6_th090_M103                      |              1 |        0.6 |          0 |  3.674E-17 |       -0.6 |          0 |  3.674E-17 |  0 |        0 |  0.8473 |    NaN |      NaN |  0.1012 |
+|   | 164 | GT0526 | SS_D6.2_a0.6_th105_M103                      |              1 |     0.5796 |          0 |    -0.1553 |    -0.5796 |          0 |    -0.1553 |  0 |        0 |  0.8631 |    NaN |      NaN |  0.1026 |
+|   | 165 | GT0527 | SS_D6.2_a0.6_th120_M103                      |              1 |     0.5196 |          0 |       -0.3 |    -0.5196 |          0 |       -0.3 |  0 |        0 |  0.8778 |    NaN |      NaN |   0.104 |
+|   | 166 | GT0528 | SS_D6.2_a0.6_th135_M103                      |              1 |     0.4243 |          0 |    -0.4243 |    -0.4243 |          0 |    -0.4243 |  0 |        0 |  0.8906 | 0.9614 |   0.5504 |  0.1053 |
+|   | 167 | GT0529 | SS_D6.2_a0.6_th150_M103                      |              1 |        0.3 |          0 |    -0.5196 |       -0.3 |          0 |    -0.5196 |  0 |        0 |  0.9005 | 0.9631 |   0.5182 |  0.1063 |
+|   | 168 | GT0530 | SS_D6.2_a0.6_th165_M103                      |              1 |     0.1553 |          0 |    -0.5796 |    -0.1553 |          0 |    -0.5796 |  0 |        0 |  0.9068 | 0.9641 |   0.4977 |   0.107 |
+|   | 169 | GT0532 | SS_D6.2_a0.6_th195_M103                      |              1 |    -0.1553 |          0 |    -0.5796 |     0.1553 |          0 |    -0.5796 |  0 |        0 |  0.9068 | 0.9641 |   0.4977 |   0.107 |
+|   | 170 | GT0533 | SS_D6.2_a0.6_th210_M103                      |              1 |       -0.3 |          0 |    -0.5196 |        0.3 |          0 |    -0.5196 |  0 |        0 |  0.9005 | 0.9631 |   0.5182 |  0.1063 |
+|   | 171 | GT0534 | SS_D6.2_a0.6_th225_M103                      |              1 |    -0.4243 |          0 |    -0.4243 |     0.4243 |          0 |    -0.4243 |  0 |        0 |  0.8906 | 0.9614 |   0.5504 |  0.1053 |
+|   | 172 | GT0535 | SS_D6.2_a0.6_th240_M103                      |              1 |    -0.5196 |          0 |       -0.3 |     0.5196 |          0 |       -0.3 |  0 |        0 |  0.8778 |    NaN |      NaN |   0.104 |
+|   | 173 | GT0536 | SS_D6.2_a0.6_th255_M103                      |              1 |    -0.5796 |          0 |    -0.1553 |     0.5796 |          0 |    -0.1553 |  0 |        0 |  0.8631 |    NaN |      NaN |  0.1026 |
+|   | 174 | GT0537 | SS_D6.2_a0.6_th270_M103                      |              1 |       -0.6 |          0 | -1.102E-16 |        0.6 |          0 | -1.102E-16 |  0 |        0 |  0.8473 |    NaN |      NaN |  0.1012 |
+|   | 175 | GT0538 | SS_D6.2_a0.6_th285_M103                      |              1 |    -0.5796 |          0 |     0.1553 |     0.5796 |          0 |     0.1553 |  0 |        0 |  0.8318 |    NaN |      NaN | 0.09995 |
+|   | 176 | GT0539 | SS_D6.2_a0.6_th300_M103                      |              1 |    -0.5196 |          0 |        0.3 |     0.5196 |          0 |        0.3 |  0 |        0 |  0.8174 |    NaN |      NaN | 0.09891 |
+|   | 177 | GT0540 | SS_D6.2_a0.6_th315_M103                      |              1 |    -0.4243 |          0 |     0.4243 |     0.4243 |          0 |     0.4243 |  0 |        0 |  0.8051 |    NaN |      NaN | 0.09812 |
+|   | 178 | GT0541 | SS_D6.2_a0.6_th330_M103                      |              1 |       -0.3 |          0 |     0.5196 |        0.3 |          0 |     0.5196 |  0 |        0 |  0.7958 |    NaN |      NaN |  0.0976 |
+|   | 179 | GT0542 | SS_D6.2_a0.6_th345_M103                      |              1 |    -0.1553 |          0 |     0.5796 |     0.1553 |          0 |     0.5796 |  0 |        0 |  0.7899 | 0.9283 |   0.8523 | 0.09727 |
+|   | 152 | GT0513 | SSaP_D6.2_a0.6_th066_ph000_M77               |              1 |     0.5481 |          0 |      0.244 |    -0.5481 |          0 |      0.244 |  0 |        0 |  0.8229 |    NaN |      NaN |  0.0993 |
+|   | 153 | GT0514 | SSaP_D6.2_a0.6_th066_ph030_M77               |              1 |     0.4747 |     0.2741 |      0.244 |    -0.4747 |    -0.2741 |      0.244 |  0 |        0 |  0.8229 |    NaN |      NaN | 0.09931 |
+|   | 154 | GT0515 | SSaP_D6.2_a0.6_th066_ph060_M77               |              1 |     0.2741 |     0.4747 |      0.244 |    -0.2741 |    -0.4747 |      0.244 |  0 |        0 |  0.8229 |    NaN |      NaN | 0.09939 |
+|   | 155 | GT0516 | SSaP_D6.2_a0.6_th066_ph090_M77               |              1 |  3.356E-17 |     0.5481 |      0.244 | -3.356E-17 |    -0.5481 |      0.244 |  0 |        0 |  0.8229 |    NaN |      NaN | 0.09945 |
+|   | 156 | GT0517 | SSaP_D6.2_a0.6_th066_ph120_M77               |              1 |    -0.2741 |     0.4747 |      0.244 |     0.2741 |    -0.4747 |      0.244 |  0 |        0 |  0.8229 |    NaN |      NaN | 0.09944 |
+|   | 157 | GT0518 | SSaP_D6.2_a0.6_th066_ph150_M77               |              1 |    -0.4747 |     0.2741 |      0.244 |     0.4747 |    -0.2741 |      0.244 |  0 |        0 |  0.8229 |    NaN |      NaN | 0.09937 |
+|   |   9 | GT0009 | fr_b3.1_a0.2_oth.000_M77                     |              1 |          0 |          0 |        0.2 |       -0.2 |          0 |          0 |  0 |        0 |  0.8362 |    NaN |      NaN |  0.1004 |
+|   |  10 | GT0010 | fr_b3.1_a0.2_oth.045_M77                     |              1 |     0.1414 |          0 |     0.1414 |       -0.2 |          0 |          0 |  0 |        0 |  0.8392 |    NaN |      NaN |  0.1006 |
+|   |  11 | GT0011 | fr_b3.1_a0.2_oth.090_M77                     |              1 |        0.2 |          0 |  1.225E-17 |       -0.2 |          0 |          0 |  0 |        0 |  0.8464 |    NaN |      NaN |  0.1012 |
+|   |  12 | GT0012 | fr_b3.1_a0.2_oth.135_M77                     |              1 |       -0.2 |          0 |          0 |     0.1414 |          0 |    -0.1414 |  0 |        0 | -0.8535 |    NaN |      NaN |  0.1018 |
+|   |  13 | GT0013 | fr_b3.1_a0.2_oth.180_M77                     |              1 |       -0.2 |          0 |          0 |   2.45E-17 |          0 |       -0.2 |  0 |        0 | -0.8563 |    NaN |      NaN |  0.1021 |
+|   |  14 | GT0014 | fr_b3.1_a0.2_oth.225_M77                     |              1 |       -0.2 |          0 |          0 |    -0.1414 |          0 |    -0.1414 |  0 |        0 | -0.8533 |    NaN |      NaN |  0.1018 |
+|   |  15 | GT0015 | fr_b3.1_a0.2_oth.270_M77                     |              1 |       -0.2 |          0 | -3.674E-17 |       -0.2 |          0 |          0 |  0 |        0 |  0.8461 |    NaN |      NaN |  0.1011 |
+|   |  16 | GT0016 | fr_b3.1_a0.2_oth.315_M77                     |              1 |    -0.1414 |          0 |     0.1414 |       -0.2 |          0 |          0 |  0 |        0 |   0.839 |    NaN |      NaN |  0.1006 |
+|   |   1 | GT0001 | fr_b3.1_a0.4_oth.000_M77                     |              1 |          0 |          0 |     0.3999 |    -0.4001 |          0 |          0 |  0 |        0 |  0.8261 |    NaN |      NaN | 0.09957 |
+|   |   2 | GT0002 | fr_b3.1_a0.4_oth.045_M77                     |              1 |     0.2828 |          0 |     0.2828 |    -0.4001 |          0 |          0 |  0 |        0 |  0.8323 |    NaN |      NaN |  0.1001 |
+|   |   3 | GT0003 | fr_b3.1_a0.4_oth.090_M77                     |              1 |        0.4 |          0 |  2.449E-17 |       -0.4 |          0 |          0 |  0 |        0 |  0.8467 |    NaN |      NaN |  0.1012 |
+|   |   4 | GT0004 | fr_b3.1_a0.4_oth.135_M77                     |              1 |    -0.3999 |          0 |          0 |     0.2829 |          0 |    -0.2829 |  0 |        0 | -0.8608 |    NaN |      NaN |  0.1025 |
+|   |   5 | GT0005 | fr_b3.1_a0.4_oth.180_M77                     |              1 |    -0.3999 |          0 |          0 |    4.9E-17 |          0 |    -0.4001 |  0 |        0 | -0.8664 |    NaN |      NaN |   0.103 |
+|   |   6 | GT0006 | fr_b3.1_a0.4_oth.225_M77                     |              1 |    -0.3999 |          0 |          0 |    -0.2829 |          0 |    -0.2829 |  0 |        0 | -0.8602 |    NaN |      NaN |  0.1022 |
+|   |  41 | GT0282 | fr_b3.1_a0.4_oth.247_M77                     |              1 |    -0.3682 |          0 |    -0.1563 |       -0.4 |          0 |          0 |  0 |        0 |  0.8537 |    NaN |      NaN |  0.1016 |
+|   |  42 | GT0283 | fr_b3.1_a0.4_oth.255_M77                     |              1 |    -0.3864 |          0 |    -0.1035 |       -0.4 |          0 |          0 |  0 |        0 |   0.851 |    NaN |      NaN |  0.1013 |
+|   |   7 | GT0007 | fr_b3.1_a0.4_oth.270_M77                     |              1 |       -0.4 |          0 | -7.348E-17 |       -0.4 |          0 |          0 |  0 |        0 |  0.8458 |    NaN |      NaN |  0.1008 |
+|   |   8 | GT0008 | fr_b3.1_a0.4_oth.315_M77                     |              1 |    -0.2828 |          0 |     0.2828 |    -0.4001 |          0 |          0 |  0 |        0 |  0.8316 |    NaN |      NaN | 0.09983 |
+|   |  26 | GT0255 | fr_b3.1_a0.6_oth.015_rr_M77                  |              1 |     0.1553 |          0 |     0.5796 |       -0.6 |          0 |          0 |  0 |        0 |  0.8173 |    NaN |      NaN | 0.09895 |
+|   |  27 | GT0256 | fr_b3.1_a0.6_oth.030_rr_M77                  |              1 |        0.3 |          0 |     0.5196 |       -0.6 |          0 |          0 |  0 |        0 |  0.8206 |    NaN |      NaN |  0.0992 |
+|   |  28 | GT0258 | fr_b3.1_a0.6_oth.060_rr_M77                  |              1 |     0.5196 |          0 |        0.3 |       -0.6 |          0 |          0 |  0 |        0 |  0.8321 |    NaN |      NaN |     0.1 |
+|   |  29 | GT0259 | fr_b3.1_a0.6_oth.075_rr_M77                  |              1 |     0.5796 |          0 |     0.1553 |       -0.6 |          0 |          0 |  0 |        0 |  0.8395 |    NaN |      NaN |  0.1006 |
+|   |  30 | GT0261 | fr_b3.1_a0.6_oth.105_rr_M77                  |              1 |     0.5796 |          0 |    -0.1553 |       -0.6 |          0 |          0 |  0 |        0 |  0.8551 |    NaN |      NaN |  0.1019 |
+|   |  31 | GT0262 | fr_b3.1_a0.6_oth.120_rr_M77                  |              1 |     0.5196 |          0 |       -0.3 |       -0.6 |          0 |          0 |  0 |        0 |  0.8623 |    NaN |      NaN |  0.1025 |
+|   |  32 | GT0264 | fr_b3.1_a0.6_oth.150_rr_M77                  |              1 |        0.3 |          0 |    -0.5196 |       -0.6 |          0 |          0 |  0 |        0 |   0.873 |    NaN |      NaN |  0.1036 |
+|   |  33 | GT0265 | fr_b3.1_a0.6_oth.165_rr_M77                  |              1 |     0.1553 |          0 |    -0.5796 |       -0.6 |          0 |          0 |  0 |        0 |  0.8757 |    NaN |      NaN |  0.1038 |
+|   |  34 | GT0267 | fr_b3.1_a0.6_oth.195_rr_M77                  |              1 |    -0.1553 |          0 |    -0.5796 |       -0.6 |          0 |          0 |  0 |        0 |  0.8752 |    NaN |      NaN |  0.1036 |
+|   |  46 | GT0287 | fr_b3.1_a0.6_oth.215_rr_M77                  |              1 |    -0.3441 |          0 |    -0.4915 |       -0.6 |          0 |          0 |  0 |        0 |  0.8704 |    NaN |      NaN |  0.1029 |
+|   |  45 | GT0286 | fr_b3.1_a0.6_oth.220_rr_M77                  |              1 |    -0.3857 |          0 |    -0.4596 |       -0.6 |          0 |          0 |  0 |        0 |  0.8687 |    NaN |      NaN |  0.1028 |
+|   |  44 | GT0285 | fr_b3.1_a0.6_oth.230_rr_M77                  |              1 |    -0.4596 |          0 |    -0.3857 |       -0.6 |          0 |          0 |  0 |        0 |  0.8648 |    NaN |      NaN |  0.1023 |
+|   |  43 | GT0284 | fr_b3.1_a0.6_oth.235_rr_M77                  |              1 |    -0.4915 |          0 |    -0.3441 |       -0.6 |          0 |          0 |  0 |        0 |  0.8627 |    NaN |      NaN |  0.1021 |
+|   |  35 | GT0272 | fr_b3.1_a0.6_oth.250_rr_M77                  |              1 |    -0.5638 |          0 |    -0.2052 |       -0.6 |          0 |          0 |  0 |        0 |  0.8556 |    NaN |      NaN |  0.1013 |
+|   |  36 | GT0275 | fr_b3.1_a0.6_oth.265_rr_M77                  |              1 |    -0.5977 |          0 |   -0.05229 |       -0.6 |          0 |          0 |  0 |        0 |  0.8478 |    NaN |      NaN |  0.1007 |
+|   |  37 | GT0277 | fr_b3.1_a0.6_oth.285_rr_M77                  |              1 |    -0.5796 |          0 |     0.1553 |       -0.6 |          0 |          0 |  0 |        0 |  0.8374 |    NaN |      NaN | 0.09986 |
+|   |  38 | GT0278 | fr_b3.1_a0.6_oth.300_rr_M77                  |              1 |    -0.5196 |          0 |        0.3 |       -0.6 |          0 |          0 |  0 |        0 |  0.8302 |    NaN |      NaN | 0.09938 |
+|   |  39 | GT0280 | fr_b3.1_a0.6_oth.330_rr_M77                  |              1 |       -0.3 |          0 |     0.5196 |       -0.6 |          0 |          0 |  0 |        0 |  0.8195 |    NaN |      NaN | 0.09885 |
+|   |  40 | GT0281 | fr_b3.1_a0.6_oth.345_rr_M77                  |              1 |    -0.1553 |          0 |     0.5796 |       -0.6 |          0 |          0 |  0 |        0 |  0.8167 |    NaN |      NaN | 0.09878 |
+|   |  63 | GT0382 | fr_b3.1_a0.8_oth.000_M77                     |              1 |          0 |          0 |        0.8 |       -0.8 |          0 |          0 |  0 |        0 |  0.8059 |    NaN |      NaN | 0.09818 |
+|   |  64 | GT0384 | fr_b3.1_a0.8_oth.030_M77                     |              1 |        0.4 |          0 |     0.6928 |       -0.8 |          0 |          0 |  0 |        0 |  0.8123 |    NaN |      NaN | 0.09876 |
+|   |  65 | GT0385 | fr_b3.1_a0.8_oth.060_M77                     |              1 |     0.6928 |          0 |        0.4 |       -0.8 |          0 |          0 |  0 |        0 |  0.8278 |    NaN |      NaN | 0.09985 |
+|   |  66 | GT0388 | fr_b3.1_a0.8_oth.090_M77                     |              1 |        0.8 |          0 |  4.899E-17 |       -0.8 |          0 |          0 |  0 |        0 |  0.8482 |    NaN |      NaN |  0.1014 |
+|   |  68 | GT0390 | fr_b3.1_a0.8_oth.120_M77                     |              1 |     0.6928 |          0 |       -0.4 |       -0.8 |          0 |          0 |  0 |        0 |  0.8681 |    NaN |      NaN |  0.1032 |
+|   |  69 | GT0391 | fr_b3.1_a0.8_oth.150_M77                     |              1 |        0.4 |          0 |    -0.6928 |       -0.8 |          0 |          0 |  0 |        0 |  0.8821 |    NaN |      NaN |  0.1046 |
+|   |  71 | GT0393 | fr_b3.1_a0.8_oth.180_M77                     |              1 |  9.797E-17 |          0 |       -0.8 |       -0.8 |          0 |          0 |  0 |        0 |  0.8866 |    NaN |      NaN |  0.1048 |
+|   |  72 | GT0395 | fr_b3.1_a0.8_oth.210_M77                     |              1 |       -0.4 |          0 |    -0.6928 |       -0.8 |          0 |          0 |  0 |        0 |  0.8802 |    NaN |      NaN |  0.1037 |
+|   |  73 | GT0396 | fr_b3.1_a0.8_oth.240_M77                     |              1 |    -0.6928 |          0 |       -0.4 |       -0.8 |          0 |          0 |  0 |        0 |  0.8647 |    NaN |      NaN |  0.1019 |
+|   |  74 | GT0397 | fr_b3.1_a0.8_oth.255_M77                     |              1 |    -0.7727 |          0 |    -0.2071 |       -0.8 |          0 |          0 |  0 |        0 |  0.8548 |    NaN |      NaN |  0.1009 |
+|   |  75 | GT0398 | fr_b3.1_a0.8_oth.270_M77                     |              1 |       -0.8 |          0 |  -1.47E-16 |       -0.8 |          0 |          0 |  0 |        0 |  0.8443 |    NaN |      NaN |     0.1 |
+|   |  76 | GT0400 | fr_b3.1_a0.8_oth.300_M77                     |              1 |    -0.6928 |          0 |        0.4 |       -0.8 |          0 |          0 |  0 |        0 |  0.8244 |    NaN |      NaN | 0.09873 |
+|   |  77 | GT0401 | fr_b3.1_a0.8_oth.330_M77                     |              1 |       -0.4 |          0 |     0.6928 |       -0.8 |          0 |          0 |  0 |        0 |  0.8103 |    NaN |      NaN | 0.09811 |
+|   |  47 | GT0304 | fr_b5_a0.6_oth.000_M90                       |              1 |          0 |          0 |        0.6 |       -0.6 |          0 |          0 |  0 |        0 |  0.9408 |    NaN |      NaN | 0.05464 |
+|   |  17 | GT0203 | fr_b5_a0.6_oth.045_M77                       |              1 |     0.4243 |          0 |     0.4243 |       -0.6 |          0 |          0 |  0 |        0 |  0.9467 |    NaN |      NaN | 0.05488 |
+|   |  18 | GT0204 | fr_b5_a0.6_oth.090_M77                       |              1 |        0.6 |          0 |  3.674E-17 |       -0.6 |          0 |          0 |  0 |        0 |  0.9601 |    NaN |      NaN | 0.05553 |
+|   |  19 | GT0205 | fr_b5_a0.6_oth.135_M77                       |              1 |     0.4243 |          0 |    -0.4243 |       -0.6 |          0 |          0 |  0 |        0 |  0.9732 |    NaN |      NaN | 0.05651 |
+|   |  20 | GT0206 | fr_b5_a0.6_oth.180_M77                       |              1 |  7.348E-17 |          0 |       -0.6 |       -0.6 |          0 |          0 |  0 |        0 |  0.9783 |    NaN |      NaN | 0.05682 |
+|   |  48 | GT0308 | fr_b5_a0.6_oth.210_M77                       |              1 |       -0.3 |          0 |    -0.5196 |       -0.6 |          0 |          0 |  0 |        0 |  0.9755 |    NaN |      NaN | 0.05648 |
+|   |  21 | GT0207 | fr_b5_a0.6_oth.225_M77                       |              1 |    -0.4243 |          0 |    -0.4243 |       -0.6 |          0 |          0 |  0 |        0 |  0.9724 |    NaN |      NaN | 0.05618 |
+|   |  24 | GT0227 | fr_b5_a0.6_oth.240_M77                       |              1 |    -0.5196 |          0 |       -0.3 |       -0.6 |          0 |          0 |  0 |        0 |  0.9685 |    NaN |      NaN | 0.05581 |
+|   |  49 | GT0311 | fr_b5_a0.6_oth.245_M77                       |              1 |    -0.5438 |          0 |    -0.2536 |       -0.6 |          0 |          0 |  0 |        0 |   0.967 |    NaN |      NaN | 0.05567 |
+|   |  25 | GT0229 | fr_b5_a0.6_oth.255_M77                       |              1 |    -0.5796 |          0 |    -0.1553 |       -0.6 |          0 |          0 |  0 |        0 |  0.9639 |    NaN |      NaN | 0.05544 |
+|   |  50 | GT0314 | fr_b5_a0.6_oth.260_M77                       |              1 |    -0.5909 |          0 |    -0.1042 |       -0.6 |          0 |          0 |  0 |        0 |  0.9623 |    NaN |      NaN | 0.05532 |
+|   |  22 | GT0208 | fr_b5_a0.6_oth.270_M77                       |              1 |       -0.6 |          0 | -1.102E-16 |       -0.6 |          0 |          0 |  0 |        0 |   0.959 |    NaN |      NaN |  0.0551 |
+|   |  23 | GT0209 | fr_b5_a0.6_oth.315_M77                       |              1 |    -0.4243 |          0 |     0.4243 |       -0.6 |          0 |          0 |  0 |        0 |  0.9459 |    NaN |      NaN | 0.05457 |
+|   | 439 | GT0885 | q1_LL_D9_a0.6_th1_45_th2_225_m140            |              1 |     0.4243 |          0 |     0.4243 |    -0.4243 |          0 |    -0.4243 |  0 |        0 |  0.9294 |    NaN |      NaN | 0.06485 |
+|   | 380 | GT0803 | ro_b5_a0.6_oth.000_M103                      |              1 |     0.4243 |          0 |     0.4243 |          0 |          0 |        0.6 |  0 |        0 |  0.9285 |    NaN |      NaN | 0.05403 |
+|   | 381 | GT0805 | ro_b5_a0.6_oth.120_M103                      |              1 |    -0.2121 |     0.3674 |     0.4243 |          0 |          0 |        0.6 |  0 |        0 |  0.9285 |    NaN |      NaN |  0.0542 |
+|   | 382 | GT0807 | ro_b5_a0.6_oth.240_M103                      |              1 |    -0.2121 |    -0.3674 |     0.4243 |          0 |          0 |        0.6 |  0 |        0 |  0.9285 |    NaN |      NaN | 0.05417 |
+|   | 317 | GT0717 | D9_q1.1_a0.0_m160                            |            1.1 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.9283 | 0.9518 |   0.6851 | 0.06643 |
+|   |  55 | GT0370 | D10_a0.0_q1.15_m103_Qs                       |           1.15 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.9565 |  0.952 |   0.6836 | 0.05663 |
+|   | 451 | GT0898 | GW15_D12_q1.2_a0.0_m140                      |            1.2 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |   1.012 | 0.9523 |   0.6817 | 0.04343 |
+|   | 452 | GT0900 | q1.2_a0.4x_0.4x_GW15_D11_m140                |            1.2 |        0.4 |          0 |          0 |        0.4 |          0 |          0 |  0 |        0 |  0.9812 | 0.9506 |   0.7034 | 0.04838 |
+|   |  78 | GT0405 | D10_q1.25_a0.2_m100                          |           1.25 |          0 |          0 |        0.2 |          0 |          0 |        0.2 |  0 |       -0 |  0.9372 | 0.9463 |   0.7403 | 0.05586 |
+|   |  79 | GT0406 | D10_q1.25_a0.4_m100                          |           1.25 |          0 |          0 |        0.4 |          0 |          0 |        0.4 |  0 |       -0 |  0.9251 | 0.9385 |   0.7999 | 0.05514 |
+|   |  80 | GT0407 | D10_q1.25_a0.6_m100                          |           1.25 |          0 |          0 |        0.6 |          0 |          0 |        0.6 |  0 |       -0 |  0.9133 | 0.9281 |   0.8555 | 0.05451 |
+|   | 334 | GT0738 | D11_q1.25_a0.0_m200                          |           1.25 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |   0.979 | 0.9527 |   0.6794 | 0.04913 |
+|   | 430 | GT0876 | q1.25_LL_D9_a0.6_th1_45_th2_225_m140         |           1.25 |     0.4243 |          0 |     0.4243 |    -0.4243 |          0 |    -0.4243 |  0 |        0 |  0.9142 |    NaN |      NaN | 0.06444 |
+|   |  56 | GT0371 | D10_a0.0_q1.30_m103_Qs                       |            1.3 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |   0.945 | 0.9531 |   0.6768 |  0.0566 |
+|   | 329 | GT0730 | D9_q1.4_a0.0_m160                            |            1.4 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.9052 | 0.9541 |   0.6709 | 0.06631 |
+|   |  57 | GT0372 | D10_a0.0_q1.45_m103_Qs                       |           1.45 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.9292 | 0.9546 |   0.6675 | 0.05655 |
+|   |  81 | GT0411 | D10_q1.50_a0.6_m100                          |            1.5 |          0 |          0 |        0.6 |          0 |          0 |        0.6 |  0 |       -0 |  0.8879 | 0.9313 |    0.851 | 0.05456 |
+|   | 396 | GT0839 | D11_q1.50_a-0.2_m200                         |            1.5 |          0 |          0 |       -0.2 |          0 |          0 |       -0.2 |  0 |       -0 |  0.9633 | 0.9598 |   0.5965 |  0.0497 |
+|   | 393 | GT0836 | D11_q1.50_a-0.4_m200                         |            1.5 |          0 |          0 |       -0.4 |          0 |          0 |       -0.4 |  0 |       -0 |  0.9748 | 0.9636 |   0.5272 | 0.05036 |
+|   | 392 | GT0835 | D11_q1.50_a-0.6_m200                         |            1.5 |          0 |          0 |       -0.6 |          0 |          0 |       -0.6 |  0 |       -0 |  0.9864 | 0.9665 |   0.4564 | 0.05107 |
+|   | 124 | GT0477 | D11_q1.50_a0.0_m200                          |            1.5 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.9519 | 0.9552 |   0.6639 |  0.0491 |
+|   | 126 | GT0479 | D11_q1.50_a0.2_m200                          |            1.5 |          0 |          0 |        0.2 |          0 |          0 |        0.2 |  0 |       -0 |  0.9408 | 0.9494 |    0.729 | 0.04855 |
+|   | 193 | GT0558 | D11_q1.50_a0.4_m200                          |            1.5 |          0 |          0 |        0.4 |          0 |          0 |        0.4 |  0 |       -0 |  0.9298 | 0.9419 |   0.7917 | 0.04807 |
+|   | 198 | GT0567 | D6.2_q1.50_S0_m120                           |            1.5 |     0.2778 |          0 |          0 |     -0.625 |          0 |          0 |  0 |        0 |  0.8139 | 0.9551 |   0.6644 |  0.1014 |
+|   | 180 | GT0543 | D9_q1.50_a0.1_m200                           |            1.5 |          0 |          0 |        0.1 |          0 |          0 |        0.1 |  0 |       -0 |  0.8876 | 0.9525 |   0.6968 | 0.06551 |
+|   | 105 | GT0456 | RO3_D10_q1.50_a0.40_oth.060_M120             |            1.5 |     0.3464 |          0 |        0.2 |          0 |          0 |        0.4 |  0 |        0 |  0.9053 | 0.9465 |   0.7535 | 0.05458 |
+|   | 104 | GT0455 | RO3_D10_q1.50_a0.60_oth.045_M120             |            1.5 |     0.4243 |          0 |     0.4243 |          0 |          0 |        0.6 |  0 |        0 |  0.8928 |  0.937 |   0.8223 | 0.05413 |
+|   | 106 | GT0457 | RO3_D10_q1.50_a0.60_oth.060_M120             |            1.5 |     0.5196 |          0 |        0.3 |          0 |          0 |        0.6 |  0 |        0 |  0.8973 |    NaN |      NaN | 0.05428 |
+|   | 356 | GT0764 | RO3_D10_q1.50_a0.60_oth.090_M120             |            1.5 |        0.6 |          0 |  3.674E-17 |          0 |          0 |        0.6 |  0 |        0 |   0.908 |    NaN |      NaN | 0.05476 |
+|   | 404 | GT0847 | SO_D9_q1.5_th2_135_ph1_0_m120-all            |            1.5 |        0.6 |          0 |          0 |    -0.4243 |          0 |     0.4243 |  0 |        0 |  0.8826 |    NaN |      NaN | 0.06353 |
+|   | 412 | GT0858 | SO_D9_q1.5_th2_135_ph1_135_m140-all          |            1.5 |    -0.4243 |     0.4243 |          0 |    -0.4243 |          0 |     0.4243 |  0 |        0 |  0.8819 | 0.9482 |   0.7343 | 0.06341 |
+|   | 425 | GT0871 | SO_D9_q1.5_th2_135_ph1_180_m140              |            1.5 |       -0.6 |          0 |          0 |    -0.4243 |          0 |     0.4243 |  0 |        0 |  0.8818 |  0.948 |   0.7405 |   0.063 |
+|   | 405 | GT0848 | SO_D9_q1.5_th2_135_ph1_45_m140-all           |            1.5 |     0.4243 |     0.4243 |          0 |    -0.4243 |          0 |     0.4243 |  0 |        0 |  0.8824 |    NaN |      NaN | 0.06359 |
+|   | 424 | GT0870 | SO_D9_q1.5_th2_135_ph1_90_m140               |            1.5 |          0 |        0.6 |          0 |    -0.4243 |          0 |     0.4243 |  0 |        0 |  0.8822 | 0.9487 |   0.7238 | 0.06373 |
+|   | 427 | GT0873 | q1.5_LL_D9_a0.6_th1_45_th2_225_m140          |            1.5 |     0.4243 |          0 |     0.4243 |    -0.4243 |          0 |    -0.4243 |  0 |        0 |  0.8859 |    NaN |      NaN |  0.0641 |
+|   |  58 | GT0374 | D10_a0.0_q1.60_m103_Qs                       |            1.6 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.9107 | 0.9563 |   0.6565 |  0.0565 |
+|   | 230 | GT0615 | D9_q1.7_a0.0_m160                            |            1.7 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.8693 | 0.9576 |   0.6486 | 0.06608 |
+|   |  82 | GT0413 | D10_q1.75_a0.2_m100                          |           1.75 |          0 |          0 |        0.2 |          0 |          0 |        0.2 |  0 |       -0 |  0.8791 | 0.9523 |   0.7139 | 0.05566 |
+|   |  83 | GT0414 | D10_q1.75_a0.4_m100                          |           1.75 |          0 |          0 |        0.4 |          0 |          0 |        0.4 |  0 |       -0 |  0.8676 |  0.945 |    0.781 | 0.05485 |
+|   |  84 | GT0415 | D10_q1.75_a0.6_m100                          |           1.75 |          0 |          0 |        0.6 |          0 |          0 |        0.6 |  0 |       -0 |  0.8563 | 0.9352 |   0.8449 | 0.05429 |
+|   | 326 | GT0727 | D11_q1.75_a0.0_m200                          |           1.75 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.9183 | 0.9582 |   0.6444 | 0.04905 |
+|   | 431 | GT0877 | q1.75_LL_D9_a0.6_th1_45_th2_225_m140         |           1.75 |     0.4243 |          0 |     0.4243 |    -0.4243 |          0 |    -0.4243 |  0 |        0 |  0.8523 |    NaN |      NaN |  0.0637 |
+|   | 232 | GT0618 | D9_q1.8_a0.0_m160                            |            1.8 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.8562 | 0.9588 |   0.6403 | 0.06601 |
+|   |  59 | GT0376 | D10_a0.0_q1.90_m103_Qs                       |            1.9 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |    0.87 |   0.96 |   0.6318 | 0.05639 |
+|   | 401 | GT0844 | D11_q2.00_a-0.2_m200                         |              2 |          0 |          0 |       -0.2 |          0 |          0 |       -0.2 |  0 |       -0 |   0.893 | 0.9653 |   0.5466 | 0.04961 |
+|   | 395 | GT0838 | D11_q2.00_a-0.4_m200                         |              2 |          0 |          0 |       -0.4 |          0 |          0 |       -0.4 |  0 |       -0 |  0.9038 | 0.9686 |   0.4681 | 0.05032 |
+|   | 394 | GT0837 | D11_q2.00_a-0.6_m200                         |              2 |          0 |          0 |       -0.6 |          0 |          0 |       -0.6 |  0 |       -0 |  0.9148 | 0.9712 |   0.3876 | 0.05099 |
+|   | 100 | GT0446 | D11_q2.00_a0.0_m200                          |              2 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.8822 | 0.9612 |   0.6233 |   0.049 |
+|   | 120 | GT0471 | D11_q2.00_a0.2_m160                          |              2 |          0 |          0 |        0.2 |          0 |          0 |        0.2 |  0 |       -0 |  0.8717 |  0.956 |   0.6978 | 0.04843 |
+|   | 121 | GT0472 | D11_q2.00_a0.4_m160                          |              2 |          0 |          0 |        0.4 |          0 |          0 |        0.4 |  0 |       -0 |  0.8614 | 0.9491 |   0.7697 |  0.0479 |
+|   | 211 | GT0588 | D11_q2.00_a0.60_m200                         |              2 |          0 |          0 |        0.6 |          0 |          0 |        0.6 |  0 |       -0 |  0.8512 | 0.9396 |   0.8387 | 0.04782 |
+|   | 207 | GT0582 | D12_q2.00_a0.15_-0.60_m200                   |              2 |          0 |          0 |       0.15 |          0 |          0 |       -0.6 |  0 |       -0 |  0.9117 | 0.9616 |   0.6353 | 0.04326 |
+|   | 210 | GT0587 | D12_q2.00_a0.30_0.00_m200                    |              2 |          0 |          0 |        0.3 |          0 |          0 |          0 |  0 |       -0 |  0.8978 | 0.9549 |   0.7175 |  0.0427 |
+|   | 345 | GT0749 | D8_q2.00_a0.7_0.0_th045_ph000_m120           |              2 |     0.4116 |      0.281 |     0.4915 |          0 |          0 |          0 | -0 |        0 |  0.7774 | 0.9477 |   0.8026 | 0.07652 |
+|   | 346 | GT0750 | D8_q2.00_a0.7_0.0_th045_ph120_m120           |              2 |    -0.4461 |    -0.2204 |     0.4923 |          0 |          0 |          0 |  0 |       -0 |  0.7772 | 0.9475 |   0.8024 | 0.07652 |
+|   | 348 | GT0756 | D8_q2.00_a0.7_0.0_th045_ph240_m120           |              2 |     0.4087 |    -0.2852 |     0.4915 |          0 |          0 |          0 |  0 |       -0 |  0.7774 | 0.9469 |   0.8001 |  0.0762 |
+|   | 347 | GT0754 | D8_q2.00_a0.7_0.0_th060_ph045_m120           |              2 |      0.194 |     0.5803 |       0.34 |          0 |          0 |          0 | -0 |        0 |  0.7847 | 0.9507 |   0.7722 | 0.07782 |
+|   | 354 | GT0762 | D8_q2.00_a0.7_0.0_th060_ph135_m120           |              2 |    -0.5905 |     0.1445 |     0.3471 |          0 |          0 |          0 |  0 |       -0 |  0.7824 | 0.9509 |   0.7724 | 0.07776 |
+|   | 355 | GT0763 | D8_q2.00_a0.7_0.0_th060_ph225_m120           |              2 |     -0.194 |    -0.5803 |       0.34 |          0 |          0 |          0 |  0 |       -0 |  0.7847 | 0.9507 |   0.7721 | 0.07782 |
+|   | 359 | GT0767 | D8_q2.00_a0.7_0.0_th060_ph315_m120           |              2 |     0.5905 |    -0.1445 |     0.3471 |          0 |          0 |          0 |  0 |       -0 |  0.7824 | 0.9509 |   0.7724 | 0.07776 |
+|   | 358 | GT0766 | D8_q2.00_a0.7_0.0_th090_ph000_m120           |              2 |     0.5102 |    -0.4792 |  -0.008191 |          0 |          0 |          0 | -0 |        0 |  0.7992 | 0.9579 |   0.6849 | 0.08107 |
+|   | 369 | GT0787 | D8_q2.00_a0.7_0.0_th090_ph060_m120           |              2 |    -0.3225 |     0.6212 |     -0.011 |          0 |          0 |          0 |  0 |       -0 |  0.8003 | 0.9576 |   0.6832 | 0.08107 |
+|   | 368 | GT0781 | D8_q2.00_a0.7_0.0_th090_ph120_m120           |              2 |    -0.6989 |   -0.03924 |  -0.003803 |          0 |          0 |          0 |  0 |       -0 |  0.7975 | 0.9591 |   0.6893 | 0.08167 |
+|   | 371 | GT0792 | D8_q2.00_a0.7_0.0_th090_ph180_m120           |              2 |    -0.5102 |     0.4792 |  -0.008191 |          0 |          0 |          0 |  0 |       -0 |  0.7992 | 0.9579 |    0.685 | 0.08107 |
+|   | 374 | GT0796 | D8_q2.00_a0.7_0.0_th090_ph240_m120           |              2 |     0.3225 |    -0.6212 |     -0.011 |          0 |          0 |          0 |  0 |       -0 |  0.8003 | 0.9576 |   0.6832 | 0.08107 |
+|   | 372 | GT0794 | D8_q2.00_a0.7_0.0_th090_ph300_m120           |              2 |     0.6989 |    0.03924 |  -0.003803 |          0 |          0 |          0 | -0 |        0 |  0.7975 | 0.9591 |   0.6893 | 0.08167 |
+|   | 377 | GT0799 | D8_q2.00_a0.7_0.0_th120_ph045_m120           |              2 |     0.5996 |    0.07481 |    -0.3533 |          0 |          0 |          0 |  0 |       -0 |  0.8157 | 0.9647 |   0.5674 | 0.08579 |
+|   | 378 | GT0800 | D8_q2.00_a0.7_0.0_th120_ph135_m120           |              2 |    -0.0252 |     0.6006 |    -0.3586 |          0 |          0 |          0 | -0 |        0 |  0.8183 | 0.9649 |   0.5684 | 0.08544 |
+|   | 383 | GT0808 | D8_q2.00_a0.7_0.0_th120_ph225_m120           |              2 |    -0.5996 |   -0.07481 |    -0.3533 |          0 |          0 |          0 | -0 |        0 |  0.8157 | 0.9647 |   0.5674 | 0.08579 |
+|   | 379 | GT0801 | D8_q2.00_a0.7_0.0_th120_ph315_m120           |              2 |     0.0252 |    -0.6006 |    -0.3586 |          0 |          0 |          0 |  0 |       -0 |  0.8183 | 0.9649 |   0.5684 | 0.08544 |
+|   | 385 | GT0810 | D8_q2.00_a0.7_0.0_th135_ph000_m120           |              2 |    -0.4901 |   -0.04985 |    -0.4973 |          0 |          0 |          0 | -0 |        0 |  0.8241 | 0.9672 |   0.5069 | 0.07531 |
+|   | 384 | GT0809 | D8_q2.00_a0.7_0.0_th135_ph120_m120           |              2 |     0.4922 |    -0.0231 |    -0.4972 |          0 |          0 |          0 | -0 |        0 |  0.8241 | 0.9672 |   0.5066 | 0.07529 |
+|   | 388 | GT0825 | D8_q2.00_a0.7_0.0_th135_ph240_m120           |              2 |    -0.2067 |     0.4443 |    -0.4999 |          0 |          0 |          0 |  0 |       -0 |  0.8255 | 0.9669 |   0.5041 |  0.0753 |
+|   | 444 | GT0890 | D9_q2.0_a0.6_0.6_th0_r100_res140_CE          |              2 |          0 |          0 |        0.6 |          0 |          0 |       -0.6 |  0 |       -0 |   0.814 | 0.9511 |   0.7753 | 0.06432 |
+|   | 445 | GT0891 | D9_q2.0_a0.6_0.6_th135_r100_res140_CE        |              2 |     0.3282 |    -0.2703 |    -0.4234 |     -0.425 |   -0.07586 |     0.4168 |  0 |       -0 |  0.8402 | 0.9651 |   0.5362 | 0.06741 |
+|   | 446 | GT0893 | D9_q2.0_a0.6_0.6_th225_r100_res140_CE        |              2 |    -0.3282 |     0.2703 |    -0.4234 |      0.425 |    0.07586 |     0.4168 |  0 |       -0 |  0.8402 | 0.9651 |   0.5362 | 0.06741 |
+|   | 447 | GT0894 | D9_q2.0_a0.6_0.6_th270_r100_res140_CE        |              2 |    -0.5001 |     0.3241 |   -0.06956 |     0.1881 |     0.5565 |     0.1222 |  0 |       -0 |  0.8277 | 0.9593 |   0.6662 | 0.06644 |
+|   | 448 | GT0895 | D9_q2.0_a0.6_0.6_th315_r100_res140_CE        |              2 |     0.5115 |   -0.00915 |     0.3136 |     0.5653 |    0.02502 |    -0.1997 |  0 |       -0 |   0.814 | 0.9531 |   0.7541 |  0.0657 |
+|   | 449 | GT0896 | D9_q2.0_a0.6_0.6_th45_r100_res140_CE         |              2 |    -0.5115 |    0.00915 |     0.3136 |    -0.5653 |   -0.02502 |    -0.1997 |  0 |       -0 |   0.814 | 0.9531 |   0.7541 |  0.0657 |
+|   | 450 | GT0897 | D9_q2.0_a0.6_0.6_th90_r100_res140_CE         |              2 |     0.5001 |    -0.3241 |   -0.06956 |    -0.1881 |    -0.5565 |     0.1222 |  0 |       -0 |  0.8277 | 0.9593 |   0.6662 | 0.06644 |
+|   | 107 | GT0458 | RO3_D10_q2.00_a0.40_oth.060_M120             |              2 |     0.3464 |          0 |        0.2 |          0 |          0 |        0.4 |  0 |        0 |  0.8397 | 0.9539 |   0.7223 | 0.05459 |
+|   | 109 | GT0460 | RO3_D10_q2.00_a0.60_oth.045_M120             |              2 |     0.4243 |          0 |     0.4243 |          0 |          0 |        0.6 |  0 |        0 |  0.8277 | 0.9451 |   0.8045 | 0.05393 |
+|   | 110 | GT0461 | RO3_D10_q2.00_a0.60_oth.060_M120             |              2 |     0.5196 |          0 |        0.3 |          0 |          0 |        0.6 |  0 |        0 |  0.8325 | 0.9481 |   0.7766 | 0.05412 |
+|   | 112 | GT0463 | RO3_D10_q2.00_a0.60_oth.090_M120             |              2 |        0.6 |          0 |  3.674E-17 |          0 |          0 |        0.6 |  0 |        0 |  0.8439 | 0.9547 |   0.6978 | 0.05476 |
+|   | 187 | GT0550 | RO3_D10_q2.00_a0.60_oth.135_M120             |              2 |     0.4243 |          0 |    -0.4243 |          0 |          0 |        0.6 |  0 |        0 |  0.8601 | 0.9639 |   0.5495 |  0.0562 |
+|   | 182 | GT0545 | RO3_D10_q2.00_a0.60_oth.180_M120             |              2 |  7.348E-17 |          0 |       -0.6 |          0 |          0 |        0.6 |  0 |        0 |  0.8668 | 0.9671 |   0.4646 |  0.0571 |
+|   | 191 | GT0556 | RO3_D10_q2.00_a0.60_oth.270_M120             |              2 |       -0.6 |          0 | -1.102E-16 |          0 |          0 |        0.6 |  0 |        0 |  0.8439 | 0.9547 |   0.6978 | 0.05476 |
+|   |  88 | GT0428 | Sq2_d6.2_a0.6_oth.000_rr_M140                |              2 |          0 |          0 |        0.6 |       -0.6 |          0 |          0 |  0 |        0 |  0.7167 | 0.9458 |   0.8095 | 0.09791 |
+|   |  90 | GT0431 | Sq2_d6.2_a0.6_oth.030_rr_M140                |              2 |        0.3 |          0 |     0.5196 |       -0.6 |          0 |          0 |  0 |        0 |  0.7223 |    NaN |      NaN | 0.09845 |
+|   |  93 | GT0434 | Sq2_d6.2_a0.6_oth.090_rr_M140                |              2 |        0.6 |          0 |  3.674E-17 |       -0.6 |          0 |          0 |  0 |        0 |  0.7558 | 0.9596 |   0.6523 |  0.1015 |
+|   |  95 | GT0437 | Sq2_d6.2_a0.6_oth.150_rr_M140                |              2 |        0.3 |          0 |    -0.5196 |       -0.6 |          0 |          0 |  0 |        0 |  0.7885 | 0.9688 |   0.4574 |  0.1056 |
+|   |  97 | GT0440 | Sq2_d6.2_a0.6_oth.180_rr_M140                |              2 |  7.348E-17 |          0 |       -0.6 |       -0.6 |          0 |          0 |  0 |        0 |  0.7932 | 0.9697 |   0.4287 |  0.1062 |
+|   |  99 | GT0443 | Sq2_d6.2_a0.6_oth.270_rr_M140                |              2 |       -0.6 |          0 | -1.102E-16 |       -0.6 |          0 |          0 |  0 |        0 |  0.7541 |    NaN |      NaN |  0.1008 |
+|   | 426 | GT0872 | q2_LL_D9_a0.6_th1_45_th2_225_m140            |              2 |     0.4243 |          0 |     0.4243 |    -0.4243 |          0 |    -0.4243 |  0 |        0 |   0.817 |    NaN |      NaN | 0.06335 |
+|   | 413 | GT0859 | q2_Seff_D9_a_-0.15_0.6_th1_225_m140          |              2 |    -0.1061 |          0 |    -0.1061 |     0.4243 |          0 |     0.4243 |  0 |        0 |  0.8242 | 0.9609 |    0.615 | 0.06447 |
+|   | 410 | GT0856 | q2_Seff_D9_a_0.15_-0.6_th1_45_m140           |              2 |     0.1061 |          0 |     0.1061 |    -0.4243 |          0 |    -0.4243 |  0 |        0 |  0.8312 | 0.9615 |   0.6322 | 0.06466 |
+|   | 406 | GT0851 | th_0_SSeq_D9_q2_m140                         |              2 |        0.6 |          0 |          0 |        0.6 |          0 |          0 |  0 |        0 |  0.8273 | 0.9583 |   0.6907 | 0.06355 |
+|   | 423 | GT0869 | th_135_SSeq_D9_q2_m140                       |              2 |    -0.4243 |          0 |     0.4243 |    -0.4243 |          0 |     0.4243 |  0 |        0 |  0.8012 | 0.9459 |    0.803 | 0.06211 |
+|   | 407 | GT0852 | th_180_SSeq_D9_q2_m140                       |              2 |       -0.6 |          0 |          0 |       -0.6 |          0 |          0 |  0 |        0 |  0.8273 | 0.9583 |   0.6907 | 0.06355 |
+|   | 408 | GT0853 | th_225_SSeq_D9_q2_m140                       |              2 |    -0.4243 |          0 |    -0.4243 |    -0.4243 |          0 |    -0.4243 |  0 |        0 |  0.8548 |  0.968 |   0.5091 | 0.06699 |
+|   | 409 | GT0854 | th_315_SSeq_D9_q2_m140                       |              2 |     0.4243 |          0 |    -0.4243 |     0.4243 |          0 |    -0.4243 |  0 |        0 |  0.8548 |  0.968 |   0.5091 | 0.06699 |
+|   | 422 | GT0868 | th_45_SSeq_D9_q2_m140                        |              2 |     0.4243 |          0 |     0.4243 |     0.4243 |          0 |     0.4243 |  0 |        0 |  0.8012 | 0.9459 |    0.803 | 0.06211 |
+|   |  60 | GT0378 | D10_a0.0_q2.05_m103_Qs                       |           2.05 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |   0.849 | 0.9618 |    0.619 | 0.05632 |
+|   | 231 | GT0617 | D9_q2.1_a0.0_m160                            |            2.1 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.8158 | 0.9624 |   0.6147 | 0.06578 |
+|   |  61 | GT0379 | D10_a0.0_q2.20_m103_Qs                       |            2.2 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |   0.828 | 0.9635 |    0.606 | 0.05626 |
+|   | 349 | GT0757 | D11_q2.25_a0.0_m200                          |           2.25 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.8461 | 0.9641 |   0.6018 | 0.04894 |
+|   | 432 | GT0878 | q2.25_LL_D9_a0.6_th1_45_th2_225_m140         |           2.25 |     0.4243 |          0 |     0.4243 |    -0.4243 |          0 |    -0.4243 |  0 |        0 |  0.7821 | 0.9556 |   0.7477 | 0.06328 |
+|   | 233 | GT0621 | D9_q2.3_a0.0_m160                            |            2.3 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.7891 | 0.9646 |   0.5975 | 0.06561 |
+|   |  62 | GT0380 | D10_a0.0_q2.35_m103_Qs                       |           2.35 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.8073 | 0.9651 |   0.5932 |  0.0562 |
+|   | 234 | GT0622 | D9_q2.4_a0.0_m160                            |            2.4 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |   0.776 | 0.9657 |    0.589 | 0.06554 |
+|   | 400 | GT0843 | D11_q2.50_a-0.2_m200                         |            2.5 |          0 |          0 |       -0.2 |          0 |          0 |       -0.2 |  0 |       -0 |   0.821 | 0.9703 |   0.4943 | 0.04952 |
+|   | 397 | GT0840 | D11_q2.50_a-0.4_m200                         |            2.5 |          0 |          0 |       -0.4 |          0 |          0 |       -0.4 |  0 |       -0 |  0.8312 | 0.9731 |   0.4062 | 0.05024 |
+|   | 402 | GT0845 | D11_q2.50_a-0.6_m200                         |            2.5 |          0 |          0 |       -0.6 |          0 |          0 |       -0.6 |  0 |       -0 |  0.8415 | 0.9754 |   0.3162 | 0.05119 |
+|   | 196 | GT0565 | D11_q2.50_a0.0_m200                          |            2.5 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |   0.811 | 0.9667 |   0.5806 |  0.0489 |
+|   | 122 | GT0475 | D11_q2.50_a0.2_0.00_m160                     |            2.5 |          0 |          0 |        0.2 |          0 |          0 |          0 |  0 |       -0 |  0.8036 | 0.9629 |   0.6567 | 0.04846 |
+|   | 127 | GT0480 | D11_q2.50_a0.4_0.00_m160                     |            2.5 |          0 |          0 |        0.4 |          0 |          0 |          0 |  0 |       -0 |  0.7962 | 0.9581 |   0.7312 | 0.04802 |
+|   | 237 | GT0629 | Eq_D7_q2.50_a0.6_ph000_m140                  |            2.5 |        0.6 |          0 |          0 |       -0.6 |         -0 |          0 |  0 |        0 |  0.7137 | 0.9647 |   0.6317 | 0.08572 |
+|   | 239 | GT0632 | Eq_D7_q2.50_a0.6_ph030_m140                  |            2.5 |     0.5196 |        0.3 |          0 |    -0.5196 |       -0.3 |          0 |  0 |        0 |  0.7137 | 0.9646 |   0.6321 | 0.08559 |
+|   | 240 | GT0633 | Eq_D7_q2.50_a0.6_ph060_m140                  |            2.5 |        0.3 |     0.5196 |          0 |       -0.3 |    -0.5196 |          0 |  0 |        0 |  0.7137 | 0.9655 |    0.636 | 0.08556 |
+|   | 241 | GT0634 | Eq_D7_q2.50_a0.6_ph090_m140                  |            2.5 |          0 |        0.6 |          0 |         -0 |       -0.6 |          0 |  0 |        0 |  0.7137 |  0.966 |   0.6373 | 0.08567 |
+|   | 248 | GT0641 | Eq_D7_q2.50_a0.6_ph120_m140                  |            2.5 |       -0.3 |     0.5196 |          0 |        0.3 |    -0.5196 |          0 |  0 |        0 |  0.7137 | 0.9657 |   0.6358 | 0.08579 |
+|   | 250 | GT0643 | Eq_D7_q2.50_a0.6_ph150_m140                  |            2.5 |    -0.5196 |        0.3 |          0 |     0.5196 |       -0.3 |          0 |  0 |        0 |  0.7137 | 0.9653 |   0.6338 | 0.08581 |
+|   | 247 | GT0640 | Eq_D7_q2.50_a0.6_ph180_m140                  |            2.5 |       -0.6 |          0 |          0 |        0.6 |         -0 |          0 |  0 |        0 |  0.7137 | 0.9647 |   0.6317 | 0.08572 |
+|   | 246 | GT0639 | Eq_D7_q2.50_a0.6_ph210_m140                  |            2.5 |    -0.5196 |       -0.3 |          0 |     0.5196 |        0.3 |          0 |  0 |        0 |  0.7137 | 0.9646 |   0.6322 | 0.08559 |
+|   | 245 | GT0638 | Eq_D7_q2.50_a0.6_ph240_m140                  |            2.5 |       -0.3 |    -0.5196 |          0 |        0.3 |     0.5196 |          0 |  0 |        0 |  0.7137 | 0.9655 |    0.636 | 0.08556 |
+|   | 244 | GT0637 | Eq_D7_q2.50_a0.6_ph270_m140                  |            2.5 |         -0 |       -0.6 |          0 |          0 |        0.6 |          0 |  0 |        0 |  0.7137 |  0.966 |   0.6373 | 0.08567 |
+|   | 270 | GT0665 | Eq_D7_q2.50_a0.6_ph300_m140                  |            2.5 |        0.3 |    -0.5196 |          0 |       -0.3 |     0.5196 |          0 |  0 |        0 |  0.7137 | 0.9657 |   0.6358 | 0.08579 |
+|   | 269 | GT0664 | Eq_D7_q2.50_a0.6_ph330_m140                  |            2.5 |     0.5196 |       -0.3 |          0 |    -0.5196 |        0.3 |          0 |  0 |        0 |  0.7137 | 0.9653 |   0.6338 | 0.08581 |
+|   | 280 | GT0676 | Lq_D6.2_q2.50_a0.6_th000_m140                |            2.5 |          0 |          0 |        0.6 |          0 |          0 |        0.6 |  0 |        0 |  0.6453 | 0.9472 |   0.8255 |  0.1024 |
+|   | 281 | GT0677 | Lq_D6.2_q2.50_a0.6_th015_m140                |            2.5 |     0.1553 |          0 |     0.5796 |    -0.1553 |         -0 |     0.5796 |  0 |        0 |  0.6469 | 0.9481 |   0.8203 |  0.1025 |
+|   | 283 | GT0679 | Lq_D6.2_q2.50_a0.6_th030_m140                |            2.5 |        0.3 |          0 |     0.5196 |       -0.3 |         -0 |     0.5196 |  0 |        0 |  0.6519 | 0.9506 |   0.8038 |  0.1029 |
+|   | 274 | GT0669 | Lq_D6.2_q2.50_a0.6_th045_m140                |            2.5 |     0.4243 |          0 |     0.4243 |    -0.4243 |         -0 |     0.4243 |  0 |        0 |  0.6599 | 0.9535 |   0.7753 |   0.104 |
+|   | 276 | GT0671 | Lq_D6.2_q2.50_a0.6_th060_m140                |            2.5 |     0.5196 |          0 |        0.3 |    -0.5196 |         -0 |        0.3 |  0 |        0 |  0.6703 | 0.9574 |    0.737 | 0.09913 |
+|   | 277 | GT0672 | Lq_D6.2_q2.50_a0.6_th075_m140                |            2.5 |     0.5796 |          0 |     0.1553 |    -0.5796 |         -0 |     0.1553 |  0 |        0 |  0.6825 | 0.9622 |   0.6929 |  0.1003 |
+|   | 279 | GT0674 | Lq_D6.2_q2.50_a0.6_th120_m140                |            2.5 |     0.5196 |          0 |       -0.3 |    -0.5196 |         -0 |       -0.3 |  0 |        0 |  0.7215 | 0.9709 |   0.4991 |  0.1048 |
+|   | 266 | GT0661 | Lq_D6.2_q2.50_a0.6_th150_m140                |            2.5 |        0.3 |          0 |    -0.5196 |       -0.3 |         -0 |    -0.5196 |  0 |        0 |  0.7406 | 0.9749 |   0.3726 |  0.1075 |
+|   | 275 | GT0670 | Lq_D6.2_q2.50_a0.6_th210_m140                |            2.5 |       -0.3 |         -0 |    -0.5196 |        0.3 |          0 |    -0.5196 |  0 |        0 |  0.7406 | 0.9749 |   0.3726 |  0.1075 |
+|   | 278 | GT0673 | Lq_D6.2_q2.50_a0.6_th240_m140                |            2.5 |    -0.5196 |         -0 |       -0.3 |     0.5196 |          0 |       -0.3 |  0 |        0 |  0.7215 | 0.9709 |   0.4991 |  0.1048 |
+|   | 282 | GT0678 | Lq_D6.2_q2.50_a0.6_th300_m140                |            2.5 |    -0.5196 |         -0 |        0.3 |     0.5196 |          0 |        0.3 |  0 |        0 |  0.6703 | 0.9574 |    0.737 | 0.09913 |
+|   | 285 | GT0681 | Lq_D6.2_q2.50_a0.6_th315_m140                |            2.5 |    -0.4243 |         -0 |     0.4243 |     0.4243 |          0 |     0.4243 |  0 |        0 |  0.6599 | 0.9535 |   0.7753 |  0.0982 |
+|   | 286 | GT0682 | Lq_D6.2_q2.50_a0.6_th330_m140                |            2.5 |       -0.3 |         -0 |     0.5196 |        0.3 |          0 |     0.5196 |  0 |        0 |  0.6519 | 0.9506 |   0.8038 |  0.1029 |
+|   | 287 | GT0683 | Lq_D6.2_q2.50_a0.6_th345_m140                |            2.5 |    -0.1553 |         -0 |     0.5796 |     0.1553 |          0 |     0.5796 |  0 |        0 |  0.6469 | 0.9481 |   0.8204 |  0.1025 |
+|   | 108 | GT0459 | RO3_D10_q2.50_a0.40_oth.045_M120             |            2.5 |     0.2828 |          0 |     0.2828 |          0 |          0 |        0.4 |  0 |        0 |  0.7689 | 0.9583 |   0.7151 | 0.05438 |
+|   | 111 | GT0462 | RO3_D10_q2.50_a0.40_oth.060_M120             |            2.5 |     0.3464 |          0 |        0.2 |          0 |          0 |        0.4 |  0 |        0 |  0.7722 | 0.9604 |   0.6928 | 0.05455 |
+|   | 113 | GT0464 | RO3_D10_q2.50_a0.40_oth.090_M120             |            2.5 |        0.4 |          0 |  2.449E-17 |          0 |          0 |        0.4 |  0 |        0 |  0.7799 |  0.964 |   0.6259 | 0.05509 |
+|   | 114 | GT0465 | RO3_D10_q2.50_a0.60_oth.045_M120             |            2.5 |     0.4243 |          0 |     0.4243 |          0 |          0 |        0.6 |  0 |        0 |   0.761 | 0.9522 |   0.7875 | 0.05403 |
+|   | 115 | GT0466 | RO3_D10_q2.50_a0.60_oth.060_M120             |            2.5 |     0.5196 |          0 |        0.3 |          0 |          0 |        0.6 |  0 |        0 |  0.7657 |  0.955 |   0.7563 | 0.05423 |
+|   | 116 | GT0467 | RO3_D10_q2.50_a0.60_oth.090_M120             |            2.5 |        0.6 |          0 |  3.674E-17 |          0 |          0 |        0.6 |  0 |        0 |  0.7772 | 0.9624 |   0.6707 | 0.05494 |
+|   | 254 | GT0647 | Sq_D6.2_q2.50_a0.6_th000_m140                |            2.5 |          0 |          0 |        0.6 |       -0.6 |          0 |          0 |  0 |        0 |  0.6567 | 0.9516 |   0.8047 |  0.1047 |
+|   | 255 | GT0648 | Sq_D6.2_q2.50_a0.6_th015_m140                |            2.5 |     0.1553 |          0 |     0.5796 |       -0.6 |          0 |          0 |  0 |        0 |  0.6582 | 0.9521 |    0.797 |  0.1052 |
+|   | 256 | GT0649 | Sq_D6.2_q2.50_a0.6_th030_m140                |            2.5 |        0.3 |          0 |     0.5196 |       -0.6 |          0 |          0 |  0 |        0 |  0.6622 | 0.9545 |   0.7833 | 0.09828 |
+|   | 253 | GT0646 | Sq_D6.2_q2.50_a0.6_th045_m140                |            2.5 |     0.4243 |          0 |     0.4243 |       -0.6 |          0 |          0 |  0 |        0 |  0.6684 | 0.9566 |   0.7585 | 0.09884 |
+|   | 252 | GT0645 | Sq_D6.2_q2.50_a0.6_th060_m140                |            2.5 |     0.5196 |          0 |        0.3 |       -0.6 |          0 |          0 |  0 |        0 |  0.6765 | 0.9584 |   0.7241 | 0.09962 |
+|   | 251 | GT0644 | Sq_D6.2_q2.50_a0.6_th075_m140                |            2.5 |     0.5796 |          0 |     0.1553 |       -0.6 |          0 |          0 |  0 |        0 |  0.6858 | 0.9629 |   0.6865 |  0.1006 |
+|   | 249 | GT0642 | Sq_D6.2_q2.50_a0.6_th120_m140                |            2.5 |     0.5196 |          0 |       -0.3 |       -0.6 |          0 |          0 |  0 |        0 |  0.7148 | 0.9704 |   0.5102 |  0.1041 |
+|   | 264 | GT0659 | Sq_D6.2_q2.50_a0.6_th150_m140                |            2.5 |        0.3 |          0 |    -0.5196 |       -0.6 |          0 |          0 |  0 |        0 |  0.7285 | 0.9737 |   0.3894 |  0.1062 |
+|   | 265 | GT0660 | Sq_D6.2_q2.50_a0.6_th180_m140                |            2.5 |          0 |          0 |       -0.6 |       -0.6 |          0 |          0 |  0 |        0 |  0.7333 | 0.9745 |   0.3439 |   0.107 |
+|   | 272 | GT0667 | Sq_D6.2_q2.50_a0.6_th210_m140                |            2.5 |       -0.3 |         -0 |    -0.5196 |       -0.6 |          0 |          0 |  0 |        0 |  0.7278 | 0.9731 |    0.421 |  0.1058 |
+|   | 268 | GT0663 | Sq_D6.2_q2.50_a0.6_th240_m140                |            2.5 |    -0.5196 |         -0 |       -0.3 |       -0.6 |          0 |          0 |  0 |        0 |  0.7135 | 0.9696 |   0.5521 |  0.1035 |
+|   | 267 | GT0662 | Sq_D6.2_q2.50_a0.6_th270_m140                |            2.5 |       -0.6 |         -0 |         -0 |       -0.6 |          0 |          0 |  0 |        0 |  0.6943 | 0.9638 |   0.6684 |   0.101 |
+|   | 236 | GT0628 | Sq_D6.2_q2.50_a0.6_th300_m140                |            2.5 |    -0.5196 |         -0 |        0.3 |       -0.6 |          0 |          0 |  0 |        0 |  0.6752 | 0.9576 |   0.7499 | 0.09906 |
+|   | 238 | GT0630 | Sq_D6.2_q2.50_a0.6_th315_m140                |            2.5 |    -0.4243 |         -0 |     0.4243 |       -0.6 |          0 |          0 |  0 |        0 |  0.6674 | 0.9548 |   0.7762 | 0.09841 |
+|   | 271 | GT0666 | Sq_D6.2_q2.50_a0.6_th330_m140                |            2.5 |       -0.3 |         -0 |     0.5196 |       -0.6 |          0 |          0 |  0 |        0 |  0.6615 | 0.9531 |   0.7947 | 0.09798 |
+|   | 273 | GT0668 | Sq_D6.2_q2.50_a0.6_th345_m140                |            2.5 |    -0.1553 |         -0 |     0.5796 |       -0.6 |          0 |          0 |  0 |        0 |  0.6578 | 0.9521 |   0.8043 |  0.1041 |
+|   | 313 | GT0712 | Sq_D9.0_q2.50_a0.6_th000_m140                |            2.5 |     0.1096 |   0.006908 |     0.5899 |     0.5974 |   -0.04858 |    0.02815 | -0 |  0.01952 |  0.7358 | 0.9515 |   0.8064 | 0.06295 |
+|   | 318 | GT0718 | Sq_D9.0_q2.50_a0.6_th030_m140                |            2.5 |    -0.1866 |     0.2206 |     0.5259 |    0.09963 |     0.5412 |     0.2391 |  0 |  -0.1596 |  0.7225 | 0.9537 |   0.7877 | 0.06283 |
+|   | 324 | GT0725 | Sq_D9.0_q2.50_a0.6_th045_m140                |            2.5 |    -0.2735 |     0.2526 |     0.4706 |     0.5203 |     0.2865 |    0.08488 |  0 |  -0.1529 |  0.7282 | 0.9557 |   0.7663 |  0.0629 |
+|   | 316 | GT0715 | Sq_D9.0_q2.50_a0.6_th060_m140                |            2.5 |    -0.1921 |     0.3999 |     0.4039 |     0.5358 |      0.225 |     0.1492 |  0 |  -0.2291 |  0.7134 | 0.9584 |   0.7333 | 0.06245 |
+|   | 308 | GT0706 | Sq_D9.0_q2.50_a0.6_th090_m140                |            2.5 |    -0.4028 |     0.4444 |    0.01711 |    -0.5513 |    -0.2211 |    0.08441 |  0 |  -0.1148 |  0.7511 | 0.9641 |   0.6393 | 0.06617 |
+|   | 435 | GT0881 | q2.5_LL_D9_a0.6_th1_45_th2_225_m140          |            2.5 |     0.4243 |          0 |     0.4243 |    -0.4243 |          0 |    -0.4243 |  0 |        0 |  0.7485 | 0.9594 |   0.7508 | 0.06303 |
+|   | 258 | GT0651 | D9_q2.6_a0.0_m160                            |            2.6 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.7504 | 0.9677 |   0.5723 | 0.06539 |
+|   | 257 | GT0650 | D9_q2.7_a0.0_m160                            |            2.7 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |   0.738 | 0.9686 |   0.5641 |  0.0653 |
+|   | 436 | GT0882 | q2.75_LL_D9_a0.6_th1_45_th2_225_m140         |           2.75 |     0.4243 |          0 |     0.4243 |    -0.4243 |          0 |    -0.4243 |  0 |        0 |  0.7165 |    NaN |      NaN | 0.06296 |
+|   | 260 | GT0653 | D9_q2.8_a0.0_m160                            |            2.8 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.7258 | 0.9695 |   0.5561 | 0.06522 |
+|   | 261 | GT0654 | D9_q2.9_a0.0_m160                            |            2.9 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.7139 | 0.9704 |   0.5482 | 0.06517 |
+|   | 213 | GT0596 | D10_q3.00_a0.4_0.0_m240                      |              3 |          0 |          0 |        0.4 |          0 |          0 |          0 |  0 |       -0 |  0.7083 | 0.9631 |   0.7126 | 0.05417 |
+|   | 216 | GT0600 | D10_q3.00_a0.6_0.0_m240                      |              3 |          0 |          0 |        0.6 |          0 |          0 |          0 |  0 |       -0 |  0.7005 | 0.9567 |   0.7957 | 0.05355 |
+|   | 399 | GT0842 | D11_q3.00_a-0.2_m200                         |              3 |          0 |          0 |       -0.2 |          0 |          0 |       -0.2 |  0 |       -0 |  0.7551 | 0.9744 |   0.4452 | 0.04943 |
+|   | 398 | GT0841 | D11_q3.00_a-0.4_m200                         |              3 |          0 |          0 |       -0.4 |          0 |          0 |       -0.4 |  0 |       -0 |  0.7646 | 0.9769 |   0.3482 | 0.05018 |
+|   | 403 | GT0846 | D11_q3.00_a-0.6_m200                         |              3 |          0 |          0 |       -0.6 |          0 |          0 |       -0.6 |  0 |       -0 |  0.7743 | 0.9789 |   0.2494 | 0.05101 |
+| x | 102 | GT0453 | D11_q3.00_a0.0_m200                          |              3 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.7458 | 0.9713 |   0.5405 | 0.04888 |
+|   | 214 | GT0598 | D11_q3.00_a0.2_0.00_m200                     |              3 |          0 |          0 |        0.2 |          0 |          0 |          0 |  0 |       -0 |  0.7385 | 0.9678 |   0.6277 | 0.04845 |
+|   | 212 | GT0590 | D11_q3.00_a0.8_0.00_m200                     |              3 |          0 |          0 |        0.8 |          0 |          0 |          0 |  0 |       -0 |  0.7171 |    NaN |      NaN | 0.04753 |
+|   | 219 | GT0603 | D8_q3.00_a0.5_0.0_th000_ph000_m120           |              3 |          0 |          0 |        0.5 |          0 |          0 |          0 |  0 |       -0 |  0.6573 | 0.9603 |   0.7552 | 0.07343 |
+|   | 223 | GT0607 | D8_q3.00_a0.5_0.0_th045_ph000_m120           |              3 |     -0.276 |     0.1482 |     0.3897 |          0 |          0 |          0 |  0 |  -0.1353 |  0.6491 | 0.9633 |   0.7176 |  0.0741 |
+|   | 229 | GT0613 | D8_q3.00_a0.5_0.0_th045_ph120_m120           |              3 |     0.1755 |    -0.2213 |     0.4126 |          0 |          0 |          0 | -0 |   0.1531 |  0.6455 | 0.9634 |   0.7178 | 0.07364 |
+|   | 235 | GT0626 | D8_q3.00_a0.5_0.0_th045_ph240_m120           |              3 |      0.179 |      0.254 |     0.3918 |          0 |          0 |          0 |  0 | -0.09712 |  0.6563 | 0.9637 |   0.7189 | 0.07444 |
+|   | 222 | GT0606 | D8_q3.00_a0.5_0.0_th060_ph045_m120           |              3 |     -0.411 |     0.1491 |     0.2425 |          0 |          0 |          0 | -0 |  0.02363 |  0.6666 | 0.9654 |   0.6885 | 0.07611 |
+|   | 335 | GT0739 | D8_q3.00_a0.5_0.0_th060_ph135_m120           |              3 |    -0.1616 |    -0.3256 |     0.3433 |          0 |          0 |          0 | -0 |   0.1768 |  0.6443 | 0.9654 |   0.6884 | 0.07389 |
+|   | 340 | GT0744 | D8_q3.00_a0.5_0.0_th060_ph225_m120           |              3 |      0.411 |    -0.1491 |     0.2425 |          0 |          0 |          0 |  0 | -0.02363 |  0.6666 | 0.9654 |   0.6886 |  0.0761 |
+|   | 337 | GT0741 | D8_q3.00_a0.5_0.0_th060_ph315_m120           |              3 |     0.1616 |     0.3256 |     0.3433 |          0 |          0 |          0 |  0 |  -0.1768 |  0.6443 | 0.9654 |   0.6885 | 0.07389 |
+|   | 221 | GT0605 | D8_q3.00_a0.5_0.0_th090_ph000_m120           |              3 |     0.4636 |    -0.1815 |    0.04629 |          0 |          0 |          0 | -0 |   0.1796 |  0.6541 | 0.9699 |   0.6039 | 0.07729 |
+|   | 263 | GT0657 | D8_q3.00_a0.5_0.0_th090_ph060_m120           |              3 |    -0.2006 |     0.4052 |     0.2134 |          0 |          0 |          0 |  0 |  -0.3247 |  0.5971 | 0.9696 |    0.602 | 0.07147 |
+|   | 243 | GT0636 | D8_q3.00_a0.5_0.0_th090_ph120_m120           |              3 |    -0.4996 |    0.01877 |  -0.001172 |          0 |          0 |          0 |  0 | -0.05987 |  0.6754 | 0.9701 |   0.6047 | 0.07898 |
+|   | 323 | GT0724 | D8_q3.00_a0.5_0.0_th090_ph180_m120           |              3 |    -0.4636 |     0.1815 |    0.04629 |          0 |          0 |          0 |  0 |  -0.1796 |  0.6541 | 0.9699 |   0.6039 | 0.07729 |
+|   | 242 | GT0635 | D8_q3.00_a0.5_0.0_th090_ph240_m120           |              3 |     0.2006 |    -0.4052 |     0.2134 |          0 |          0 |          0 | -0 |   0.3247 |  0.5971 | 0.9696 |   0.6019 | 0.07147 |
+|   | 284 | GT0680 | D8_q3.00_a0.5_0.0_th090_ph300_m120           |              3 |     0.4996 |   -0.01877 |  -0.001172 |          0 |          0 |          0 | -0 |  0.05987 |  0.6754 | 0.9701 |   0.6047 | 0.07898 |
+|   | 225 | GT0609 | D8_q3.00_a0.5_0.0_th120_ph045_m120           |              3 |    -0.3352 |    -0.3173 |    -0.1921 |          0 |          0 |          0 | -0 |    0.142 |  0.6767 | 0.9736 |   0.4883 | 0.08041 |
+|   | 339 | GT0743 | D8_q3.00_a0.5_0.0_th120_ph135_m120           |              3 |     0.2674 |    -0.4119 |   -0.09392 |          0 |          0 |          0 | -0 |    0.282 |  0.6317 |  0.974 |   0.4904 | 0.07674 |
+|   | 343 | GT0747 | D8_q3.00_a0.5_0.0_th120_ph225_m120           |              3 |     0.3352 |     0.3173 |    -0.1921 |          0 |          0 |          0 |  0 |   -0.142 |  0.6767 | 0.9736 |   0.4883 | 0.08041 |
+|   | 342 | GT0746 | D8_q3.00_a0.5_0.0_th120_ph315_m120           |              3 |    -0.2674 |     0.4119 |   -0.09392 |          0 |          0 |          0 |  0 |   -0.282 |  0.6317 |  0.974 |   0.4904 | 0.07674 |
+|   | 288 | GT0684 | D8_q3.00_a0.5_0.0_th135_ph000_m120           |              3 |     0.2891 |    -0.2813 |    -0.2955 |          0 |          0 |          0 | -0 |   0.1714 |  0.6756 | 0.9751 |   0.4274 | 0.08157 |
+|   | 325 | GT0726 | D8_q3.00_a0.5_0.0_th135_ph120_m120           |              3 |    -0.1969 |     0.3849 |    -0.2512 |          0 |          0 |          0 |  0 |  -0.2114 |  0.6646 | 0.9751 |   0.4272 | 0.08046 |
+|   | 333 | GT0735 | D8_q3.00_a0.5_0.0_th135_ph240_m120           |              3 |    -0.1554 |    -0.3943 |    -0.2653 |          0 |          0 |          0 | -0 |   0.1759 |  0.6749 | 0.9753 |   0.4284 | 0.08103 |
+|   | 307 | GT0705 | Eq_D7_q3.00_a0.6_ph030_m140                  |              3 |     0.5196 |        0.3 |          0 |    -0.5196 |       -0.3 |          0 |  0 |        0 |  0.6568 | 0.9693 |   0.6164 | 0.08577 |
+|   | 298 | GT0695 | Eq_D7_q3.00_a0.6_ph060_m140                  |              3 |        0.3 |     0.5196 |          0 |       -0.3 |    -0.5196 |          0 |  0 |        0 |  0.6568 | 0.9693 |   0.6165 | 0.08576 |
+|   | 299 | GT0696 | Eq_D7_q3.00_a0.6_ph090_m140                  |              3 |          0 |        0.6 |          0 |         -0 |       -0.6 |          0 |  0 |        0 |  0.6568 |   0.97 |   0.6194 | 0.08591 |
+|   | 309 | GT0707 | Eq_D7_q3.00_a0.6_ph120_m140                  |              3 |       -0.3 |     0.5196 |          0 |        0.3 |    -0.5196 |          0 |  0 |        0 |  0.6568 | 0.9703 |   0.6202 | 0.08605 |
+|   | 303 | GT0701 | Eq_D7_q3.00_a0.6_ph150_m140                  |              3 |    -0.5196 |        0.3 |          0 |     0.5196 |       -0.3 |          0 |  0 |        0 |  0.6568 | 0.9703 |   0.6197 | 0.08604 |
+|   | 300 | GT0697 | Eq_D7_q3.00_a0.6_ph180_m140                  |              3 |       -0.6 |          0 |          0 |        0.6 |         -0 |          0 |  0 |        0 |  0.6568 |   0.97 |   0.6185 | 0.08591 |
+|   | 310 | GT0708 | Eq_D7_q3.00_a0.6_ph210_m140                  |              3 |    -0.5196 |       -0.3 |          0 |     0.5196 |        0.3 |          0 |  0 |        0 |  0.6568 | 0.9693 |   0.6164 | 0.08577 |
+|   | 304 | GT0702 | Eq_D7_q3.00_a0.6_ph240_m140                  |              3 |       -0.3 |    -0.5196 |          0 |        0.3 |     0.5196 |          0 |  0 |        0 |  0.6568 | 0.9693 |   0.6165 | 0.08576 |
+|   | 302 | GT0699 | Eq_D7_q3.00_a0.6_ph270_m140                  |              3 |         -0 |       -0.6 |          0 |          0 |        0.6 |          0 |  0 |        0 |  0.6568 |   0.97 |   0.6194 | 0.08591 |
+|   | 305 | GT0703 | Eq_D7_q3.00_a0.6_ph300_m140                  |              3 |        0.3 |    -0.5196 |          0 |       -0.3 |     0.5196 |          0 |  0 |        0 |  0.6568 | 0.9703 |   0.6202 | 0.08605 |
+|   | 306 | GT0704 | Eq_D7_q3.00_a0.6_ph330_m140                  |              3 |     0.5196 |       -0.3 |          0 |    -0.5196 |        0.3 |          0 |  0 |        0 |  0.6568 | 0.9703 |   0.6197 | 0.08604 |
+|   | 330 | GT0732 | Lq_D6.2_q3.00_a0.6_th030_m140                |              3 |        0.3 |          0 |     0.5196 |       -0.3 |         -0 |     0.5196 |  0 |        0 |  0.5997 | 0.9566 |   0.7915 |  0.1019 |
+|   | 331 | GT0733 | Lq_D6.2_q3.00_a0.6_th045_m140                |              3 |     0.4243 |          0 |     0.4243 |    -0.4243 |         -0 |     0.4243 |  0 |        0 |  0.6071 | 0.9593 |   0.7629 |  0.1028 |
+|   | 332 | GT0734 | Lq_D6.2_q3.00_a0.6_th060_m140                |              3 |     0.5196 |          0 |        0.3 |    -0.5196 |         -0 |        0.3 |  0 |        0 |  0.6169 | 0.9635 |    0.727 | 0.09917 |
+|   | 327 | GT0728 | Lq_D6.2_q3.00_a0.6_th210_m140                |              3 |       -0.3 |         -0 |    -0.5196 |        0.3 |          0 |    -0.5196 |  0 |        0 |  0.6822 | 0.9782 |   0.3235 |  0.1077 |
+|   | 328 | GT0729 | Lq_D6.2_q3.00_a0.6_th240_m140                |              3 |    -0.5196 |         -0 |       -0.3 |     0.5196 |          0 |       -0.3 |  0 |        0 |  0.6645 | 0.9749 |   0.4718 |  0.1049 |
+|   | 297 | GT0694 | Sq_D6.2_q3.00_a0.6_th000_m140                |              3 |          0 |          0 |        0.6 |       -0.6 |          0 |          0 |  0 |        0 |  0.6025 | 0.9572 |    0.798 |  0.1032 |
+|   | 301 | GT0698 | Sq_D6.2_q3.00_a0.6_th015_m140                |              3 |     0.1553 |          0 |     0.5796 |       -0.6 |          0 |          0 |  0 |        0 |  0.6039 | 0.9579 |   0.7912 |  0.1036 |
+|   | 292 | GT0689 | Sq_D6.2_q3.00_a0.6_th030_m140                |              3 |        0.3 |          0 |     0.5196 |       -0.6 |          0 |          0 |  0 |        0 |  0.6078 | 0.9587 |   0.7738 |   0.104 |
+|   | 293 | GT0690 | Sq_D6.2_q3.00_a0.6_th045_m140                |              3 |     0.4243 |          0 |     0.4243 |       -0.6 |          0 |          0 |  0 |        0 |  0.6139 | 0.9618 |   0.7516 | 0.09878 |
+|   | 294 | GT0691 | Sq_D6.2_q3.00_a0.6_th060_m140                |              3 |     0.5196 |          0 |        0.3 |       -0.6 |          0 |          0 |  0 |        0 |  0.6217 | 0.9637 |    0.715 | 0.09957 |
+|   | 295 | GT0692 | Sq_D6.2_q3.00_a0.6_th075_m140                |              3 |     0.5796 |          0 |     0.1553 |       -0.6 |          0 |          0 |  0 |        0 |  0.6308 | 0.9673 |   0.6739 |  0.1006 |
+|   | 296 | GT0693 | Sq_D6.2_q3.00_a0.6_th090_m140                |              3 |        0.6 |          0 |          0 |       -0.6 |          0 |          0 |  0 |        0 |  0.6405 | 0.9693 |   0.6153 |  0.1018 |
+|   | 289 | GT0685 | Sq_D6.2_q3.00_a0.6_th120_m140                |              3 |     0.5196 |          0 |       -0.3 |       -0.6 |          0 |          0 |  0 |        0 |  0.6591 | 0.9746 |   0.4793 |  0.1045 |
+|   | 290 | GT0686 | Sq_D6.2_q3.00_a0.6_th150_m140                |              3 |        0.3 |          0 |    -0.5196 |       -0.6 |          0 |          0 |  0 |        0 |  0.6726 | 0.9775 |    0.333 |  0.1068 |
+|   | 312 | GT0710 | Sq_D6.2_q3.00_a0.6_th180_m140                |              3 |          0 |          0 |       -0.6 |       -0.6 |          0 |          0 |  0 |        0 |  0.6773 | 0.9783 |    0.269 |  0.1076 |
+|   | 311 | GT0709 | Sq_D6.2_q3.00_a0.6_th210_m140                |              3 |       -0.3 |         -0 |    -0.5196 |       -0.6 |          0 |          0 |  0 |        0 |   0.672 | 0.9769 |   0.3642 |  0.1064 |
+|   | 314 | GT0713 | Sq_D6.2_q3.00_a0.6_th240_m140                |              3 |    -0.5196 |         -0 |       -0.3 |       -0.6 |          0 |          0 |  0 |        0 |  0.6581 | 0.9739 |   0.5173 |  0.1039 |
+|   | 315 | GT0714 | Sq_D6.2_q3.00_a0.6_th270_m140                |              3 |       -0.6 |         -0 |         -0 |       -0.6 |          0 |          0 |  0 |        0 |  0.6393 | 0.9688 |    0.648 |  0.1012 |
+|   | 322 | GT0723 | Sq_D6.2_q3.00_a0.6_th300_m140                |              3 |    -0.5196 |         -0 |        0.3 |       -0.6 |          0 |          0 |  0 |        0 |  0.6207 | 0.9629 |   0.7364 | 0.09907 |
+|   | 319 | GT0720 | Sq_D6.2_q3.00_a0.6_th315_m140                |              3 |    -0.4243 |         -0 |     0.4243 |       -0.6 |          0 |          0 |  0 |        0 |   0.613 | 0.9603 |   0.7647 |   0.102 |
+|   | 320 | GT0721 | Sq_D6.2_q3.00_a0.6_th330_m140                |              3 |       -0.3 |         -0 |     0.5196 |       -0.6 |          0 |          0 |  0 |        0 |  0.6072 | 0.9587 |   0.7855 |  0.1022 |
+|   | 321 | GT0722 | Sq_D6.2_q3.00_a0.6_th345_m140                |              3 |    -0.1553 |         -0 |     0.5796 |       -0.6 |          0 |          0 |  0 |        0 |  0.6036 | 0.9573 |   0.7959 |  0.1027 |
+|   | 428 | GT0874 | q3_LL_D9_a0.6_th1_45_th2_225_m140            |              3 |     0.4243 |          0 |     0.4243 |    -0.4243 |          0 |    -0.4243 |  0 |        0 |  0.6865 | 0.9632 |   0.7449 | 0.06296 |
+|   | 411 | GT0857 | q3_Seff_D9_a_0.066667_-0.6_th1_45_m140       |              3 |    0.04714 |          0 |    0.04714 |    -0.4243 |          0 |    -0.4243 |  0 |        0 |  0.7028 | 0.9716 |   0.5484 | 0.06494 |
+|   | 350 | GT0758 | D9_q3.1_a0.0_m160                            |            3.1 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |   0.691 |  0.972 |   0.5329 | 0.06503 |
+|   | 351 | GT0759 | D9_q3.2_a0.0_m160                            |            3.2 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.6799 | 0.9728 |   0.5255 | 0.06493 |
+|   | 437 | GT0883 | q3.25_LL_D9_a0.6_th1_45_th2_225_m140         |           3.25 |     0.4243 |          0 |     0.4243 |    -0.4243 |          0 |    -0.4243 |  0 |        0 |  0.6583 |    NaN |      NaN | 0.06287 |
+|   | 352 | GT0760 | D9_q3.3_a0.0_m160                            |            3.3 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.6691 | 0.9735 |   0.5182 | 0.06488 |
+|   | 353 | GT0761 | D9_q3.4_a0.0_m160                            |            3.4 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.6586 | 0.9743 |   0.5111 |  0.0648 |
+|   | 259 | GT0652 | D9_q3.5_a0.0_m160                            |            3.5 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.6484 | 0.9749 |   0.5041 |  0.0649 |
+|   | 433 | GT0879 | q3.5_LL_D9_a0.6_th1_45_th2_225_m140          |            3.5 |     0.4243 |          0 |     0.4243 |    -0.4243 |          0 |    -0.4243 |  0 |        0 |   0.632 | 0.9668 |   0.7369 |  0.0626 |
+|   | 344 | GT0748 | D9_q3.6_a0.0_m160                            |            3.6 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.6384 | 0.9756 |   0.4973 | 0.06481 |
+|   | 365 | GT0778 | D9_q3.7_a0.0_m160                            |            3.7 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.6287 | 0.9762 |   0.4907 | 0.06475 |
+|   | 438 | GT0884 | q3.75_LL_D9_a0.6_th1_45_th2_225_m140         |           3.75 |     0.4243 |          0 |     0.4243 |    -0.4243 |          0 |    -0.4243 |  0 |        0 |  0.6075 |    NaN |      NaN | 0.06245 |
+|   | 367 | GT0780 | D9_q3.8_a0.0_m160                            |            3.8 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.6192 | 0.9768 |   0.4842 | 0.06469 |
+|   | 364 | GT0777 | D9_q3.9_a0.0_m160                            |            3.9 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |    0.61 | 0.9774 |   0.4779 | 0.06473 |
+|   | 200 | GT0570 | D10_q4.00_a0.2_0.0_m240                      |              4 |          0 |          0 |        0.2 |          0 |          0 |          0 |  0 |       -0 |  0.6117 | 0.9749 |   0.5767 | 0.05425 |
+|   | 201 | GT0573 | D10_q4.00_a0.4_0.0_m240                      |              4 |          0 |          0 |        0.4 |          0 |          0 |          0 |  0 |       -0 |  0.6044 |  0.971 |   0.6784 | 0.05352 |
+|   | 204 | GT0578 | D10_q4.00_a0.6_0.0_m240                      |              4 |          0 |          0 |        0.6 |          0 |          0 |          0 |  0 |       -0 |  0.5972 | 0.9653 |   0.7784 | 0.05285 |
+|   | 390 | GT0833 | D10_q4.00_a0.8_th174_Q20                     |              4 |   -0.08282 | -0.0009879 |    -0.7957 |          0 |          0 |          0 | -0 |        0 |    0.65 |  0.984 |  0.06711 | 0.05957 |
+|   | 181 | GT0544 | D10_q4_a0.6_th90_m120                        |              4 |    -0.5624 |     -0.209 |  -0.008836 |     0.1004 |    -0.0269 |     0.5909 |  0 | -0.01942 |  0.6127 | 0.9747 |   0.6058 | 0.05579 |
+|   | 197 | GT0566 | D11_q4.00_a-0.8_0.0_m160                     |              4 |          0 |          0 |       -0.8 |          0 |          0 |          0 |  0 |       -0 |  0.6657 | 0.9841 |  0.03911 | 0.05106 |
+|   | 103 | GT0454 | D11_q4.00_a0.0_m200                          |              4 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.6374 | 0.9779 |   0.4716 | 0.04876 |
+|   | 125 | GT0478 | RO3_D10_q4.00_a0.40_oth.060_M120             |              4 |     0.3464 |          0 |        0.2 |          0 |          0 |        0.4 |  0 |        0 |  0.6071 | 0.9737 |   0.6215 | 0.05464 |
+|   | 117 | GT0468 | RO3_D10_q4.00_a0.60_oth.045_M120             |              4 |     0.4243 |          0 |     0.4243 |          0 |          0 |        0.6 |  0 |        0 |  0.5978 | 0.9675 |   0.7485 | 0.05389 |
+|   | 118 | GT0469 | RO3_D10_q4.00_a0.60_oth.060_M120             |              4 |     0.5196 |          0 |        0.3 |          0 |          0 |        0.6 |  0 |        0 |  0.6022 | 0.9702 |   0.7148 | 0.05406 |
+|   | 119 | GT0470 | RO3_D10_q4.00_a0.60_oth.090_M120             |              4 |        0.6 |          0 |  3.674E-17 |          0 |          0 |        0.6 |  0 |        0 |  0.6127 | 0.9749 |   0.6095 | 0.05484 |
+|   |  91 | GT0432 | Sq4_d6.2_a0.6_oth.030_rr_M140                |              4 |        0.3 |          0 |     0.5196 |       -0.6 |          0 |          0 |  0 |        0 |  0.5182 | 0.9673 |   0.7585 |  0.1024 |
+|   | 192 | GT0557 | Sq4_d9_a0.0_0.6_oth.090_rr_M140              |              4 |        0.6 |          0 |  3.674E-17 |          0 |          0 |          0 |  0 |        0 |  0.5983 | 0.9756 |   0.6015 | 0.06372 |
+|   |  89 | GT0430 | Sq4_d9_a0.6_oth.000_rr_M140                  |              4 |          0 |          0 |        0.6 |       -0.6 |          0 |          0 |  0 |        0 |  0.5744 | 0.9654 |   0.7794 |  0.0618 |
+|   |  92 | GT0433 | Sq4_d9_a0.6_oth.090_rr_M140                  |              4 |        0.6 |          0 |  3.674E-17 |       -0.6 |          0 |          0 |  0 |        0 |  0.5985 |  0.976 |   0.5926 | 0.06376 |
+|   |  94 | GT0435 | Sq4_d9_a0.6_oth.150_rr_M140                  |              4 |        0.3 |          0 |    -0.5196 |       -0.6 |          0 |          0 |  0 |        0 |  0.6191 | 0.9826 |    0.258 | 0.06851 |
+|   |  96 | GT0438 | Sq4_d9_a0.6_oth.180_rr_M140                  |              4 |  7.348E-17 |          0 |       -0.6 |       -0.6 |          0 |          0 |  0 |        0 |  0.6222 | 0.9833 |   0.1498 | 0.06945 |
+|   |  98 | GT0441 | Sq4_d9_a0.6_oth.210_rr_M140                  |              4 |       -0.3 |          0 |    -0.5196 |       -0.6 |          0 |          0 |  0 |        0 |  0.6188 | 0.9823 |   0.2849 | 0.06817 |
+|   | 194 | GT0560 | Sq4_d9_a0.6_oth.270_rr_M180                  |              4 |       -0.6 |          0 | -1.102E-16 |       -0.6 |          0 |          0 |  0 |        0 |   0.598 | 0.9752 |   0.6128 | 0.06325 |
+|   | 429 | GT0875 | q4_LL_D9_a0.6_th1_45_th2_225_m166            |              4 |     0.4243 |          0 |     0.4243 |    -0.4243 |          0 |    -0.4243 |  0 |        0 |  0.5846 | 0.9697 |   0.7293 | 0.06246 |
+|   | 375 | GT0797 | D9_q4.1_a0.0_m160                            |            4.1 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.5923 | 0.9784 |   0.4656 |  0.0646 |
+|   | 376 | GT0798 | D9_q4.2_a0.0_m160                            |            4.2 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.5838 | 0.9789 |   0.4597 | 0.06454 |
+|   | 370 | GT0791 | D9_q4.3_a0.0_m160                            |            4.3 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.5755 | 0.9794 |   0.4538 |  0.0645 |
+|   | 373 | GT0795 | D9_q4.4_a0.0_m160                            |            4.4 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.5674 | 0.9799 |   0.4482 | 0.06438 |
+|   | 262 | GT0656 | D9_q4.5_a0.0_m160                            |            4.5 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.5595 | 0.9804 |   0.4426 | 0.06431 |
+|   | 434 | GT0880 | q4.5_LL_D9_a0.6_th1_45_th2_225_m186          |            4.5 |     0.4243 |          0 |     0.4243 |    -0.4243 |          0 |    -0.4243 |  0 |        0 |  0.5431 | 0.9726 |   0.7212 |  0.0621 |
+|   | 363 | GT0771 | D10_q5.00_a-0.68_0.00_m240                   |              5 |          0 |          0 |      -0.68 |          0 |          0 |          0 |  0 |       -0 |  0.5626 |  0.987 | 0.007675 | 0.05877 |
+|   | 366 | GT0779 | D10_q5.00_a-0.69273917_0.00_m280             |              5 |          0 |          0 |    -0.6927 |          0 |          0 |          0 |  0 |       -0 |   0.563 | 0.9871 | 0.000696 | 0.05886 |
+|   | 362 | GT0770 | D10_q5.00_a-0.69_0.00_m240                   |              5 |          0 |          0 |      -0.69 |          0 |          0 |          0 |  0 |       -0 |  0.5629 |  0.987 | 0.001662 | 0.05884 |
+|   | 360 | GT0768 | D10_q5.00_a-0.71_0.00_m240                   |              5 |          0 |          0 |      -0.71 |          0 |          0 |          0 |  0 |       -0 |  0.5637 |  0.987 |  0.01046 | 0.05897 |
+|   | 361 | GT0769 | D10_q5.00_a-0.72_0.00_m240                   |              5 |          0 |          0 |      -0.72 |          0 |          0 |          0 |  0 |       -0 |   0.564 | 0.9871 |  0.01637 | 0.05904 |
+|   | 357 | GT0765 | D10_q5.00_a-0.73_0.00_m240                   |              5 |          0 |          0 |      -0.73 |          0 |          0 |          0 |  0 |       -0 |  0.5644 | 0.9871 |  0.02218 | 0.05911 |
+|   | 203 | GT0577 | D10_q5.00_a0.0_0.0_m240                      |              5 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.5383 | 0.9824 |   0.4175 | 0.05463 |
+|   | 215 | GT0599 | D10_q5.00_a0.2_0.0_m240                      |              5 |          0 |          0 |        0.2 |          0 |          0 |          0 |  0 |       -0 |  0.5314 | 0.9799 |   0.5351 | 0.05371 |
+|   | 218 | GT0602 | D10_q5.00_a0.4_0.0_m240                      |              5 |          0 |          0 |        0.4 |          0 |          0 |          0 |  0 |       -0 |  0.5247 | 0.9766 |   0.6496 | 0.05302 |
+|   | 227 | GT0611 | D10_q5.00_a0.6_0.0_m240                      |              5 |          0 |          0 |        0.6 |          0 |          0 |          0 |  0 |       -0 |  0.5181 | 0.9716 |    0.762 | 0.05238 |
+|   | 441 | GT0887 | q5_LL_D9_a0.6_th1_45_th2_225_m320            |              5 |     0.4243 |          0 |     0.4243 |    -0.4243 |          0 |    -0.4243 |  0 |        0 |  0.5068 |    NaN |      NaN | 0.06126 |
+|   | 387 | GT0824 | D9_q5.5_a0.0_Q20                             |            5.5 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.4906 | 0.9839 |   0.3932 | 0.06221 |
+|   | 220 | GT0604 | D10_q6.00_a0.00_0.00_m280                    |              6 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.4752 | 0.9855 |   0.3732 | 0.05417 |
+|   | 224 | GT0608 | D10_q6.00_a0.20_0.00_m280                    |              6 |          0 |          0 |        0.2 |          0 |          0 |          0 |  0 |       -0 |  0.4689 | 0.9834 |   0.5007 | 0.05322 |
+|   | 226 | GT0610 | D10_q6.00_a0.40_0.00_m280                    |              6 |          0 |          0 |        0.4 |          0 |          0 |          0 |  0 |       -0 |  0.4627 | 0.9805 |   0.6257 | 0.05254 |
+|   | 228 | GT0612 | D10_q6.00_a0.60_0.00_m280                    |              6 |          0 |          0 |        0.6 |          0 |          0 |          0 |  0 |       -0 |  0.4566 | 0.9762 |    0.748 | 0.05189 |
+|   | 341 | GT0745 | Oq_D9_q6.00_a0.6_th090_m320                  |              6 |   -0.04612 |     0.5394 |     0.2587 |          0 |          0 |          0 |  0 |  -0.2052 |   0.413 |  0.984 |   0.5707 | 0.05757 |
+|   | 443 | GT0889 | q6_LL_D9_a0.6_th1_45_th2_225_m320            |              6 |     0.4243 |          0 |     0.4243 |    -0.4243 |          0 |    -0.4243 |  0 |        0 |  0.4465 | 0.9794 |   0.7038 | 0.06124 |
+|   | 291 | GT0688 | D10_q7.00_a0.20_0.00_m320                    |              7 |          0 |          0 |        0.2 |          0 |          0 |          0 |  0 |       -0 |  0.4191 | 0.9859 |   0.4724 | 0.05284 |
+|   | 336 | GT0740 | D10_q7.00_a0.40_0.00_m320                    |              7 |          0 |          0 |        0.4 |          0 |          0 |          0 |  0 |       -0 |  0.4134 | 0.9834 |   0.6056 | 0.05216 |
+|   | 391 | GT0834 | D10_q7.00_a0.8_th168_Q20                     |              7 |    -0.1459 |    0.07588 |    -0.7829 |          0 |          0 |          0 |  0 |       -0 |  0.4485 | 0.9908 |   0.2388 | 0.05941 |
+|   | 386 | GT0818 | EccQ_q7_c0.01_m320                           |              7 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |        0 |  0.4186 | 0.9877 |   0.3367 | 0.05746 |
+|   | 338 | GT0742 | Oq_D9_q7.00_a0.6_th090_m320                  |              7 |   -0.02811 |     0.5993 |  -0.008343 |          0 |          0 |          0 |  0 |       -0 |  0.4125 | 0.9866 |   0.5657 | 0.06279 |
+|   | 442 | GT0888 | q7_LL_D9_a0.6_th1_45_th2_225_m320            |              7 |     0.4243 |          0 |     0.4243 |    -0.4243 |          0 |    -0.4243 |  0 |        0 |  0.3986 | 0.9825 |   0.6952 | 0.06091 |
+|   | 440 | GT0886 | q8_LL_D9_a0.6_th1_45_th2_225_m400            |              8 |     0.4243 |          0 |     0.4243 |    -0.4243 |          0 |    -0.4243 |  0 |        0 |  0.3598 |    NaN |      NaN | 0.06115 |
+|   | 199 | GT0568 | D8.4_q10.00_a0.0_m400                        |          9.996 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.3054 | 0.9918 |   0.2588 | 0.06976 |
+|   | 217 | GT0601 | D7.5_q15.00_a0.0_CHgEEB_m800                 |          15.04 |          0 |          0 |          0 |          0 |          0 |          0 |  0 |       -0 |  0.2095 | 0.9948 |   0.1884 | 0.08475 |
+
+
+* Data model
+
+* Predictive model
+
+In order to make a prediction using the Gaussian Process model we
+require a new input at which the prediction should be made, which is
+denoted $x^*$. In order to form the predictive distribution we must then
+calculate the covariance of the new input with the existing training
+data, which we denote $K_{x, x^*}$, and the autocovariance of the input,
+$K_{x^*, x^*}$. We then define a new covariance matrix, $K^{+}$, which
+has the block structure
+
+$$\label{eq:blockK-plus-mat}
+  K^+ =
+  \begin{bmatrix}
+    K_{x,x} & K_{x,x^*} \\ K_{x^*,x} & K_{x^*, x^*}
+  \end{bmatrix}$$
+
+for $K_{x,x}$ the covariance matrix of the training inputs, and
+$K_{x^*,x} = K_{x,x^*}^T$.
+
+The predictive distribution can then be found as
+
+$$\label{eq:predictive-gp}
+  p(y^* | x^*, \mathcal{D}) = \mathcal{N}(y^* | K_{x^*,x} K_{x,x}^{-1} y, K_{x^*, x^*} - K_{x^*,x}K^{-1}_{x,x} K_{x,x^*}).$$
+
+
 * Training the Gaussian Process
-The GPR used to produce the surrogate is trained off data from the
-Georgia Tech waveform catalogue and consists of ~100000 training
-points. The model uses the Matérn-3/2 covariance function to generate
-the covariance matrix, and the hyperparameters are optimised using a
-Markov Chain Monte Carlo process with 2000 iterations.
+Once the Gaussian process model has been constructed it is necessary
+to train the model. This is done by choosing a set of hyperparameters
+for the covariance (kernel) function of the model which maximise some
+figure of merit of the model:
+
+- marginal likelihood (evidence) :: This is the most common method
+     used to train a GPR model, and allows the training step to be
+     conducted in a fully Bayesian framework.
+- cross validation :: By comparing the output of the model to some set
+     of test data we can produce a figure of merit from the deviation
+     of the model predictions from the test set. By minimising this
+     quantity we can find a model which is best capable of reproducing
+     the test data.
+
+Performing this optimisation can be done in a number of ways, either
+by sampling the hyperparameter space using MCMC or nested sampling, or
+using a quasi-Newtonian method like BFGS. This approach works well for
+simple models, but rapidly becomes intractable for larger models, as
+the hyperparameter space seems to produce an area where there is a
+plateau in the overall evidence.
+
+This problem has held Heron back for some time, but a solution in the
+form of nested sampling seems to allow us to find the correct (or at
+least a sufficiently correct) maximum in the marginal likelihood
+function for a given model (and in reasonable time: ~30 minutes for a
+model with 40 waveforms). Even nested sampling suffers from the
+plateau-ing problem, however, and it seems to be important to find a
+stopping criterion for the optimisation to prevent the process
+becoming stuck.
+
+** Finished models
+*** Paper Model 1?
+    This model is composed of 40 waveforms from the fr (S-Series-v2)
+    set from the Georgia tech catalogue, and involves dynamic range in
+    the (t, q, a1x) parameters (check this!)
+
+** DONE Check GPR evidence plateau
+   Is this real, or is this the result of a sign-flip in the code
+   somewhere? It seems odd that the evidence should be the same as the
+   hyperparameters keep getting smaller. Do we just need to penalise
+   for this in the prior?
+   - It might be a good idea to run some tests with a normal
+     distribution around the `best guess' value from ~HERON~.
+** DONE Determine the best optimisation method
+   It looks like ADAM is the most effective method.
+
+
+
+* Marginalising over the hyperparameters
+
+* Assessing the model
+In order to assess the global accuracy of our Gaussian Process surrogate
+to the underlying function it is standing-in for we require some means
+of quantitatively measuring deviations between the two. We introduce two
+measures: the root-mean-squared error, and the correlation. Both methods
+require access to test data; some fraction of the available evaluations
+of the function which are not used to train the Gaussian process, but
+which are held aside, and to which predictions from the GP can be
+compared.
+
+Let $x_*$ and $y_*$ be respectively the test inputs and test outputs for
+the Gaussian process, then let $\hat{y}$ be the set of model predictions
+drawn from the Gaussian Process with inputs $\vec{x}_*$.
+
+Mean-squared error
+
+$$\mathrm{RMSE} = \sqrt{
+    \frac{
+      \sum_{i=0}^{n_i} (y_*^{(i)} - \hat{y}^{(i)})^2
+    }
+    { n_t }
+  }$$
+
+for $n_t$ the size of the test set.
+
+Correlation
+
+$$\label{eq:correlation}
+    \rho^2 = \left(
+      \frac{ \cov(y^*, \hat{y})} { \sqrt{ \vary(y) \vary(\hat{y}) } } 
+    \right)^2$$
+
+Forrester\cite{forrester2008engineering} suggests that a
+$\rho^2 \geq 0.8$ provides a surrogate model with good global predictive
+abilities, which corresponds to an RMSE of around $0.1$.
+* Matched filtering
+
+We can use the Gaussian Process to generate waveforms with which to
+perform matched filtering, and perform matched filtering in much the
+same way as the standard method. However, normal matched filtering
+assumes the templates to have no uncertainty, whereas the
+GPR-generated waveforms come with some measure of their error.
+
+The abb:gpr uncertainty can be incorporated into the matched filtering
+process by considering the covariance (gram) matrix of the Gaussian
+process, and using this as part of the error term in the matched
+filter likelihood.
+
+In a situation with Gaussian and stationary noise the likelihood of a
+match can be defined as 
+
+\[
+   L(s | \vec{\lambda}) \propto \exp(-0.5 \inp{s - h(\vec{\lambda})} )
+\]
+
+With the noise-weighted inner product is defined as 
+
+\[
+   \inp{x}{y} = 4 \re{ \int_{0}^\infty \dd{f} \frac{x(f) y(f)}{Sₙ(f)}
+\]
 
 * Related Papers
+** Gaussian Processes
+*** Marginalizing Gaussian Process Hyperparameters using Sequential Monte Carlo
+    :PROPERTIES:
+    :TITLE:    Marginalizing Gaussian Process Hyperparameters using Sequential Monte Carlo
+    :BTYPE:    article
+    :CUSTOM_ID: 2015arXiv150201908S
+    :AUTHOR:   {Svensson}, A. and {Dahlin}, J. and {Sch{\"o}n}, T.~B.
+    :JOURNAL:  ArXiv e-prints
+    :ARCHIVEPREFIX: arXiv
+    :EPRINT:   1502.01908
+    :PRIMARYCLASS: stat.ML
+    :KEYWORDS: Statistics - Machine Learning, Statistics - Computation
+    :YEAR:     2015
+    :MONTH:    feb
+    :ADSURL:   http://adsabs.harvard.edu/abs/2015arXiv150201908S
+    :ADSNOTE:  Provided by the SAO/NASA Astrophysics Data System
+    :END:
+    [[file:../papers/1502.01908.pdf][PDF]]
+
 ** Gravitational Waves
 *** Optimizing gravitational waveforms using Gaussian Process Regression
     :PROPERTIES:
@@ -64,7 +979,7 @@ Markov Chain Monte Carlo process with 2000 iterations.
      too). They appear to perform a MAP-based optimisation, however
      they do provide plots of the hyperposterior for a range of
      hyperparameter values in the case of non-spinning waveforms.
-
+     
 **** Placing new training waveforms
      They propose using posterior uncertainties to guide the placement
      of future waveforms; this appears to work by training the GPR
@@ -76,3 +991,64 @@ Markov Chain Monte Carlo process with 2000 iterations.
      and works for them in a 2D situation, but is computationally
      inefficient, and will lead to an extremely large number of
      samples being evaluated.
+
+* Publications
+** HERON Paper 1: Prototype model
+
+** DONE Add new waveform points to the corner plot
+** DONE Make aligned NR comparison plot
+** DONE Change the units to code units
+
+* Project logbook
+** Out-of-sample testing issues
+   During out of sample testing efforts (week of 2019-06-10) a few interesting new issues have arisen with the rebuilt model (which appear to be a problem with the hyperparameter choices for the model). 
+This manifests itself as an incorrectly predicted amplitude for the wave, and doesn't seem to have any obvious solution.
+
+** TODO Make data products for the training data
+   It would be desirable to be able to split the production of training data away from the actual operation of the model.
+It should be fairly straight forward to do this, but it would require a bit of alteration of the code.
+
+* Bibliography & Reading
+
+*** Improving gravitational-wave parameter estimation using Gaussian process regression
+    :PROPERTIES:
+    :TITLE:    Improving gravitational-wave parameter estimation using Gaussian process regression
+    :BTYPE:    article
+    :CUSTOM_ID: 2016PhRvD..93f4001M
+    :AUTHOR:   {Moore}, C.~J. and {Berry}, C.~P.~L. and {Chua}, A.~J.~K. and {Gair}, J.~R.
+    :JOURNAL:  \prd
+    :ARCHIVEPREFIX: arXiv
+    :EPRINT:   1509.04066
+    :PRIMARYCLASS: gr-qc
+    :YEAR:     2016
+    :MONTH:    mar
+    :VOLUME:   93
+    :NUMBER:   6
+    :EID:      064001
+    :PAGES:    064001
+    :DOI:      10.1103/PhysRevD.93.064001
+    :ADSURL:   http://adsabs.harvard.edu/abs/2016PhRvD..93f4001M
+    :ADSNOTE:  Provided by the SAO/NASA Astrophysics Data System
+    :END:
+    [[../papers/1509.04066.pdf][PDF]]
+
+*** Eccentric, nonspinning, inspiral, Gaussian-process merger approximant for the detection and characterization of eccentric binary black hole mergers
+    :PROPERTIES:
+    :TITLE:    Eccentric, nonspinning, inspiral, Gaussian-process merger approximant for the detection and characterization of eccentric binary black hole mergers
+    :BTYPE:    article
+    :CUSTOM_ID: 2018PhRvD..97b4031H
+    :AUTHOR:   {Huerta}, E.~A. and {Moore}, C.~J. and {Kumar}, P. and {George}, D. and {Chua}, A.~J.~K. and {Haas}, R. and {Wessel}, E. and {Johnson}, D. and {Glennon}, D. and {Rebei}, A. and {Holgado}, A.~M. and {Gair}, J.~R. and {Pfeiffer}, H.~P.
+    :JOURNAL:  \prd
+    :ARCHIVEPREFIX: arXiv
+    :EPRINT:   1711.06276
+    :PRIMARYCLASS: gr-qc
+    :YEAR:     2018
+    :MONTH:    jan
+    :VOLUME:   97
+    :NUMBER:   2
+    :EID:      024031
+    :PAGES:    024031
+    :DOI:      10.1103/PhysRevD.97.024031
+    :ADSURL:   http://adsabs.harvard.edu/abs/2018PhRvD..97b4031H
+    :ADSNOTE:  Provided by the SAO/NASA Astrophysics Data System
+    :END:
