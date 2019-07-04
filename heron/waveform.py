@@ -3,6 +3,7 @@ This module is designed to allow for Gaussian Process modelling of
 gravitational waveforms.
 """
 
+<<<<<<< HEAD
 import george
 from george import HODLRSolver
 import elk
@@ -49,6 +50,15 @@ class Generator(Catalogue):
 
 
     
+=======
+from george import kernels, GP
+from george import HODLRSolver
+from elk.waveform import Waveform, Timeseries
+from elk.catalogue import Catalogue, PPCatalogue
+import numpy as np
+import matplotlib.pyplot as plt
+
+>>>>>>> 0eaf37e46790aa3fc8e92a040d2c9cdc9aa4dfd0
 class GPCatalogue(Catalogue):
     """
     This class represents a 'catalogue' of waveform built out of
@@ -58,7 +68,7 @@ class GPCatalogue(Catalogue):
     to be represented continuously, as opposed to in the discrete manner
     of the underlying NR catalogue.
     """
-    
+
     def __init__(self, nrcat, kernel, total_mass=100, f_min=None, solver="hodlr",
                  tmax=0.01,
                  tmin=-0.015,
@@ -85,6 +95,12 @@ class GPCatalogue(Catalogue):
         self.kernel = kernel
         
         self.nr_data = nrcat
+        self.total_mass = total_mass
+        self.f_min = f_min
+        self.sample_rate = fsample
+        self.ma = ma
+        self.tmax = tmax
+        self.tmin = tmin
         self.training_data = self.nr_data.create_training_data(total_mass,
                                                                f_min = f_min,
                                                                sample_rate=fsample,
@@ -107,15 +123,46 @@ class GPCatalogue(Catalogue):
         self.c_ind = {j:i for i,j in self.columns.items()}
 
         self.training_data[:,self.c_ind['time']] *= 10000
+        self.training_data[:,self.c_ind['mass ratio']] = np.log( self.training_data[:,self.c_ind['mass ratio']])
         #self.training_data[:,self.c_ind['mass ratio']] = np.log(self.training_data[:,self.c_ind['mass ratio']])
         #self.training_data[:,self.c_ind['time']] -= self.training_data[np.argmax(self.training_data[:,self.c_ind['time']]),self.c_ind['time']]
         self.training_data[:,self.c_ind['h+']] *= 1e19
         self.training_data[:,self.c_ind['hx']] *= 1e19
 
         self.x_dimensions = self.kernel.ndim
-
+        self.solver = solver
+        self.mean_f = mean
+        self.white_noise = white_noise
+        self.tol = tol
+        
         self.build(solver, mean, white_noise, tol)
 
+    def add_waveform(self, p):
+        """
+        Insert a new waveform into the Gaussian Process training set.
+        This currently only works for the PPCatalogue.
+
+        Parameters
+        ----------
+        p : dict
+           A dictionary of waveform parameters.
+        """
+        if type(self.nr_data) == PPCatalogue:
+            catalogue = self.nr_data
+            catalogue.waveforms.append(p)
+        else:
+            raise ValueError("This method currently works only with PP catalogues.")
+        self.training_data = self.nr_data.create_training_data(self.total_mass,
+                                                               f_min = self.f_min,
+                                                               sample_rate=self.sample_rate,
+                                                               ma=self.ma,
+                                                               tmax = self.tmax,
+                                                               tmin=self.tmin)
+        self.training_data[:,self.c_ind['time']] *= 10000
+        self.training_data[:,self.c_ind['h+']] *= 1e19
+        self.training_data[:,self.c_ind['hx']] *= 1e19
+        
+        self.build(self.solver, self.mean_f, self.white_noise, self.tol)
 
     def optimise(self, algorithm="adam", max_iter = 100, **kwargs):
         
@@ -180,11 +227,13 @@ class GPCatalogue(Catalogue):
                 
                 bounds = [(-10, 10) for _ in range(len(p0))]
                 
-                minimize(nll, p0,
+
+                result = minimize(nll, p0,
                          jac=grad_nll,
                          method="L-BFGS-B",
                          bounds=bounds,
                          callback=callback, **kwargs)
+                self.gp.set_parameter_vector(result['x'])
         
     def build(self, solver="hodlr", mean=0.0, white_noise=0, tol=1e-6):
         """
@@ -198,11 +247,11 @@ class GPCatalogue(Catalogue):
                          tol=tol,
                          min_size=100,
                          mean=mean, white_noise=white_noise)
+
         self.yerr = np.ones(len(self.training_data)) * 0 #1e-8
-	
         self.gp.compute(self.training_data[:, :self.x_dimensions], self.yerr)
 
-    def waveform(self, p, time_range):
+    def waveform(self, p, time_range, polarisation="h+"):
         """
         Return the mean waveform at a given location in the 
         BBH parameter space.
@@ -211,15 +260,16 @@ class GPCatalogue(Catalogue):
         nt = time_range[2]
         points = np.ones((nt, self.x_dimensions))
         points[:,self.c_ind['time']] = np.linspace(time_range[0], time_range[1], nt)
-
+        p['mass ratio'] = np.log(p['mass ratio'])
         for column, value in p.items():
             points[:, self.c_ind[column]] *= value
-        
-        mean, var = self.gp.predict(self.training_data[:,self.c_ind['h+']],
+
+            
+        mean, var = self.gp.predict(self.training_data[:,self.c_ind[polarisation]],
                                     points,
                                     return_var=True,
         )
-        return Timeseries(data=mean/1e19, times=points[:,self.c_ind['time']]), Timeseries(data=var/1e19, times=points[:,self.c_ind['time']])
+        return Timeseries(data=mean/1e19, times=points[:,self.c_ind['time']]/1e4), Timeseries(data=var/1e19, times=points[:,self.c_ind['time']]/1e4)
 
     def waveform_samples(self, p, time_range, samples=100):
         """
@@ -239,6 +289,7 @@ class GPCatalogue(Catalogue):
                                              points,
                                              size=samples
         )
+
         return_samples = [Timeseries(data=sample/1e19, times=times/1e4) for sample in samples]
         
         return np.array(return_samples)
@@ -267,11 +318,17 @@ class GPCatalogue(Catalogue):
             # This is a one-dimensional query of the catalogue
             range1, range1_label = list(ranges.values())[0], list(ranges.keys())[0]
             nx = range1[2]
-            x = np.linspace(range1[0], range1[1], nx)
-
-            points = np.zeros((nx, self.x_dimensions))
+            if range1_label == "mass ratio":                
+                x = np.linspace(np.log(range1[0]), np.log(range1[1]), nx)
+            else:
+                x = np.linspace(range1[0], range1[1], nx)
+            points = np.ones((nx, self.x_dimensions))
             points[:, self.c_ind[range1_label]] = x
+            for column, value in fixed.items():
+                points[:, self.c_ind[column]] *= value
 
+            #points[:, self.c_ind['mass ratio']] = np.log(points[:, self.c_ind['mass ratio']])
+                
             mean, var = self.gp.predict(self.training_data[:,self.c_ind['h+']],
                                     points,
                                     return_var=True,
