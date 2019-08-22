@@ -3,14 +3,16 @@ This module is designed to allow for Gaussian Process modelling of
 gravitational waveforms.
 """
 
-<<<<<<< HEAD
+
 import george
 from george import HODLRSolver
 import elk
+from george import kernels, GP
 from elk.waveform import Waveform, Timeseries
-from elk.catalogue import Catalogue
+from elk.catalogue import Catalogue, PPCatalogue
 import numpy as np
 import matplotlib.pyplot as plt
+
 
 class Generator(Catalogue):
     """
@@ -50,15 +52,7 @@ class Generator(Catalogue):
 
 
     
-=======
-from george import kernels, GP
-from george import HODLRSolver
-from elk.waveform import Waveform, Timeseries
-from elk.catalogue import Catalogue, PPCatalogue
-import numpy as np
-import matplotlib.pyplot as plt
 
->>>>>>> 0eaf37e46790aa3fc8e92a040d2c9cdc9aa4dfd0
 class GPCatalogue(Catalogue):
     """
     This class represents a 'catalogue' of waveform built out of

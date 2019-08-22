@@ -14,22 +14,17 @@ from elk.catalogue import Catalogue
 
 import scipy.optimize as op
 
-<<<<<<< HEAD
 import pkg_resources
 
 DATA_PATH = pkg_resources.resource_filename('heron', 'models/data/')
 
-def train(model):
-=======
-
 def train(model, batch_size=100, algorithm="adam", max_iter=1000):
->>>>>>> 5028adc92de28896a3e38139aab8616ba2dc60b9
     """
     Train a george-based Gaussian process model.
     """
 
     def callback(p):
-        print '{}\t{}'.format(np.exp(p),  model.log_evidence(p, n=batch_size)[0])
+        print('{}\t{}'.format(np.exp(p),  model.log_evidence(p, n=batch_size)[0]))
 
     def nll(k):
         ll = model.log_evidence(k, n=batch_size)[0]
@@ -84,6 +79,7 @@ class HodlrGPR(Model):
     evaluate = True
 
     time_factor = 100
+    strain_input_factor = 1e19
     
     def eval(self):
         """
@@ -184,8 +180,8 @@ class HodlrGPR(Model):
                                     points,
                                     return_var=True,
         )
-        return Timeseries(data=mean/1e19, times=points[:,self.c_ind['time']]/self.time_factor, variance=var), \
-            Timeseries(data=mean_x/1e19, times=points[:,self.c_ind['time']]/self.time_factor, variance=var_x)
+        return Timeseries(data=mean/self.strain_input_factor, times=points[:,self.c_ind['time']]/self.time_factor, variance=var), \
+               Timeseries(data=mean_x/self.strain_input_factor, times=points[:,self.c_ind['time']]/self.time_factor, variance=var_x)
 
     def distribution(self, p, times, samples=100, polarisation="h+"):
         """
@@ -275,9 +271,9 @@ class HeronHodlr(HodlrGPR, BBHSurrogate, HofTSurrogate):
     """
 
 
-    def __init__(self, exclude_waveforms=None):
+    def __init__(self):
 
-        self.catalogue = elk.catalogue.NRCatalogue(origin="GeorgiaTech", exclude_waveforms=exclude_waveforms)
+        #self.catalogue = elk.catalogue.NRCatalogue(origin="GeorgiaTech")
         #self.problem_dims = 8
         self.kernel = 1.0 * george.kernels.ExpSquaredKernel(0.005,
                                                       ndim=self.problem_dims,
@@ -305,11 +301,12 @@ class HeronHodlr(HodlrGPR, BBHSurrogate, HofTSurrogate):
         self.training_data = np.genfromtxt(DB_FILE)
         
         self.time_factor = 1e2
+        self.strain_input_factor = 1e19
         
         self.training_data[:,self.c_ind['time']] *= self.time_factor
         self.training_data[:,self.c_ind['mass ratio']] = np.log(self.training_data[:,self.c_ind['mass ratio']])
-        self.training_data[:,self.c_ind['h+']] *= 1e19
-        self.training_data[:,self.c_ind['hx']] *= 1e19
+        self.training_data[:,self.c_ind['h+']] *= self.strain_input_factor
+        self.training_data[:,self.c_ind['hx']] *= self.strain_input_factor
 
         self.x_dimensions = self.kernel.ndim
         
@@ -317,6 +314,9 @@ class HeronHodlr(HodlrGPR, BBHSurrogate, HofTSurrogate):
         # self.gp.set_parameter_vector(np.log([1.46, 0.0285, 0.0157, 0.005, 0.005, 0.005, 0.005, 0.005, 0.005]))
         #self.gp.set_parameter_vector(np.log([0.346, 0.0285, 0.0148, 0.006, 0.004, 0.007, 0.007, 0.005, 0.005]))
         self.gp.set_parameter_vector(np.log([0.606, 0.005380, 0.0041315, 0.006, 0.004, 0.007, 0.007, 0.005, 0.005]))
+
+
+        
         
 
     # def log_evidence(self, k):
