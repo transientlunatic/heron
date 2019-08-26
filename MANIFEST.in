@@ -10,4 +10,5 @@ recursive-exclude * *.py[co]
 
 recursive-include docs *.rst conf.py Makefile make.bat
 include versioneer.py
-include heron/_version.py
+recursive-include heron/models/data/ *.dat
+
