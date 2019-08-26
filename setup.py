@@ -23,7 +23,7 @@ with open("requirements_test.txt") as requires_file:
 
 
 setup(
-    name='heron',
+    name='heron-model',
     use_scm_version=True,
     setup_requires=['setuptools_scm'],
     description="Heron is a machine learning package for Python",
