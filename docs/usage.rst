@@ -2,57 +2,34 @@
 Usage
 =====
 
-Training a GP Regressor
------------------------
+In order to run one of Heron's built-in models you'll need to import that model as well as Heron itself, for example: ::
 
-A simple regression task involving just two dimensions can be handled
-by all of `heron`'s built-in infrastructure at present.
+  import heron
+  from heron.models.georgebased import HeronHodlr
 
-First, import the parts of `heron` which we'll need:
-::
-   from heron import data, regression, priors, training
+  import numpy as np
 
-we'll also need to import the kernel module from George (but in the
-near future `heron` will wrap this up in a sensible way too):
-::
-   from george import kernels
+We also imported numpy for convenience.
 
-We now need to load in the training data; we can do that from a text
-file. A sample training set of waveforms produced by the IMRPhenomPv2
-approximant is supplied in the package repository (in the `data`
-directory).
-::
-   training_data = np.loadtxt("IMRPhenomPv2_nonspinning_q1to10.dat")
+This will load latest version of the NR-trained 7-dimensional Heron model.
+We now need to set the generator up to produce waveforms.
+Currently we need to tell the model the total mass of the system, but this ::
 
-   data = data.Data(training_data[:2,::5].T, training_data[2,::5],
-                 label_sigma = [0.1],
-                 target_names = ["t", "q"],
-                 label_names = ["hx"],)
-		
-Heron's data class handles the preparation of the training data, the
-selection of a test set, and the normalisation of the training data,
-so we're now ready to pass the data to a GPR regression model.
+  generator = HeronHodlr()
+  
+Two different types of waveform can be requested from the model: the mean waveform (and its variance), or individual waveform samples.
 
-First, however, it's necessary to define the covariance model.
-::
-   p0 = data.get_starting()
-   hyper_priors = [priors.Normal(hyper, 1) for hyper in p0]
-   kernel = np.std(data.labels) * kernels.Matern52Kernel(sep, ndim=len(sep))
+In order to produce a mean waveform we need to provide the model with the instrinsic properties of the system, that is, the mass ratio, and the spin parameters. If any parameters are omitted from the dictionary they're set to zero. ::
 
-Here we've set up a Matern-5/2 covariance function, and we've assigned
-normal distribution priors to the value of each hyperparameter, which
-are centred at a the value returned by the `get_starting()` method of
-the data object.
+  waveform = generator.mean(times=np.linspace(-0.02, 0.02), p={"mass ratio": 0.3})
 
-In order to provide the best possible model, the Gaussian process must
-now be trained. This can be done with the `heron.training` module.
-::
-   samples, burn = gp.train("MCMC")
+The output of the ``mean`` method is two waveforms (one each for the plus and cross polarisations).
 
-Here we've trained the model using an MCMC process, and the samples
-and the burn-in samples are returned. The training process sets the
-hyperparameters of the kernel to the point in hyperparameter space
-which maximises the GP's evidence. Finally, we can save the Gaussian
-process, so that it can be called later.
-::
-   gp.save("IMRPhenomPv2_nonspinning.gp")
+The ``data`` attribute of each waveform contains the mean strain data, while the ``variance`` attribute contains the variance on this mean waveform.
+
+Alternatively, Heron can return individual function draws. These may not look especially similar to what you would expect out of a normal waveform model, but used collectively they can allow the calculation of various statistics. ::
+
+  samples = generator.distribution(samples=100, times=np.linspace(-0.02, 0.02), p={"mass ratio": 3})
+
+
+This produces 100 waveform samples drawn from the model, at the same model configuration as the previous mean waveform.

@@ -7,3 +7,8 @@ jinja2
 cython
 george
 nestle
+
+sphinx
+numpydoc
+git+https://github.com/transientlunatic/sphinx-daniel-theme.git
+nbsphinx

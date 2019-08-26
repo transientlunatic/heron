@@ -6,7 +6,6 @@ emcee
 pyyaml
 jinja2
 cython
-# george
+george
 nestle
-numpydoc
-sphinx-bootstrap-theme
+elk-waveform

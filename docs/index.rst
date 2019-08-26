@@ -18,6 +18,8 @@ and to fit into analysis pipelines better than the earlier development versions.
    :caption: Basics
 	      
    readme
+   installation
+   usage
    api
    
 

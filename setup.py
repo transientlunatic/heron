@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
-import versioneer
-version=versioneer.get_version()
-cmdclass=versioneer.get_cmdclass()
-
 try:
     from setuptools import setup
 except ImportError:
@@ -17,24 +12,24 @@ with open('README.rst') as readme_file:
 with open('HISTORY.rst') as history_file:
     history = history_file.read()
 
-requirements = [
-    "numpy", "matplotlib", "scipy", "nestle"
-    # TODO: put package requirements here
-]
+with open("requirements.txt") as requires_file:
+    requirements = requires_file.read().split("\n")
 
-test_requirements = [
-    # TODO: put package test requirements here
-]
+
+with open("requirements_test.txt") as requires_file:
+    test_requirements = requires_file.read().split("\n")
+
 
 
 
 setup(
     name='heron',
-    version=(version),
+    use_scm_version=True,
+    setup_requires=['setuptools_scm'],
     description="Heron is a machine learning package for Python",
     long_description=readme + '\n\n' + history,
     author="Daniel Williams",
-    author_email='d.williams.2@research.gla.ac.uk',
+    author_email='daniel.williams@ligo.org',
     url='https://github.com/transientlunatic/heron',
     packages=[
         'heron',

@@ -33,13 +33,20 @@ class Model(object):
         """
 
         times, p = self._process_inputs(times, p)
+
+        
         
         nt = len(times)
         points = np.ones((nt, self.x_dimensions))
         points[:,self.c_ind['time']] = times
 
-        for column, value in p.items():
-            points[:, self.c_ind[column]] *= value
+        for parameter in self.parameters:
+            if parameter in p.keys():
+                value = p[parameter]
+            else:
+                value = 0.0
+                
+            points[:, self.c_ind[parameter]] *= value
 
         return points
     
