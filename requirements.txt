@@ -7,5 +7,5 @@ pyyaml==5.1.2
 jinja2==2.10.1
 cython==0.29.13
 george==0.3.1
-nestle
+nestle==0.2.0
 elk-waveform
