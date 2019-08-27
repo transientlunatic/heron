@@ -3,10 +3,13 @@ Heron
 =====
 
 .. image:: https://badge.fury.io/py/heron-model.svg
-    :target: https://badge.fury.io/py/heron-model
+   :target: https://badge.fury.io/py/heron-model
 
 .. image:: https://travis-ci.org/transientlunatic/heron.svg?branch=master
-    :target: https://travis-ci.org/transientlunatic/heron
+   :target: https://travis-ci.org/transientlunatic/heron
+
+.. image:: https://zenodo.org/badge/51749075.svg
+   :target: https://zenodo.org/badge/latestdoi/51749075
 
 The ``heron`` package is a python library for using Gaussian Process Regression (GPR) to emulate functions which are expensive to 
 
