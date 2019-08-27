@@ -9,6 +9,6 @@ george==0.3.1
 nestle==0.2.0
 
 sphinx==2.2.0
-numpydoc
+numpydoc==0.9.1
 git+https://github.com/transientlunatic/sphinx-daniel-theme.git
 nbsphinx
