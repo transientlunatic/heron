@@ -2,6 +2,8 @@
 Heron
 =====
 
+.. image:: https://travis-ci.org/transientlunatic/heron.svg?branch=master
+    :target: https://travis-ci.org/transientlunatic/heron
 
 The ``heron`` package is a python library for using Gaussian Process Regression (GPR) to emulate functions which are expensive to 
 
