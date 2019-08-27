@@ -4,15 +4,24 @@
 language: python
 
 env:
-  - TOXENV=py35
-  - TOXENV=py34
-  - TOXENV=py33
+  - TOXENV=py36
   - TOXENV=py27
-  - TOXENV=py26
-  - TOXENV=pypy
 
+python:
+  - "2.6"
+  - "2.7"
+  - "3.4"
+  - "3.5"
+  - "3.6"
+  - "3.7"
+  - "3.8-dev"
+  - "nightly"
+  
 # command to install dependencies, e.g. pip install -r requirements.txt --use-mirrors
-install: pip install -U tox
+install:
+  - pip install -U -r requirements.txt
+  - pip install -U -r requirements_test.txt
+  - pip install tox-travis
 
 # command to run tests, e.g. python setup.py test
 script: tox
@@ -23,8 +32,6 @@ deploy:
   provider: pypi
   distributions: sdist bdist_wheel
   user: transientlunatic
-  password:
-    secure: PLEASE_REPLACE_ME
   on:
     tags: true
     repo: transientlunatic/heron
