@@ -6,6 +6,6 @@ emcee==2.2.1
 pyyaml==5.1.2
 jinja2==2.10.1
 cython==0.29.13
-george
+george==0.3.1
 nestle
 elk-waveform
