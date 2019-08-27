@@ -3,10 +3,6 @@
 
 language: python
 
-env:
-  - TOXENV=py36
-  - TOXENV=py27
-
 python:
   - "2.6"
   - "2.7"
