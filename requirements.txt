@@ -5,7 +5,7 @@ progressbar==2.5
 emcee==2.2.1
 pyyaml==5.1.2
 jinja2==2.10.1
-cython
+cython==0.29.13
 george
 nestle
 elk-waveform
