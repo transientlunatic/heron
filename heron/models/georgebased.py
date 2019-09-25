@@ -170,7 +170,8 @@ class HodlrGPR(Model):
         
         """
 
-        points = self._generate_eval_matrix(p, times)
+        times_b = times.copy()
+        points = self._generate_eval_matrix(p, times_b)
         
         mean, var = self.gp.predict(self.training_data[:,self.c_ind['h+']],
                                     points,
