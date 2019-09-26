@@ -9,14 +9,13 @@ class HofTSurrogate(object):
 
 
 
-    def bilby(self, times, mass_1, mass_2, luminosity_distance):
+    def bilby(self, time, mass_1, mass_2, luminosity_distance):
         """
         Return a waveform from the GPR in a format expected by the Bilby ecosystem
         """
 
-        times -= self.t_min
-        
-        times *= 100
+        times_b = time.copy()
+        times_b -= self.t_min
     
         total_mass_cat = self.total_mass
         time_factor_cat = (c.c.value**3 / c.G.value)/(total_mass_cat*c.M_sun.value) #*1e4
@@ -29,7 +28,7 @@ class HofTSurrogate(object):
     
         time_factor = (c.c.value**3 / c.G.value)/(total_mass*c.M_sun.value) 
     
-        times *= (total_mass_cat / total_mass) #(time_factor/time_factor_cat)
+        times_b *= (total_mass_cat / total_mass) #(time_factor/time_factor_cat)
 
         p = {'mass ratio': 1,
             'spin 1x': 0,  'spin 1y': 0,  'spin 1z': 0,
@@ -37,7 +36,7 @@ class HofTSurrogate(object):
 
         p['mass ratio'] = mass_ratio
         
-        mean = self.mean(p=p, times = times)
+        mean = self.mean(p=p, times = times_b)
     
         return {"plus": mean[0].data / luminosity_distance , "cross": mean[1].data / luminosity_distance}
 
