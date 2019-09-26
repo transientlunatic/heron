@@ -30,6 +30,7 @@ test-python37:
     - python setup.py test
 
 pages:
+  image: python:3.6
   stage: build
   script:
   - pip install numpy
