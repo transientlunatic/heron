@@ -5,13 +5,26 @@ stages:
 
 image: ubuntu
 
-test:
+test-python27:
   stage: test
-  image: ubuntu
+  image: python:2.7
   script:
-    - apt-get update -qy
-    - apt-get install -y tzdata
-    - apt-get install -y python-pip python-matplotlib python-scipy
+    - pip install numpy
+    - pip install -r requirements.txt
+    - python setup.py test
+
+test-python36:
+  stage: test
+  image: python:3.6
+  script:
+    - pip install numpy
+    - pip install -r requirements.txt
+    - python setup.py test
+
+test-python37:
+  stage: test
+  image: python:3.7
+  script:
     - pip install numpy
     - pip install -r requirements.txt
     - python setup.py test
@@ -19,7 +32,9 @@ test:
 pages:
   stage: build
   script:
-  - pip install sphinx sphinx-bootstrap-theme numpydoc # sphinxcontrib-versioning
+  - pip install numpy
+  - pip install -r requirements.txt
+  - pip install -r requirements_dev.txt
   - make docs
   - mv docs/_build/html/ public/
   artifacts:
@@ -27,25 +42,51 @@ pages:
     - public
   only:
   - master
+# Build receipe for standalone wheels on Linux
+wheel-27:
+  image: python:2.7
+  stage: build
+  script:
+    - pip install wheel
+    # Build wheel
+    - python setup.py bdist_wheel --universal
+  dependencies: []
+  artifacts:
+    expire_in: 3h
+    paths:
+      - dist
 
-# build:linux_x86_64:
-#   stage: deploy
-#   image: quay.io/pypa/manylinux1_x86_64
-#   script:
-#     - yum install -y libpng-devel
-#     - yum install -y freetype-devel
-#     - bash .ci/python/build-wheels.sh
-#   artifacts:
-#       paths:
-#         - wheelhouse/
+wheel-36:
+  image: python:3.6
+  stage: build
+  script:
+    - pip install wheel
+    # Build wheel
+    - python setup.py bdist_wheel --universal
+  dependencies: []
+  artifacts:
+    expire_in: 3h
+    paths:
+      - dist
 
-# build:linux_i686:
-#   stage: deploy
-#   image: quay.io/pypa/manylinux1_i686
-#   script:
-#     - yum install -y libpng-devel
-#     - yum install -y freetype-devel
-#     - bash .ci/python/build-wheels.sh
-#   artifacts:
-#       paths:
-#         - wheelhouse/
+wheel-37:
+  image: python:3.7
+  stage: build
+  script:
+    - pip install wheel
+    # Build wheel
+    - python setup.py bdist_wheel --universal
+  dependencies: []
+  artifacts:
+    expire_in: 3h
+    paths:
+      - dist
+
+deploy:wheel:
+  stage: deploy
+  script:
+    - pip install twine
+    - twine upload dist/*
+  only:
+    - master@daniel-williams/heron
+    - tags
