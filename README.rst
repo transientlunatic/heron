@@ -11,7 +11,7 @@ Heron
 .. image:: https://zenodo.org/badge/51749075.svg
    :target: https://zenodo.org/badge/latestdoi/51749075
 
-The ``heron`` package is a python library for using Gaussian Process Regression (GPR) to emulate functions which are expensive to 
+The ``heron`` package is a python library for using Gaussian Process Regression (GPR) to emulate functions which are expensive to evaluate.
 
 It was originally built for producing a surrogate model for numerical
 relativity waveforms from binary black hole coalesences, but the code
@@ -28,7 +28,7 @@ inverter.
 Features
 --------
 
-* Single-valued function surrogate production from multivalued inputs
+* Multiply-valued function surrogate production from multi-dimensional inputs
 * Handling very large datasets.
 
 .. _george: http://dan.iel.fm/george/
