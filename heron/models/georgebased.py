@@ -1,7 +1,7 @@
 """
 Models utilising the `george` GPR library in Python and C++.
 """
-from . import Model
+from . import Model, ReducedModel
 from .gw import BBHSurrogate, BBHNonSpinSurrogate, HofTSurrogate
 
 import numpy as np
@@ -15,6 +15,7 @@ from elk.catalogue import Catalogue
 import scipy.optimize as op
 
 import pkg_resources
+import os.path
 
 DATA_PATH = pkg_resources.resource_filename('heron', 'models/data/')
 
@@ -391,3 +392,79 @@ class Heron2dHodlr(HodlrGPR, BBHNonSpinSurrogate, HofTSurrogate):
 
 
     
+class HodlrReducedGPR(ReducedModel):
+    """A Gaussian process regression surrogate using a reduced basis.
+
+    Examples
+    --------
+    >>> model = HodlrReducedGPR()
+    >>> ts = model(0.55)
+    >>> ts.data[:10]
+    array([-3.0841799347631674e-20, -3.0866637782847267e-20,
+       -2.959224603984205e-20, -2.703825954077637e-20,
+       -2.32824648984726e-20, -1.8454458490397586e-20,
+       -1.273795996408389e-20, -6.358989280244452e-21,
+       4.1729998379767277e-22, 7.302559908465424e-21], dtype=object)
+
+    Notes
+    -----
+    This model builds a surrogate over a reduced basis constructed by the 
+    ``elk`` package, and is intended to be a template which can be adapted for any 
+    timeseries, and not just a GW waveform.
+
+    For this specific example implementation the basis is built using non-spinning 
+    waveforms from the IMRPhenomPv2 model, and as a result the model is itself
+    non-spinning.
+    """
+    training = False
+    evaluate = True
+    
+    time_factor = 1
+    strain_input_factor = 1e21
+    
+    def __init__(self):
+        """Create a reduced-order Gaussian process surrogate for binary black hole waveforms 
+        using a basis constructed using ``IMRPhenomPv2``.
+
+        This model loads the `test_basis` from the model data directory.
+        """
+        basis_data = os.path.join(DATA_PATH, "test_basis.json")
+        # extract the basis information
+        super().__init__(basis_data)
+        self.training_x = self.locs
+        self.training_y = self.coeffs * self.strain_input_factor
+        self.y_err = np.ones_like(self.training_y)*1e-4
+        
+        self.kernels = [george.kernels.ExpSquaredKernel(1) for dim in range(self.training_y.shape[1])]
+        self.gps =  [george.GP(self.kernels[dim], mean = 0) for dim in range(self.training_y.shape[1])]
+        
+        self._compute()
+        
+    def _compute(self):
+        for i, gp in enumerate(self.gps):
+            gp.compute(self.training_x, self.y_err[:,i])
+    
+    def _predict_coefficients(self, p):
+        """Calculate the coefficients for a given location in parameter space."""
+        coeffs = []
+        for i, gp in enumerate(self.gps):
+            coeffs.append(gp.predict(self.training_y[i,:], [p]))
+        coeffs = np.array(coeffs).squeeze()
+        return coeffs
+        
+    def mean(self, p):
+        """Returns the mean timeseries"""
+        coefficients = self._predict_coefficients(p)
+        mean = self.basis.dot(coefficients[:,0]/self.strain_input_factor)
+        
+        return Timeseries(data=mean, times=self.abscissa/self.time_factor)
+    
+    def distribution(self, p):
+        """Return the mean timeseries and its variance"""
+        coefficients = self._predict_coefficients(p)
+        mean, std = self.basis.dot(coefficients/self.strain_input_factor).T
+        
+        return Timeseries(data=mean, times=self.abscissa/self.time_factor, variance=std)
+
+    def __call__(self, p):
+        return self.distribution(p)

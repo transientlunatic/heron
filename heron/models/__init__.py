@@ -1,4 +1,4 @@
-
+import json
 import numpy as np
 
 class Model(object):
@@ -73,3 +73,16 @@ class Model(object):
         return points
     
     pass
+
+
+class ReducedModel(Model):
+    """Construct a model using a reduced basis."""
+
+    def __init__(self, data):
+        with open(data, "r") as fp:
+            data = json.load(fp)
+
+        self.basis = np.array(data['vectors'])
+        self.abscissa = np.array(data['abscissa'])
+        self.coeffs = np.array(data['coefficients'])
+        self.locs = np.array(data['locations'])
