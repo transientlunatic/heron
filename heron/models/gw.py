@@ -33,14 +33,11 @@ class HofTSurrogate(object):
         p = {'mass ratio': 1,
             'spin 1x': 0,  'spin 1y': 0,  'spin 1z': 0,
             'spin 2x': 0,  'spin 2y': 0,  'spin 2z': 0}
-
         p['mass ratio'] = mass_ratio
         
         mean = self.mean(p=p, times = times_b)
-    
         return {"plus": mean[0].data / luminosity_distance , "cross": mean[1].data / luminosity_distance}
-
-
+    
 class BBHSurrogate(object):
     problem_dims = 8
     columns = {0: "time",
@@ -64,4 +61,5 @@ class BBHNonSpinSurrogate(object):
                8: "h+",
                9: "hx"
     }
+    parameters = ("mass ratio",)
     c_ind = {j:i for i,j in columns.items()}
