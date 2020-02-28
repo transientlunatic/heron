@@ -24,7 +24,7 @@ def train(model, batch_size=100, algorithm="adam", max_iter=1000):
     """
 
     def callback(p):
-        print('{}\t{}'.format(np.exp(p),  model.log_evidence(p, n=batch_size)[0]))
+        print('{}\t{}'.format(np.exp(p),  model.log_evidence(p, n=batch_size)[0]), end="\r")
 
     def nll(k):
         ll = model.log_evidence(k, n=batch_size)[0]
@@ -96,10 +96,10 @@ class HodlrGPR(Model):
         Prepare the model to be trained.
         """
         # Put the model into training mode, 
-        model.training = True
-        model.evaluate = False
+        self.training = True
+        self.evaluate = False
         # and set the white noise to a slightly higher level to improve stability
-        model.gp.white_noise.set_parameter_vector(0.1)
+        self.gp.white_noise.set_parameter_vector(0.1)
     
     def _process_inputs(self, times, p):
         """
@@ -181,8 +181,8 @@ class HodlrGPR(Model):
                                     points,
                                     return_var=True,
         )
-        return Timeseries(data=mean/self.strain_input_factor, times=points[:,self.c_ind['time']]/self.time_factor, variance=var), \
-               Timeseries(data=mean_x/self.strain_input_factor, times=points[:,self.c_ind['time']]/self.time_factor, variance=var_x)
+        return Timeseries(data=mean/self.strain_input_factor, times=points[:,self.c_ind['time']]/self.time_factor, variance=var/self.strain_input_factor), \
+               Timeseries(data=mean_x/self.strain_input_factor, times=points[:,self.c_ind['time']]/self.time_factor, variance=var_x/self.strain_input_factor)
 
     def distribution(self, p, times, samples=100, polarisation="h+"):
         """

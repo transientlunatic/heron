@@ -39,8 +39,14 @@ class HofTSurrogate(object):
         p['mass ratio'] = mass_ratio
         
         mean = self.mean(p=p, times = times_b)
-    
-        return {"plus": mean[0].data / luminosity_distance , "cross": mean[1].data / luminosity_distance}
+
+        mean[0].data /= luminosity_distance
+        mean[1].data /= luminosity_distance
+
+        mean[0].variance /= luminosity_distance
+        mean[1].variance /= luminosity_distance
+        
+        return {"plus":  mean[0], "cross": mean[1]}
 
 
 class BBHSurrogate(object):
