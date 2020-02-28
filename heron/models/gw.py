@@ -7,7 +7,9 @@ from math import log
 
 class HofTSurrogate(object):
 
-
+    def _to_frequency(self, timeseries, *args):
+        """Convert an elk timeseries output from heron into an elk frequency series output."""
+        return timeseries.to_fseries(*args)
 
     def bilby(self, time, mass_1, mass_2, luminosity_distance):
         """

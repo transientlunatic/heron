@@ -33,7 +33,7 @@ inverter.
 Features
 --------
 
-* Single-valued function surrogate production from multivalued inputs
+* Multiply-valued function surrogate production from multi-dimensional inputs
 * Handling very large datasets.
 
 .. _george: http://dan.iel.fm/george/
