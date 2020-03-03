@@ -66,8 +66,11 @@ copyright = u'2018, Daniel Williams'
 #
 
 from pkg_resources import get_distribution
-release = get_distribution('heron-model').version
-# for example take major/minor
+try:
+    release = get_distribution('heron-model').version
+except:
+    release = get_distribution('heron').version
+    # for example take major/minor
 version = '.'.join(release.split('.')[:2])
 
 
