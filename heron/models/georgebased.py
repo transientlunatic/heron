@@ -1,6 +1,7 @@
 """
 Models utilising the `george` GPR library in Python and C++.
 """
+
 from . import Model
 from .gw import BBHSurrogate, BBHNonSpinSurrogate, HofTSurrogate
 
@@ -18,6 +19,7 @@ import pkg_resources
 
 DATA_PATH = pkg_resources.resource_filename('heron', 'models/data/')
 
+
 def train(model, batch_size=100, algorithm="adam", max_iter=1000):
     """
     Train a george-based Gaussian process model.
@@ -30,6 +32,8 @@ def train(model, batch_size=100, algorithm="adam", max_iter=1000):
         ll = model.log_evidence(k, n=batch_size)[0]
         return -ll if np.isfinite(ll) else 1e25
 
+
+    
     def grad_nll(k):
         return - model.log_evidence(k, n=batch_size)[1]
 
@@ -167,7 +171,8 @@ class HodlrGPR(Model):
 
         Parameters
         ----------
-        
+        p : dict
+           The intrinsic parameters of the system.
         """
 
         times_b = times.copy()
@@ -312,24 +317,7 @@ class HeronHodlr(HodlrGPR, BBHSurrogate, HofTSurrogate):
         self.x_dimensions = self.kernel.ndim
         
         self.build(mean, white_noise, tol)
-        # self.gp.set_parameter_vector(np.log([1.46, 0.0285, 0.0157, 0.005, 0.005, 0.005, 0.005, 0.005, 0.005]))
-        #self.gp.set_parameter_vector(np.log([0.346, 0.0285, 0.0148, 0.006, 0.004, 0.007, 0.007, 0.005, 0.005]))
         self.gp.set_parameter_vector(np.log([0.606, 0.005380, 0.0041315, 0.006, 0.004, 0.007, 0.007, 0.005, 0.005]))
-
-
-        
-        
-
-    # def log_evidence(self, k):
-    #     """
-    #     Evaluate the log-evidence of the model at a hyperparameter location k.
-    #     """
-    #     old_k = self.gp.get_parameter_vector()
-    #     self.gp.set_parameter_vector(k)
-    #     ll, grad_ll =  self.gp.log_likelihood(self.training_data[:,self.c_ind['h+']], quiet=True), self.gp.grad_log_likelihood(self.training_data[:,self.c_ind['h+']], quiet=True)
-    #     self.gp.set_parameter_vector(old_k)
-
-    #     return ll, grad_ll
 
 
    
@@ -376,18 +364,3 @@ class Heron2dHodlr(HodlrGPR, BBHNonSpinSurrogate, HofTSurrogate):
         
         self.build(mean, white_noise, tol)
         self.gp.set_parameter_vector(np.log([1.46, 0.0285, 0.0157]))
-        
-
-    # def log_evidence(self, k):
-    #     """
-    #     Evaluate the log-evidence of the model at a hyperparameter location k.
-    #     """
-    #     old_k = self.gp.get_parameter_vector()
-    #     self.gp.set_parameter_vector(k)
-    #     ll, grad_ll =  self.gp.log_likelihood(self.training_data[:,self.c_ind['h+']], quiet=True), self.gp.grad_log_likelihood(self.training_data[:,self.c_ind['h+']], quiet=True)
-    #     self.gp.set_parameter_vector(old_k)
-
-    #     return ll, grad_ll
-
-
-    
