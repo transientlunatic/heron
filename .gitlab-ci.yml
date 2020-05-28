@@ -6,6 +6,10 @@ stages:
 
 image: python:3.6
 
+include:
+  - template: Dependency-Scanning.gitlab-ci.yml
+
+  
 pylint:
   stage: analysis
   allow_failure: true
@@ -115,6 +119,8 @@ deploy:wheel:
   script:
     - pip install twine
     - twine upload dist/*
-  only:
-    - master@daniel-williams/heron
-    - tags
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      if: '$CI_COMMIT_TAG'
+      when: on_success
+    - when: never
