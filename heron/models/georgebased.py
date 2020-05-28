@@ -100,10 +100,10 @@ class HodlrGPR(Model):
         Prepare the model to be trained.
         """
         # Put the model into training mode, 
-        model.training = True
-        model.evaluate = False
+        self.training = True
+        self.evaluate = False
         # and set the white noise to a slightly higher level to improve stability
-        model.gp.white_noise.set_parameter_vector(0.1)
+        self.gp.white_noise.set_parameter_vector(0.1)
     
     def _process_inputs(self, times, p):
         """
