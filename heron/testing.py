@@ -45,9 +45,9 @@ def outsample_retrain(generator, catalogue = NRCatalogue('GeorgiaTech')):
        The waveform catalogue to prepare matches against.
     """
 
-    
+    results = {}
     for waveform in catalogue.waveforms:
-        if waveform.tag in results_df.index: continue
+        
         try:
             print(waveform.tag)
             if waveform.tag in ["GT063{}".format(i) for i in range(10)] + ["GT0701", "GT0881", "GT0833"]: 
@@ -98,15 +98,15 @@ def outsample_retrain(generator, catalogue = NRCatalogue('GeorgiaTech')):
             #waveform_nrsur[0].data *=6
             #waveform_nrsur[0].dt = waveform_nrsur[0].times[1] - waveform_nrsur[0].times[0]
 
-            td_pad = np.pad(waveform_gp[0].data, int((len(waveform_imr[0].data) - len(waveform_gp[0].data))/2),
-                            "constant", constant_values=0)
-            waveform_gp[0].data = td_pad
-            waveform_gp[0].times = waveform_imr[0].times
+            #td_pad = np.pad(waveform_gp[0].data, int((len(waveform_imr[0].data) - len(waveform_gp[0].data))/2),
+            #                "constant", constant_values=0)
+            #waveform_gp[0].data = td_pad
+            #waveform_gp[0].times = waveform_imr[0].times
 
-            nr_pad = np.pad(waveform_nr[0].data, int((len(waveform_imr[0].data) - len(waveform_nr[0].data))/2), 
-                            "constant", constant_values=0)
-            waveform_nr[0].data = nr_pad
-            waveform_nr[0].times = waveform_imr[0].times
+            #nr_pad = np.pad(waveform_nr[0].data, int((len(waveform_imr[0].data) - len(waveform_nr[0].data))/2), 
+            #                "constant", constant_values=0)
+            #waveform_nr[0].data = nr_pad
+            #waveform_nr[0].times = waveform_imr[0].times
 
 
 
