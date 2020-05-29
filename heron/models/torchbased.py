@@ -16,7 +16,7 @@ from .gw import BBHSurrogate, BBHNonSpinSurrogate, HofTSurrogate
 
 DATA_PATH = pkg_resources.resource_filename('heron', 'models/data/')
 
-class CudaWaveform(Model, heron.models.gw.BBHNonSpinSurrogate, heron.models.gw.HofTSurrogate):
+class HeronCUDA(Model, BBHNonSpinSurrogate, HofTSurrogate):
     
     time_factor = 1
     x_dimensions = 8
