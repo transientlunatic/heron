@@ -3,6 +3,10 @@ Models which use the GPyTorch GPR package as their backbone.
 """
 
 import math
+import pkg_resources
+from functools import reduce
+import operator
+
 import numpy as np
 
 import torch
@@ -48,6 +52,13 @@ class HeronCUDA(Model, BBHNonSpinSurrogate, HofTSurrogate):
         Right now this isn't need by this method
         """
 
+        def prod(iterable):
+            return reduce(operator.mul, iterable)
+
+        mass_kernel = gpytorch.kernels.RBFKernel(active_dims=1, lengthscale_constraint=gpytorch.constraints.GreaterThan(10.))
+        time_kernel = gpytorch.kernels.RBFKernel(active_dims=0, lengthscale_constraint=gpytorch.constraints.GreaterThan(0.1))
+        spin_kernels = [gpytorch.kernels.RBFKernel(active_dims=dimension, lengthscale_constraint=gpytorch.constraints.GreaterThan(7)) for dimension in range(2,8)]
+        
         class ExactGPModel(gpytorch.models.ExactGP):
             def __init__(self, train_x, train_y, likelihood):
                 super(ExactGPModel, self).__init__(train_x, train_y, likelihood)
@@ -99,7 +110,7 @@ class HeronCUDA(Model, BBHNonSpinSurrogate, HofTSurrogate):
         points = self._generate_eval_matrix(p, times_b)
         points = torch.tensor(points).float().cuda()
         with torch.no_grad(), gpytorch.settings.fast_pred_var():
-            f_preds = model(points)
+            f_preds = self.model(points)
             y_preds = self.likelihood(f_preds)
         
         return y_preds.sample_n(samples)/self.strain_input_factor
@@ -126,7 +137,7 @@ class HeronCUDA(Model, BBHNonSpinSurrogate, HofTSurrogate):
         else:
             ax = f.axes[0]
 
-        mean, var = generator.time_domain_waveform(parameters, times)
+        mean, var = self.time_domain_waveform(parameters, times)
         mean = mean.cpu().numpy()
         var = var.cpu().numpy()
 
