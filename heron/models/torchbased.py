@@ -27,8 +27,7 @@ class HeronCUDA(Model, BBHSurrogate, HofTSurrogate):
     A GPR BBH waveform model which is capable of using CUDA resources.
     """
 
-    time_factor = 1
-    x_dimensions = 8
+    time_factor = 100
     strain_input_factor = 1e21
 
 
@@ -36,9 +35,12 @@ class HeronCUDA(Model, BBHSurrogate, HofTSurrogate):
         """
         Construct a CUDA-based waveform model with pyTorch
         """
-
-        super(HeronCUDA, self).__init__()
+        
+        # super(HeronCUDA, self).__init__()
         self.model, self.likelihood = self.build()
+        self.x_dimensions = 8
+        self.time_factor = 1
+        self.strain_input_factor = 1e21
         #
         self.eval()
 
@@ -51,7 +53,8 @@ class HeronCUDA(Model, BBHSurrogate, HofTSurrogate):
 
     def _process_inputs(self, times, p):
         times *= self.time_factor
-        p['mass ratio'] *= 100 #= np.log(p['mass ratio']) * 100
+        #p['mass ratio'] *= 100 #= np.log(p['mass ratio']) * 100
+        p = {k: 100*v for k, v in p.items()}
         return times, p
 
     def build(self):
@@ -137,7 +140,7 @@ class HeronCUDA(Model, BBHSurrogate, HofTSurrogate):
             f_preds = self.model(points)
 
         mean = f_preds.mean/self.strain_input_factor
-        var = f_preds.variance.detach()/(self.strain_input_factor**2)
+        var = f_preds.variance.detach().double()/(self.strain_input_factor**2)
         covariance = f_preds.covariance_matrix.detach().double()/(self.strain_input_factor**2)
 
         if covariance_flag:
