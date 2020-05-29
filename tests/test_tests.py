@@ -37,13 +37,13 @@ class TestTests(unittest.TestCase):
         mock_waveforms = [
             MockWaveform("spam", {"q": 1.0,
                                   "tag": "test",
-                                  "s1x": 0, "s1y": 0, "s1z": 0,
-                                  "s2x": 0, "s2y": 0, "s2z": 0
+                                  "spin_1x": 0, "spin_1y": 0, "spin_1z": 0,
+                                  "spin_2x": 0, "spin_2y": 0, "spin_2z": 0
             }),
             MockWaveform("eggs", {"q": 0.8,
                                   "tag": "test2",
-                                  "s1x": 0, "s1y": 0, "s1z": 0,
-                                  "s2x": 0, "s2y": 0, "s2z": 0
+                                  "spin_1x": 0, "spin_1y": 0, "spin_1z": 0,
+                                  "spin_2x": 0, "spin_2y": 0, "spin_2z": 0
             })
             ]
         
