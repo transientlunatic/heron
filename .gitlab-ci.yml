@@ -31,6 +31,7 @@ flake8:
 test-python27:
   stage: test
   image: python:2.7
+  allow_failure: true
   script:
     - pip install numpy
     - pip install -r requirements.txt

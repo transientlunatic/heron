@@ -292,7 +292,8 @@ class HeronHodlr(HodlrGPR, BBHSurrogate, HofTSurrogate):
                                           ndim=self.problem_dims, 
                                           axes=[2,3,4,5,6,7])
 
-        self.total_mass = 1
+        #self.total_mass = 1
+        self.total_mass = 60
         self.f_min = None
         self.ma = [(2,2), (2,-2)]
         self.t_max = 0.02
@@ -303,10 +304,10 @@ class HeronHodlr(HodlrGPR, BBHSurrogate, HofTSurrogate):
         tol = 1e-6
         white_noise = 0
 
-        DB_FILE = pkg_resources.resource_filename('heron', 'models/data/gt-all-apr2020.dat')
+        DB_FILE = pkg_resources.resource_filename('heron', 'models/data/gt-M60-F1024.dat')
         self.training_data = np.genfromtxt(DB_FILE)
         
-        self.time_factor = 1 #1e2
+        self.time_factor = 1e2
         self.strain_input_factor = 1e19
         
         self.training_data[:,self.c_ind['time']] *= self.time_factor

@@ -32,6 +32,48 @@ def match(a, b, psd=None):
         return pycbc.filter.match(data_a, data_b)
 
 
+def sample_match(generator, times, p, comparison, psd=None):
+    """
+    Calculate the match between the output of a model and a canonical waveform.
+
+    Parameters
+    ----------
+    generator : `heron.model`
+       The heron model to be tested.
+    times : ndarray
+       An array of times at which the model should be evaluated.
+    p : dict
+       A dictionary of parameters for the waveform.
+    comparison : `elk.waveform`
+       The waveform which should be compared to the model output
+    psd : `pycbc.psd`, optional
+       The PSD which should be used to evaluate the waveform match.
+    """
+    
+    ts_data = generator.mean(p=p.copy(), times=times.copy())[0]
+
+    return match(ts_data, comparison, psd)[0]
+    
+
+def nrcat_match(generator, catalogue):
+    """
+    Calculate the matches between each waveform in a given waveform catalogue 
+    and the generator model.
+    """
+    matches = {}
+    for waveform in catalogue.waveforms:
+        spins = ["spin 1x", "spin 1y", "spin 1z", "spin 2x", "spin 2y", "spin 2z"]
+        pars = dict(zip(spins, waveform.spins))
+        pars['mass ratio'] = waveform.mass_ratio
+
+        nr_data = waveform.timeseries(total_mass=60, f_low=70, t_max=0.02, t_min=-0.015)
+        
+        matches[waveform.tag] = heron.testing.sample_match(generator,
+                                                           nr_data[0].times,
+                                                           pars,
+                                                           nr_data[0])
+    return matches
+
 def outsample_retrain(generator, catalogue = NRCatalogue('GeorgiaTech')):
     """
     Calculate the out-sample matches between a given heron model 
@@ -49,18 +91,12 @@ def outsample_retrain(generator, catalogue = NRCatalogue('GeorgiaTech')):
     for waveform in catalogue.waveforms:
         
         try:
-            print(waveform.tag)
-            if waveform.tag in ["GT063{}".format(i) for i in range(10)] + ["GT0701", "GT0881", "GT0833"]: 
-                continue
-            if waveform.tag in ["GT063{}".format(i) for i in range(10)] + ["GT0701"]: 
-                continue
-            if waveform.tag in ["GT0548", "GT0639"]: continue
 
             spins = ["spin 1x", "spin 1y", "spin 1z", "spin 2x", "spin 2y", "spin 2z"]
             pars = dict(zip(spins, waveform.spins))
             pars['mass ratio'] = waveform.mass_ratio
 
-            waveform_nr = waveform.timeseries(total_mass=60, f_low=70, t_max=0.02, t_min=-0.015)
+            waveform_nr = waveform.timeseries(total_mass=60, f_low=70, t_max=0.02, t_min=-0.015) 
             times = waveform_nr[0].times
 
             new_catalogue = copy.copy(catalogue)
