@@ -44,6 +44,15 @@ It's also fairly easy to use the existing framework to implement a new model, us
 
    george
    new-model
+
+Testing and verifying models
+============================
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Verification
+
+   verification
    
 Indices and tables
 ==================
