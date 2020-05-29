@@ -95,7 +95,7 @@ This section has a brief overview of the models which are implemented in the pac
 +------------------+-----------------------+------------+----------+--------------+
 
 The HODLR model was the first fully-functioning binary black hole waveform model to be produced by the ``heron`` project, and it remains the recommended one to be used in further investigations at present.
-The model is trained on `numerical relativity waveforms <http://www.einstein.gatech.edu/catalog/>`_ produced by the Centre for Relativistic Astrophysics at Georgia Tech, and uses a `HODLR inversion technique <http://arxiv.org/abs/1403.6015>`_ to make the Gaussian Process tractable for a large amount of data. The underlying package generating the GPR is `george <https://george.readthedocs.io/en/latest/`_.
+The model is trained on `numerical relativity waveforms <http://www.einstein.gatech.edu/catalog/>`_ produced by the Centre for Relativistic Astrophysics at Georgia Tech, and uses a `HODLR inversion technique <http://arxiv.org/abs/1403.6015>`_ to make the Gaussian Process tractable for a large amount of data. The underlying package generating the GPR is `george <https://george.readthedocs.io/en/latest/>`_.
 
 -------------------
 Citing this package
