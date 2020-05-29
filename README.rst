@@ -10,14 +10,6 @@ Heron
 
 .. image:: https://zenodo.org/badge/51749075.svg
    :target: https://zenodo.org/badge/latestdoi/51749075
-	 
-
-..
-   The ``heron`` package is a python library for using Gaussian Process Regression (GPR) to emulate functions which are expensive to compute.
-
-   The ``heron`` package was designed to provide an easy-to-use interface to the ``heron`` waveform model, which is a Gaussian process surrogate model for binary black hole coalescence waveforms.
-   A number of models are available for use in the package, and these are described in detail in the product documentation, and outlined in this README.
-
 
 The ``heron`` project is an effort to create a new model for gravitational waveforms which uses Gaussian Process Regression (GPR), a form of machine learning, to produce waveforms for arbitrary compact binary systems.
 
@@ -26,6 +18,12 @@ This means that the confidence of the model's prediction can be easily assessed,
 
 The proof-of-principle model for ``heron`` is described in `Physical Review D <https://journals.aps.org/prd/abstract/10.1103/PhysRevD.101.063011>`_ (also available free on the `arXiv <https://arxiv.org/abs/1903.09204>`_), which also discusses some of the difficulties in using this type of model.
 Additional information can be found in `this thesis <http://theses.gla.ac.uk/76712/>`_.
+
+-------------
+Documentation
+-------------
+
+Full documentation, including code-level documentation and tutorials, can be found `here <https://code.daniel-williams.co.uk/heron>`_.
 
 -------------
 Prerequisites
@@ -139,6 +137,12 @@ If you use this package in any academic work please cite its paper and this repo
        }
 
 
+----------
+Versioning
+----------
+
+``Heron`` uses `semantic versioning <http://semver.org/>`_ to label releases.
+Significant releases may also be named after bodies of freshwater in Scotland.
 
 -------
 License
