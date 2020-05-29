@@ -22,14 +22,15 @@ This version of heron is implemented slightly differently to older versions, and
    usage
    api
    
-Tutorials
-=========
+Tutorials and Examples
+======================
 .. toctree::
    :maxdepth: 2
    :caption: Tutorials
 	     
    usage
    theory
+   
 
 Pre-supplied Models
 ===================
