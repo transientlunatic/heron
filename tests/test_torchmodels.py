@@ -4,6 +4,8 @@ Tests for the torch-based models.
 
 import unittest
 
+import torch
+
 from heron.models import torchbased
 
 import numpy as np
@@ -11,11 +13,11 @@ import numpy.testing as npt
 np.random.seed(90)
 
 
+@unittest.skipUnless(torch.cuda.is_available(), "CUDA is available on this system.")
 class TestHeronCUDA(unittest.TestCase):
     """
     Perform tests on the Torch model.
     """
-
     def setUp(self):
 
         self.model = torchbased.HeronCUDA()
