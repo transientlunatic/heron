@@ -30,6 +30,7 @@ Tutorials and Examples
 	     
    usage
    theory
+   verification-tutorial
    
 
 Pre-supplied Models
