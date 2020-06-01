@@ -2,7 +2,6 @@
 Models which use the GPyTorch GPR package as their backbone.
 """
 
-import math
 from functools import reduce
 import operator
 
@@ -17,10 +16,13 @@ from gpytorch.constraints import GreaterThan, LessThan
 
 from matplotlib import pyplot as plt
 
+from elk.waveform import Timeseries
+
 from . import Model
 from .gw import BBHSurrogate, HofTSurrogate
 
 DATA_PATH = pkg_resources.resource_filename('heron', 'models/data/')
+
 
 class HeronCUDA(Model, BBHSurrogate, HofTSurrogate):
     """
@@ -30,12 +32,11 @@ class HeronCUDA(Model, BBHSurrogate, HofTSurrogate):
     time_factor = 100
     strain_input_factor = 1e21
 
-
     def __init__(self):
         """
         Construct a CUDA-based waveform model with pyTorch
         """
-        
+
         # super(HeronCUDA, self).__init__()
         self.model, self.likelihood = self.build()
         self.x_dimensions = 8
@@ -53,7 +54,7 @@ class HeronCUDA(Model, BBHSurrogate, HofTSurrogate):
 
     def _process_inputs(self, times, p):
         times *= self.time_factor
-        #p['mass ratio'] *= 100 #= np.log(p['mass ratio']) * 100
+        # p['mass ratio'] *= 100 #= np.log(p['mass ratio']) * 100
         p = {k: 100*v for k, v in p.items()}
         return times, p
 
@@ -78,7 +79,9 @@ class HeronCUDA(Model, BBHSurrogate, HofTSurrogate):
             Use the GpyTorch Exact GP
             """
             def __init__(self, train_x, train_y, likelihood):
-                super(ExactGPModel, self).__init__(train_x, train_y, likelihood)
+                """Initialise the model"""
+                super(ExactGPModel, self).__init__(train_x,
+                                                   train_y, likelihood)
                 self.mean_module = gpytorch.means.ZeroMean()
                 self.covar_module = gpytorch.kernels.ScaleKernel(
                     time_kernel*mass_kernel*prod(spin_kernels),
@@ -86,6 +89,7 @@ class HeronCUDA(Model, BBHSurrogate, HofTSurrogate):
                 )
 
             def forward(self, x):
+                """Run the forward method of the model"""
                 mean_x = self.mean_module(x)
                 covar_x = self.covar_module(x)
                 return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
@@ -107,19 +111,18 @@ class HeronCUDA(Model, BBHSurrogate, HofTSurrogate):
 
         return model, likelihood
 
-    def mean(self, times, p, covariance=False):
+    def _predict(self, times, p):
         """
-        Provide the mean waveform and its variance. 
+        Query the model for the mean and covariance tensors.
         Optionally include the covariance.
 
         Pararameters
         -------------
         times : ndarray
            The times at which the model should be evaluated.
-        p : dict 
-           A dictionary of locations in parameter space where the model should be evaluated.
-        covariance : bool, optional
-           A flag to determine if the whole covariance matrix should be returned.
+        p : dict
+           A dictionary of locations in parameter space where the model
+           should be evaluated.
 
         Returns
         -------
@@ -128,11 +131,10 @@ class HeronCUDA(Model, BBHSurrogate, HofTSurrogate):
         var : torch.tensor
             The variance of the waveform
         cov : torch.tensor, optional
-            The covariance matrix of the waveform. 
+            The covariance matrix of the waveform.
             Only returned if covariance was True.
         """
 
-        covariance_flag = covariance
         times_b = times.copy()
         points = self._generate_eval_matrix(p, times_b)
         points = torch.tensor(points).float().cuda()
@@ -141,12 +143,46 @@ class HeronCUDA(Model, BBHSurrogate, HofTSurrogate):
 
         mean = f_preds.mean/self.strain_input_factor
         var = f_preds.variance.detach().double()/(self.strain_input_factor**2)
-        covariance = f_preds.covariance_matrix.detach().double()/(self.strain_input_factor**2)
+        covariance = f_preds.covariance_matrix.detach().double()
+        covariance /= (self.strain_input_factor**2)
+
+        return mean, var, covariance
+
+    def mean(self, times, p, covariance=False):
+        """
+        Provide the mean waveform and its variance.
+        Optionally include the covariance.
+
+        Pararameters
+        -------------
+        times : ndarray
+           The times at which the model should be evaluated.
+        p : dict
+           A dictionary of locations in parameter space where the
+           model should be evaluated.
+        covariance : bool, optional
+           A flag to determine if the whole covariance matrix
+           should be returned.
+
+        Returns
+        -------
+        mean : torch.tensor
+           The mean waveform
+        var : torch.tensor
+            The variance of the waveform
+        cov : torch.tensor, optional
+            The covariance matrix of the waveform.
+            Only returned if covariance was True.
+
+        """
+        covariance_flag = covariance
+        mean, var, covariance = self._predict(times, p)
 
         if covariance_flag:
-            return mean, var, covariance
+            return Timeseries(data=mean.cpu(),
+                              times=times, variance=var.cpu()), covariance
         else:
-            return mean, var
+            return Timeseries(data=mean.cpu(), times=times, variance=var.cpu())
 
     def distribution(self, times, p, samples=100):
         """
@@ -159,13 +195,16 @@ class HeronCUDA(Model, BBHSurrogate, HofTSurrogate):
             f_preds = self.model(points)
             y_preds = self.likelihood(f_preds)
 
-        return y_preds.sample_n(samples)/self.strain_input_factor
+        return_samples = [Timeseries(data=sample.cpu()/self.strain_input_factor,
+                                     times=times_b)
+                          for sample in y_preds.sample_n(samples)]
+        return return_samples
 
     def frequency_domain_waveform(self, p, times=np.linspace(-2, 2, 1000)):
         """
         Return the frequency domain waveform.
         """
-        mean, _, cov = self.mean(times, p, covariance=True)
+        mean, _, cov = self._predict(times, p)
 
         strain_f = mean.rfft(1)
         cov_f = cov.rfft(2)
@@ -178,9 +217,8 @@ class HeronCUDA(Model, BBHSurrogate, HofTSurrogate):
         """
         Return the timedomain waveform.
         """
-        mean, var = self.mean(times, p)
 
-        return mean, var
+        return self.mean(times, p)
 
     def plot_td(self, parameters, times=np.linspace(-2, 2, 1000), f=None):
         """

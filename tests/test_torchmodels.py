@@ -27,8 +27,8 @@ class TestHeronCUDA(unittest.TestCase):
     def test_nonspin_timedomain(self):
         """Test that the model can generate a non-spinning time domain waveform."""
         td_data = self.model.time_domain_waveform(times=self.times, p = self.parameters_nonspin)
-        self.assertEqual(len(td_data[0]), len(self.times))
-        self.assertEqual(len(td_data), 2)
+        self.assertEqual(len(td_data.data), len(self.times))
+        
 
     def test_nonspin_freqdomain(self):
         """Test that the model can generate a non-spinning frequency domain waveform."""
@@ -39,8 +39,7 @@ class TestHeronCUDA(unittest.TestCase):
     def test_spin_timedomain(self):
         """Test that the model can generate a spinning time domain waveform."""
         td_data = self.model.time_domain_waveform(times=self.times, p = self.parameters_spin)
-        self.assertEqual(len(td_data[0]), len(self.times))
-        self.assertEqual(len(td_data), 2)
+        self.assertEqual(len(td_data.data), len(self.times))
 
     def test_spin_freqdomain(self):
         """Test that the model can generate a spinning frequency domain waveform."""
@@ -51,11 +50,10 @@ class TestHeronCUDA(unittest.TestCase):
     def test_mean_interface(self):
         """Test that the mean interface behaves correctly"""
         mean_data = self.model.mean(times=self.times, p=self.parameters_nonspin)
-        self.assertEqual(len(mean_data), 2)
-        self.assertEqual(len(mean_data[0]), len(self.times))
+        self.assertEqual(len(mean_data.data), len(self.times))
 
     def test_distribution_interface(self):
         """Test that the distribution interface behaves correctly"""
         wf_data = self.model.distribution(times=self.times, p=self.parameters_nonspin, samples=100)
         self.assertEqual(len(wf_data), 100)
-        self.assertEqual(len(wf_data[0]), len(self.times))
+        self.assertEqual(len(wf_data[0].data), len(self.times))
