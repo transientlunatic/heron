@@ -14,6 +14,8 @@ import gpytorch
 from gpytorch.kernels import RBFKernel
 from gpytorch.constraints import GreaterThan, LessThan
 
+import tqdm
+
 from matplotlib import pyplot as plt
 
 from elk.waveform import Timeseries
@@ -22,6 +24,36 @@ from . import Model
 from .gw import BBHSurrogate, HofTSurrogate
 
 DATA_PATH = pkg_resources.resource_filename('heron', 'models/data/')
+
+def train(model, iterations=1000):
+    """
+    Train the model.
+    """
+
+    training_iterations = iterations
+    model.model_plus.train()
+    model.likelihood.train()
+    model.model_cross.train()
+
+    optimizer = torch.optim.Adam([
+        {'params': model.model_plus.parameters()},
+    ], lr=0.1)
+
+    # Our loss object. We're using the VariationalELBO
+    mll = gpytorch.mlls.ExactMarginalLogLikelihood(model.likelihood, model.model_plus)
+
+    epochs_iter = tqdm.tqdm_notebook(range(training_iterations), desc="Epoch")
+    for i in epochs_iter:
+        optimizer.zero_grad()
+        # Output from model
+        output = model.model_plus(model.training_x)
+        # Calc loss and backprop gradients
+        loss = -mll(output, model.training_y).cuda()
+        loss.backward()
+        optimizer.step()
+        if i % 100 == 0:
+            torch.save(model.model_plus.state_dict(), 'model_state.pth')
+
 
 class HeronCUDA(Model, BBHSurrogate, HofTSurrogate):
     """
@@ -98,8 +130,8 @@ class HeronCUDA(Model, BBHSurrogate, HofTSurrogate):
         data = np.genfromtxt(pkg_resources.resource_filename('heron',
                                                              'models/data/gt-M60-F1024.dat'))
 
-        training_x = torch.tensor(data[:, 0:-2]*100).float().cuda()
-        training_y = torch.tensor(data[:, -2]*1e21).float().cuda()
+        training_x = self.training_x = torch.tensor(data[:, 0:-2]*100).float().cuda()
+        training_y = self.training_y = torch.tensor(data[:, -2]*1e21).float().cuda()
         training_yx = torch.tensor(data[:, -1]*1e21).float().cuda()
 
         likelihood = gpytorch.likelihoods.GaussianLikelihood(noise_constraint=LessThan(10))
