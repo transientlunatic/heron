@@ -44,7 +44,9 @@ It's also fairly easy to use the existing framework to implement a new model, us
    :caption: Models
 
    george
+   gpytorch
    new-model
+   
 
 Testing and verifying models
 ============================

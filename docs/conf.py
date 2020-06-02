@@ -69,7 +69,7 @@ from pkg_resources import get_distribution
 try:
     release = get_distribution('heron-model').version
 except:
-    release = get_distribution('heron').version
+    release = get_distribution('heron-model').version
     # for example take major/minor
 version = '.'.join(release.split('.')[:2])
 
