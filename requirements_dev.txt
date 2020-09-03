@@ -9,7 +9,7 @@ george
 nestle
 
 sphinx
-sphinx-version
+sphinx-versions
 numpydoc
 kentigern
 nbsphinx
