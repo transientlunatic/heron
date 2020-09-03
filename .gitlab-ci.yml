@@ -62,7 +62,7 @@ test-python38:
     - python setup.py test
 
 pages:
-  image: python:3.6
+  image: sphinxdoc/sphinx
   stage: build
   script:
   - pip install numpy
