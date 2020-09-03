@@ -9,6 +9,7 @@ george
 nestle
 
 sphinx
+sphinx-version
 numpydoc
-git+https://github.com/transientlunatic/sphinx-daniel-theme.git
+kentigern
 nbsphinx
