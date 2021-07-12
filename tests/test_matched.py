@@ -23,6 +23,8 @@ class TestCUDALikelihood(unittest.TestCase):
 
         self.likelihood = CudaLikelihood(self.model,
                                          data=self.data,
+                                         window=np.hanning(len(self.data)),
+                                         detector_prefix='H1',
                                          psd=noise.cuda().rfft(1))
 
 

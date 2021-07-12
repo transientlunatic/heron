@@ -7,7 +7,7 @@ import elk
 import elk.waveform
 from .utils import diag_cuda, Complex
 
-from lal import antenna
+from lal import antenna, cached_detector_by_prefix, TimeDelayFromEarthCenter, LIGOTimeGPS
 
 import warnings
 
@@ -122,6 +122,7 @@ class Likelihood():
         return antenna.AntennaResponse(detector, ra, dec, psi=psi, times=time)
 
 
+
 class CUDALikelihood(Likelihood):
     """
     A general likelihood function for models with waveform uncertainty.
@@ -170,7 +171,7 @@ class CUDALikelihood(Likelihood):
     >>> detection = Timeseries(
            data=(torch.tensor(signal[0].data, device=device)+noise).cpu(),
            times=signal[0].times)
-    >>> l = Likelihood(generator, detection, window, asd=asd.clone())
+    >>> l = Likelihood(generator, detection, window, 'H1', asd=asd.clone())
     >>> l({"mass ratio": 0.5})
 
     Methods
@@ -180,8 +181,10 @@ class CUDALikelihood(Likelihood):
        this likelihood.
     """
 
-    def __init__(self, model, data, window, asd=None, psd=None, start=None, device=device, generator_args={}, f_min=None, f_max=None):
+    def __init__(self, model, data, window, detector_prefix, asd=None, psd=None, start=None, device=device, generator_args={}, f_min=None, f_max=None):
         """Produces a likelihood object given a model and some data."""
+        self._detector_prefix = detector_prefix
+        self.detector = cached_detector_by_prefix[detector_prefix]
         self._cache_location = None
         self._cache = None
         self._weights_cache = None
@@ -253,14 +256,18 @@ class CUDALikelihood(Likelihood):
 
         polarisations = self._call_model(p)
         if "ra" in p.keys():
+            ra, dec, psi, gpstime = p['ra'], p['dec'], p['psi'], p['gpstime']
+            response = self._get_antenna_reponse(self._detector_prefix,
+                                                ra,
+                                                dec,
+                                                psi,
+                                                gpstime)
+            
+            dt = TimeDelayFromEarthCenter(self.detector.location, ra, dec, LIGOTimeGPS(gpstime))
 
-            response = self._antenna_reponse(detector=p['detector'],
-                                             ra=p['ra'],
-                                             dec=p['dec'],
-                                             psi=p['psi'],
-                                             time=p['gpstime'])
+            tshiftvec = torch.exp(1j*2*torch.pi*dt*self.frequencies)
 
-            waveform_mean = polarisations['plus'].data * response['plus'] + polarisation['cross'].data * response['cross']
+            waveform_mean = (polarisations['plus'].data * response['plus'] + polarisations['cross'].data * response['cross'])*tshiftvec
             waveform_variance = polarisations['plus'].variance * response['plus']**2 + polarisations['cross'].variance * response['cross']**2
 
         else:
