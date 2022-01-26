@@ -21,7 +21,8 @@ from matplotlib import pyplot as plt
 from elk.waveform import Timeseries
 
 from . import Model
-from .gw import BBHSurrogate, HofTSurrogate
+from ..data import DataWrapper
+from .gw import BBHSurrogate, HofTSurrogate, BBHNonSpinSurrogate
 
 DATA_PATH = pkg_resources.resource_filename('heron', 'models/data/')
 
@@ -63,15 +64,27 @@ class HeronCUDA(Model, BBHSurrogate, HofTSurrogate):
     time_factor = 100
     strain_input_factor = 1e21
 
-    def __init__(self):
+    def __init__(self,
+                 datafile: str = None,
+                 datalabel: str = None
+                 ):
         """
         Construct a CUDA-based waveform model with pyTorch
         """
 
         # super(HeronCUDA, self).__init__()
+        #
+        self.training_data = DataWrapper(datafile)
+        self.datalabel = datalabel
+        #
         assert torch.cuda.is_available()  # This is a bit of a kludge
         (self.model_plus, self.model_cross), self.likelihood = self.build()
-        self.x_dimensions = 8
+        #
+        self.x_dimensions = len(self.training_data[self.datalabel]['meta']['parameters'])
+        self.parameters = self.training_data[self.datalabel]['meta']['parameters']
+        self.columns = dict(enumerate(self.training_data[self.datalabel]['meta']['parameters']))
+        self.c_ind = {j:i for i,j in self.columns.items()}
+        #
         self.time_factor = 100
         self.strain_input_factor = 1e21
         #
@@ -127,24 +140,31 @@ class HeronCUDA(Model, BBHSurrogate, HofTSurrogate):
                 covar_x = self.covar_module(x)
                 return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
 
-        data = np.genfromtxt(pkg_resources.resource_filename('heron',
-                                                             'models/data/gt-M60-F1024.dat'))
+        #data = np.genfromtxt(pkg_resources.resource_filename('heron',
+        #                                                     'models/data/gt-M60-F1024.dat'))
 
-        training_x = self.training_x = torch.tensor(data[:, 0:-2]*100).float().cuda()
-        training_y = self.training_y = torch.tensor(data[:, -2]*1e21).float().cuda()
-        training_yx = torch.tensor(data[:, -1]*1e21).float().cuda()
+        # These changes implement the new data interface in the model
+
+        x, y = self.training_data.get_training_data(label=self.datalabel,
+                                                    polarisation="+")
+
+        training_x = self.training_x = torch.tensor(x*100).float().cuda()[:, :100].T
+        training_y = self.training_y = torch.tensor(y*1e21).float().cuda()[:100]
+        #training_yx = torch.tensor(data[:, -1]*1e21).float().cuda()
 
         likelihood = gpytorch.likelihoods.GaussianLikelihood(noise_constraint=LessThan(10))
         model = ExactGPModel(training_x, training_y, likelihood)
-        model2 = ExactGPModel(training_x, training_yx, likelihood)
+        #model2 = ExactGPModel(training_x, training_yx, likelihood)
         state_vector = pkg_resources.resource_filename('heron', 'models/data/gt-gpytorch.pth')
 
         model = model.cuda()
-        model2 = model2.cuda()
+        #model2 = model2.cuda()
+        #FIXME fix this dirty hack
+        model2 = model
         likelihood = likelihood.cuda()
 
-        model.load_state_dict(torch.load(state_vector))
-        model2.load_state_dict(torch.load(state_vector))
+        #model.load_state_dict(torch.load(state_vector))
+        #model2.load_state_dict(torch.load(state_vector))
 
         return [model, model2], likelihood
 
