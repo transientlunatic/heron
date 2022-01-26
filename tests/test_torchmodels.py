@@ -1,6 +1,7 @@
 """
 Tests for the torch-based models.
 """
+import os
 
 import unittest
 
@@ -12,6 +13,16 @@ import numpy as np
 import numpy.testing as npt
 np.random.seed(90)
 
+@unittest.skipUnless(torch.cuda.is_available(), "CUDA is available on this system.")
+class TestCUDAModel(unittest.TestCase):
+    """
+    Perform tests on the CUDA mixin.
+    """
+
+    def setUp(self):
+        self.model = torchbased.CUDAModel()
+        self.training_data = os.path.join("heron", "models", "data", "gt-M60-F1024.dat")
+        
 
 @unittest.skipUnless(torch.cuda.is_available(), "CUDA is available on this system.")
 class TestHeronCUDA(unittest.TestCase):
