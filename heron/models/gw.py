@@ -53,7 +53,7 @@ class BBHSurrogate(object):
                     8: "h+",
                     9: "hx"
             }
-    parameters = ("mass ratio", "spin 1x", "spin 1y", "spin 1z", "spin 2x", "spin 2y", "spin 2z")
+    #parameters = ("mass ratio", "spin 1x", "spin 1y", "spin 1z", "spin 2x", "spin 2y", "spin 2z")
     c_ind = {j:i for i,j in columns.items()}
 
 class BBHNonSpinSurrogate(object):

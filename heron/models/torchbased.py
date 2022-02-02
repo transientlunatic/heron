@@ -49,7 +49,10 @@ def train(model, iterations=1000):
         # Output from model
         output = model.model_plus(model.training_x)
         # Calc loss and backprop gradients
-        loss = -mll(output, model.training_y).cuda()
+        if model.device == "cuda":
+            loss = -mll(output, model.training_y).cuda()
+        else:
+            loss = -mll(output, model.training_y)
         loss.backward()
         optimizer.step()
         if i % 100 == 0:
@@ -60,8 +63,11 @@ class CUDAModel(Model):
     """
     The factory class for all CUDA-based models.
     """
-    def __init__(self, device=device):
-        self.device = device
+    def __init__(self, device=None):
+        if device:
+            self.device = device
+        else:
+            self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     def eval(self):
         """
@@ -112,7 +118,7 @@ class CUDAModel(Model):
             times = torch.tensor(times)
         times_b = times.clone()
         points = self._generate_eval_matrix(p, times_b)
-        points = torch.tensor(points, device=self.device).float()#.cuda()
+        points = torch.tensor(points, device=self.device).float()
         with torch.no_grad(), gpytorch.settings.fast_pred_var(num_probe_vectors=10), gpytorch.settings.max_root_decomposition_size(5000):
             f_preds = model(points)
 
@@ -173,9 +179,7 @@ class CUDAModel(Model):
         else:
             return timeseries
 
-            
-
-class HeronCUDA(Model, CUDAModel, BBHSurrogate, HofTSurrogate):
+class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
     """
     A GPR BBH waveform model which is capable of using CUDA resources.
     """
@@ -185,22 +189,24 @@ class HeronCUDA(Model, CUDAModel, BBHSurrogate, HofTSurrogate):
 
     def __init__(self,
                  datafile: str = None,
-                 datalabel: str = None
+                 datalabel: str = None,
+                 device: str = None,
+                 size: int = None
                  ):
         """
         Construct a CUDA-based waveform model with pyTorch
         """
-
-        # super(HeronCUDA, self).__init__()
+        super().__init__(device=device)
         #
         self.training_data = DataWrapper(datafile)
         self.datalabel = datalabel
-        #
-        assert torch.cuda.is_available()  # This is a bit of a kludge
-        (self.model_plus, self.model_cross), self.likelihood = self.build()
+        self.data_size = size
         #
         self.x_dimensions = len(self.training_data[self.datalabel]['meta']['parameters'])
-        self.parameters = self.training_data[self.datalabel]['meta']['parameters']
+        self.parameters = list(self.training_data[self.datalabel]['meta']['parameters'])
+        #
+        (self.model_plus, self.model_cross), self.likelihood = self.build()
+        #
         self.columns = dict(enumerate(self.training_data[self.datalabel]['meta']['parameters']))
         self.c_ind = {j:i for i,j in self.columns.items()}
         #
@@ -235,9 +241,13 @@ class HeronCUDA(Model, CUDAModel, BBHSurrogate, HofTSurrogate):
                                 lengthscale_constraint=GreaterThan(10.))
         time_kernel = RBFKernel(active_dims=0,
                                 lengthscale_constraint=GreaterThan(0.1))
-        spin_kernels = [RBFKernel(active_dims=dimension,
-                                  lengthscale_constraint=GreaterThan(7))
-                        for dimension in range(2, 8)]
+
+        if b"spin 1x" in self.parameters:
+            spin_kernels = [RBFKernel(active_dims=dimension,
+                                      lengthscale_constraint=GreaterThan(7))
+                            for dimension in range(2, 8)]
+        else:
+            spin_kernels = None
 
         class ExactGPModel(gpytorch.models.ExactGP):
             """
@@ -248,8 +258,14 @@ class HeronCUDA(Model, CUDAModel, BBHSurrogate, HofTSurrogate):
                 super(ExactGPModel, self).__init__(train_x,
                                                    train_y, likelihood)
                 self.mean_module = gpytorch.means.ZeroMean()
+                
+                if spin_kernels:
+                    inner_kernels = time_kernel*mass_kernel*prod(spin_kernels)
+                else:
+                    inner_kernels = time_kernel*mass_kernel
+                    
                 self.covar_module = gpytorch.kernels.ScaleKernel(
-                    time_kernel*mass_kernel*prod(spin_kernels),
+                    inner_kernels,
                     lengthscale_constraint=gpytorch.constraints.LessThan(0.01)
                 )
 
@@ -265,10 +281,11 @@ class HeronCUDA(Model, CUDAModel, BBHSurrogate, HofTSurrogate):
         # These changes implement the new data interface in the model
 
         x, y = self.training_data.get_training_data(label=self.datalabel,
-                                                    polarisation="+")
+                                                    polarisation=b"+",
+                                                    size = self.data_size)
 
-        training_x = self.training_x = torch.tensor(x*100).float().cuda()[:, :100].T
-        training_y = self.training_y = torch.tensor(y*1e21).float().cuda()[:100]
+        training_x = self.training_x = torch.tensor(x*100, device=self.device).float().T
+        training_y = self.training_y = torch.tensor(y*1e21, device=self.device).float()
         #training_yx = torch.tensor(data[:, -1]*1e21).float().cuda()
 
         likelihood = gpytorch.likelihoods.GaussianLikelihood(noise_constraint=LessThan(10))
@@ -276,11 +293,14 @@ class HeronCUDA(Model, CUDAModel, BBHSurrogate, HofTSurrogate):
         #model2 = ExactGPModel(training_x, training_yx, likelihood)
         state_vector = pkg_resources.resource_filename('heron', 'models/data/gt-gpytorch.pth')
 
-        model = model.cuda()
-        #model2 = model2.cuda()
-        #FIXME fix this dirty hack
+        if self.device == "cuda":
+            model = model.cuda()
+            likelihood = likelihood.cuda()
+            #model2 = model2.cuda()
+
+        # FIXME: fix this dirty hack
         model2 = model
-        likelihood = likelihood.cuda()
+
 
         #model.load_state_dict(torch.load(state_vector))
         #model2.load_state_dict(torch.load(state_vector))
@@ -318,8 +338,9 @@ class HeronCUDA(Model, CUDAModel, BBHSurrogate, HofTSurrogate):
 
         times_b = times.copy()
         points = self._generate_eval_matrix(p, times_b)
-        points = torch.tensor(points).float().cuda()
-        with torch.no_grad(), gpytorch.settings.fast_pred_var():
+        points = torch.tensor(points, device=self.device).float()
+        
+        with torch.no_grad():#, gpytorch.settings.fast_pred_var():
             f_preds = model(points)
 
         mean = f_preds.mean/self.strain_input_factor
@@ -378,7 +399,7 @@ class HeronCUDA(Model, CUDAModel, BBHSurrogate, HofTSurrogate):
         """
         times_b = times.copy()
         points = self._generate_eval_matrix(p, times_b)
-        points = torch.tensor(points).float().cuda()
+        points = torch.tensor(points, device=self.device).float()
         return_samples = []
         for polarisation in [self.model_plus, self.model_cross]:
             with torch.no_grad(), gpytorch.settings.fast_pred_var():

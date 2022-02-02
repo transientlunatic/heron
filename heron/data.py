@@ -109,9 +109,12 @@ class DataWrapper001:
         """
         if not isinstance(data, (list, np.ndarray)):
             data = [data]
+
+        data = [datum.encode("ascii") for datum in data if isinstance(datum, str)]
+
         training_data = self.h5file["training data"]
         if f"{group}/meta/{meta}" in training_data:
-            if data in training_data[f"{group}/meta/{meta}"]:
+            if any([datum in training_data[f"{group}/meta/{meta}"] for datum in data]):
                 pass
             else:
                 training_data[f"{group}/meta/{meta}"].resize((training_data[f"{group}/meta/{meta}"].shape[0] + len(data) ), axis=0)
@@ -269,7 +272,8 @@ class DataWrapper001:
         else:
             training_data[f"{group}/data"].resize((training_data[f"{group}/data"].shape[0] + len(data) ), axis=0)
             training_data[f"{group}/data"][-len(data):] = data
-            
+
+        self._add_meta("parameters", "time", group)
         self._add_meta("parameters", list(locations.keys()), group)
         self._add_meta("polarisations", polarisation, group)
         self._add_meta("sources", source, group)
@@ -278,21 +282,29 @@ class DataWrapper001:
         
     def get_training_data(self,
                           label: str,
-                          polarisation: str = "+",
-                          form: str = None):
+                          polarisation: str = b"+",
+                          form: str = None,
+                          size: int = None
+                          ):
         training_data = self.h5file["training data"]
         locations = list(training_data[label]["locations"].keys())
 
-        iloc = np.array(training_data[label]["polarisation"]) == self._assign_integer_keys("polarisations",
-                                                                                           polarisation,
-                                                                                           label)
-        
+        iloc = np.array(training_data[label]["polarisation"]) == polarisation
+                                                                 #self._assign_integer_keys("polarisations",
+                                                                 #                          polarisation,
+                                                                 #                          label)
+
         xdata = np.zeros((len(locations), len(iloc)))
         ydata = np.array(training_data[f"{label}"]["data"][iloc])
 
         for i, location in enumerate(locations):
             xdata[i, :] = training_data[f"{label}"]["locations"][f"{location}"]
 
+        if size:
+            idx = np.random.randint(0, len(iloc), size=size)
+            xdata = xdata[:, idx]
+            ydata = ydata[idx]
+            
         if form is None:
             return xdata, ydata
 
@@ -306,13 +318,17 @@ class DataWrapper001:
         training_data = self.h5file["training data"]
         fig, axis = plt.subplots(1, 1, dpi=300)
 
-        iloc = np.array(training_data[label]["polarisation"]) == self._assign_integer_keys("polarisations",
-                                                                                           polarisation,
-                                                                                           label)
+        iloc = np.array(training_data[label]["polarisation"]) == polarisation #self._assign_integer_keys("polarisations",
+                                                                              #             polarisation,
+                                                                              #             label)
         axis.scatter(x=training_data[f"{label}"]["locations"][f"{x}"][iloc][::decimation],
                      y=training_data[f"{label}"]["locations"][f"{y}"][iloc][::decimation],
                      c=training_data[f"{label}"]["data"][iloc][::decimation],
                      marker='.')
+
+        axis.set_xlabel(x)
+        axis.set_ylabel(y)
+
         return fig
 
 DataWrapper = DataWrapper001

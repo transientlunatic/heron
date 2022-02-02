@@ -56,19 +56,17 @@ class Model(object):
         """
 
         times, p = self._process_inputs(times, p)
-
         nt = len(times)
         points = np.ones((nt, self.x_dimensions))
-        points[:,self.c_ind[b'time']] = times
-
         for parameter in self.parameters:
-            if parameter in p.keys():
-                value = p[parameter]
+            if parameter == b"time":
+                points[:,self.c_ind[b'time']] = times
             else:
-                value = 0.0
-                
-            points[:, self.c_ind[parameter]] *= value
+                if parameter.decode("ascii") in p.keys():
+                    value = p[parameter.decode("ascii")]
+                else:
+                    value = 0.0
+
+                points[:, self.c_ind[parameter]] *= value
 
         return points
-    
-    pass
