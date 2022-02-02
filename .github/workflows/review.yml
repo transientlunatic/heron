@@ -28,7 +28,7 @@ jobs:
         
     - name: Build HTML Docs
       run: |
-        apt install pandoc
+        sudo apt install pandoc
         pip install sphinx
         pip install kentigern
         pip install -r requirements.txt
