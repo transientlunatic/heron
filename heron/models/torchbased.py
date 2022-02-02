@@ -12,7 +12,7 @@ import numpy as np
 import torch
 import gpytorch
 from gpytorch.kernels import RBFKernel
-from gpytorch.constraints import GreaterThan, LessThan
+from gpytorch.constraints import GreaterThan, LessThan, Interval
 
 import tqdm
 
@@ -38,7 +38,7 @@ def train(model, iterations=1000):
 
     optimizer = torch.optim.Adam([
         {'params': model.model_plus.parameters()},
-    ], lr=0.1)
+    ], lr=0.5)
 
     # Our loss object. We're using the VariationalELBO
     mll = gpytorch.mlls.ExactMarginalLogLikelihood(model.likelihood, model.model_plus)
@@ -57,6 +57,11 @@ def train(model, iterations=1000):
         optimizer.step()
         if i % 100 == 0:
             torch.save(model.model_plus.state_dict(), 'model_state.pth')
+
+            for kernel in model.model_plus.covar_module.base_kernel.kernels:
+                print(f"Dim: {kernel.active_dims}: {kernel.lengthscale.item():.3f}")
+
+    model.model_plus.eval()
 
 
 class CUDAModel(Model):
@@ -225,7 +230,6 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
 
     def _process_inputs(self, times, p):
         times *= self.time_factor
-        # p['mass ratio'] *= 100 #= np.log(p['mass ratio']) * 100
         p = {k: 100*v for k, v in p.items()}
         return times, p
 
@@ -237,10 +241,10 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
         def prod(iterable):
             return reduce(operator.mul, iterable)
 
-        mass_kernel = RBFKernel(active_dims=1,
-                                lengthscale_constraint=GreaterThan(10.))
-        time_kernel = RBFKernel(active_dims=0,
-                                lengthscale_constraint=GreaterThan(0.1))
+        mass_kernel = RBFKernel(active_dims=self.c_ind["mass ratio"],
+                                lengthscale_constraint=Interval(.1, 15))
+        time_kernel = RBFKernel(active_dims=self.c_ind["time"],
+                                lengthscale_constraint=Interval(1, 5))
 
         if b"spin 1x" in self.parameters:
             spin_kernels = [RBFKernel(active_dims=dimension,
@@ -265,8 +269,7 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
                     inner_kernels = time_kernel*mass_kernel
                     
                 self.covar_module = gpytorch.kernels.ScaleKernel(
-                    inner_kernels,
-                    lengthscale_constraint=gpytorch.constraints.LessThan(0.01)
+                    inner_kernels
                 )
 
             def forward(self, x):
@@ -274,11 +277,6 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
                 mean_x = self.mean_module(x)
                 covar_x = self.covar_module(x)
                 return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
-
-        #data = np.genfromtxt(pkg_resources.resource_filename('heron',
-        #                                                     'models/data/gt-M60-F1024.dat'))
-
-        # These changes implement the new data interface in the model
 
         x, y = self.training_data.get_training_data(label=self.datalabel,
                                                     polarisation=b"+",
@@ -288,7 +286,7 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
         training_y = self.training_y = torch.tensor(y*1e21, device=self.device).float()
         #training_yx = torch.tensor(data[:, -1]*1e21).float().cuda()
 
-        likelihood = gpytorch.likelihoods.GaussianLikelihood(noise_constraint=LessThan(10))
+        likelihood = gpytorch.likelihoods.GaussianLikelihood(noise_constraint=Interval(0, .005))
         model = ExactGPModel(training_x, training_y, likelihood)
         #model2 = ExactGPModel(training_x, training_yx, likelihood)
         state_vector = pkg_resources.resource_filename('heron', 'models/data/gt-gpytorch.pth')
@@ -339,7 +337,7 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
         times_b = times.copy()
         points = self._generate_eval_matrix(p, times_b)
         points = torch.tensor(points, device=self.device).float()
-        
+
         with torch.no_grad():#, gpytorch.settings.fast_pred_var():
             f_preds = model(points)
 
