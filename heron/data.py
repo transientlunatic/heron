@@ -273,8 +273,9 @@ class DataWrapper001:
             training_data[f"{group}/data"].resize((training_data[f"{group}/data"].shape[0] + len(data) ), axis=0)
             training_data[f"{group}/data"][-len(data):] = data
 
-        self._add_meta("parameters", "time", group)
+        
         self._add_meta("parameters", list(locations.keys()), group)
+        self._add_meta("parameters", "time", group)
         self._add_meta("polarisations", polarisation, group)
         self._add_meta("sources", source, group)
         self._add_meta("reference mass", reference_mass, group)
