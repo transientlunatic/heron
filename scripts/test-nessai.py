@@ -2,6 +2,8 @@ from heron.models.torchbased import HeronCUDA, train
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
+from heron.matched import CudaLikelihood
+
 
 generator = model = HeronCUDA(datafile="test_file_2.h5", datalabel="IMR training", device="cuda")
 model.eval()
