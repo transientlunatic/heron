@@ -20,8 +20,6 @@ class Model(object):
         """
 
         # Need to explicitly set the number of dimensions of the training data.
-        # TODO: Decide if this is actually required.
-        self.x_dimensions = 2
 
         # Need to create a lookup table between the columns in the model
         # and their location in the training data

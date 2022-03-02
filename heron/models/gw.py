@@ -1,16 +1,25 @@
 """
 This module contains objects which provide the specifically-GW parts of waveform surrogate models.
 """
-from elk.waveform import Waveform, Timeseries
+from elk.waveform import Waveform, Timeseries, FrequencySeries
 import astropy.constants as c
+import numpy as np
 from math import log
-
+import torch
+from ..utils import diag_cuda
 class HofTSurrogate(object):
 
     def _to_frequency(self, timeseries, *args):
         """Convert an elk timeseries output from heron into an elk frequency series output."""
         return timeseries.to_fseries(*args)
 
+    def time_domain_waveform(self, p, times=np.linspace(-2, 2, 1000)):
+        """
+        Return the timedomain waveform.
+        """
+
+        return self.mean(times, p)
+    
     def bilby(self, time, mass_1, mass_2, luminosity_distance):
         """
         Return a waveform from the GPR in a format expected by the Bilby ecosystem
@@ -65,3 +74,30 @@ class BBHNonSpinSurrogate(object):
     }
     parameters = ("mass ratio",)
     c_ind = {j:i for i,j in columns.items()}
+
+class FrequencyMixin:
+    def frequency_domain_waveform(self, p, window, times=np.linspace(-2, 2, 1000)):
+        """
+        Return the frequency domain waveform.
+        """
+        data = {}
+        for polarisation in self.polarisations:
+            mean, _, cov = self._predict(times, p, polarisation=polarisation)
+
+            strain_f = torch.view_as_complex((window*mean.double()).rfft(1))
+            cov_f = torch.view_as_complex(cov.rfft(2))
+
+            dt = times[-1] - times[-2]
+            
+            uncert_f = diag_cuda(cov_f)
+            #Complex(torch.stack([torch.diag(cov_f[:, :, 0]), torch.diag(cov_f[:, :, 1])]).T)
+            if not isinstance(times, type(None)):
+                srate = 1/np.diff(times).mean()
+                nf = int(np.floor(len(times)/2))+1
+                frequencies = np.linspace(0, srate, nf)
+
+            data[polarisation] = FrequencySeries(data=strain_f,
+                                                 frequencies=frequencies,
+                                                 covariance=cov_f,
+                                                 variance=uncert_f)
+        return data
