@@ -81,8 +81,8 @@ def train(model, iterations=1000):
             torch.save(model.model_plus.state_dict(), state_vector)
     model.eval()
 
-            for kernel in model.model_plus.covar_module.base_kernel.kernels:
-                print(f"Dim: {kernel.active_dims}: {kernel.lengthscale.item():.3f}")
+    #for kernel in model.model_plus.covar_module.base_kernel.kernels:
+    #            print(f"Dim: {kernel.active_dims}: {kernel.lengthscale.item():.3f}")
 
     model.model_plus.eval()
 
