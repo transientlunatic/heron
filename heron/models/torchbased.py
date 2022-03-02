@@ -25,7 +25,7 @@ from elk.catalogue import PPCatalogue
 
 from . import Model
 from ..data import DataWrapper
-from .gw import BBHSurrogate, HofTSurrogate, BBHNonSpinSurrogate
+from .gw import BBHSurrogate, HofTSurrogate, BBHNonSpinSurrogate, FrequencyMixin
 
 DATA_PATH = pkg_resources.resource_filename('heron', 'models/data/')
 disable_cuda = False
