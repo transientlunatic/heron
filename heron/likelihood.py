@@ -43,9 +43,9 @@ class InnerProduct():
     Examples
     --------
 
-    >>> asd = Complex(torch.ones((83, 2), device=device))
+    >>> asd = torch.ones(size=(83), device=device, dtype=torch.cfloat)
     >>> psd = asd * asd
-    >>> ip = InnerProduct(psd)
+    >>> ip = InnerProduct(psd=psd)
     >>> a = np.random.rand(83)
     >>> b = np.random.rand(83)
     >>> ip(a, b)
@@ -55,20 +55,22 @@ class InnerProduct():
         self.noise = psd
         self.noise2 = signal_psd
         self.signal_cov = signal_cov
-        
         #if not isinstance(self.noise2, type(None)):
         #    reweight = torch.sum(self.noise.modulus / self.noise2.modulus)
         #    self.noise2 = self.noise2 / reweight
         self.duration = duration
-
         if not isinstance(self.signal_cov, type(None)):
-            self.metric = 1./self.signal_cov
-            self.metric += diag_cuda(1./(self.duration*self.noise))
+            self.metric = (1./self.signal_cov)
+            self.metric += 1./(self.duration*self.noise)
+            
         elif not isinstance(self.noise2, type(None)):
-            self.metric = diag_cuda(1./(self.duration*self.noise + self.duration*self.noise2.abs()))
+            self.metric = 1./(self.duration*self.noise + self.duration*self.noise2.abs())
         else:
-            self.metric = diag_cuda(1./(self.duration * self.noise))
-
+            self.metric = 1./(self.duration * self.noise)
+        
+        # It looks loke torch is doing the diagonlisation on the CPU no matter where the tensor resides...
+        self.metric = self.metric.diag().to(device=self.noise.device, dtype=torch.complex128)
+            
         if f_min or f_max:
             warnings.warn("""f_min and f_max are not yet implemented. The full frequency series will be used.""",
                           RuntimeWarning)
@@ -83,8 +85,10 @@ class InnerProduct():
         """
         Calculate the noise-weighted inner product of a and b.
         """
-        c = a[1:-1].conj() @ self.metric[1:-1,1:-1] @ b[1:-1]
-        return  4.0*c.real
+        a = a.to(dtype=torch.complex128)
+        b = b.to(dtype=torch.complex128) # TODO Check why these aren't always on the correct device.
+        c = a.conj() @ self.metric @ b #[1:-1]
+        return  4.0*torch.abs(c.real)
 
 
 class Likelihood():
@@ -119,7 +123,8 @@ class Likelihood():
         cross : float, or array
            The 'cross' component of the response function.
         """
-        return antenna.AntennaResponse(detector, ra, dec, psi=psi, times=time)
+        responses = antenna.AntennaResponse(detector, ra, dec, psi=psi, times=time)
+        return responses
 
 
 
@@ -189,7 +194,7 @@ class CUDALikelihood(Likelihood):
         self._cache = None
         self._weights_cache = None
         self.model = model
-        self.window = window
+        self.window = window(len(data.data), device=device) #torch.tensor(window(int(1+len(data.data)/2)), device=device)
 
         self.device = device
 
@@ -197,7 +202,7 @@ class CUDALikelihood(Likelihood):
         self.f_max = f_max
         self.gen_args = generator_args
         if isinstance(data, elk.waveform.Timeseries):
-            self.data = self.window*torch.view_as_complex(torch.tensor(data.data, device=device).rfft(1)[1:])
+            self.data = torch.fft.rfft(self.window*data.data)
             self.times = data.times
         elif isinstance(data, elk.waveform.FrequencySeries):
             self.data = data.data.clone()
@@ -208,20 +213,21 @@ class CUDALikelihood(Likelihood):
             self.times = torch.linspace(0, nt/freqs[-1], nt) + start
             self.frequencies = data.frequencies
             self.start = start
-
+            
         self.data *= self.model.strain_input_factor
             
         self.duration = self.times[-1] - self.times[0]
         if not isinstance(psd, type(None)):
-            self.psd = psd * self.model.strain_input_factor**2
+            self.psd = psd #* self.model.strain_input_factor**2
         else:
             if not isinstance(asd, type(None)):
                 self.asd = asd
                 #self.asd.tensor = self.asd.tensor.clone() 
             else:
                 self.asd = torch.ones(len(self.data), 2)
-            self.psd = (self.asd * self.asd) * self.model.strain_input_factor**2
+            self.psd = (self.asd * self.asd)# * self.model.strain_input_factor**2
 
+            
     def _call_model(self, p):
         args = copy(self.gen_args)
         args.update(p)
@@ -234,9 +240,11 @@ class CUDALikelihood(Likelihood):
         for pol, wf in waveform.items():
             # I've just changed these to division; need to check.
             waveform[pol].data /= self.model.strain_input_factor
-            waveform[pol].variance /= self.model.strain_input_factor**2
 
-            waveform[pol].covariance /= self.model.strain_input_factor**2
+            if not isinstance(waveform[pol].variance, type(None)):
+                waveform[pol].variance /= self.model.strain_input_factor**2
+            if not isinstance(waveform[pol].covariance, type(None)):
+                waveform[pol].covariance #/= self.model.strain_input_factor**2
             
         return waveform
 
@@ -262,19 +270,30 @@ class CUDALikelihood(Likelihood):
                                                 dec,
                                                 psi,
                                                 gpstime)
-            
             dt = TimeDelayFromEarthCenter(self.detector.location, ra, dec, LIGOTimeGPS(gpstime))
 
             tshiftvec = torch.exp(1j*2*torch.pi*dt*self.frequencies)
 
-            waveform_mean = (polarisations['plus'].data * response['plus'] + polarisations['cross'].data * response['cross'])*tshiftvec
-            waveform_variance = polarisations['plus'].variance * response['plus']**2 + polarisations['cross'].variance * response['cross']**2
+            plus_r = torch.tensor(response['plus'], device=self.device)
+            cross_r = torch.tensor(response['cross'], device=self.device)
+            
+            waveform_mean = (polarisations['plus'].data * plus_r + polarisations['cross'].data * cross_r)*tshiftvec
+            if hasattr(polarisations["plus"], "covariance"):
+                waveform_variance = polarisations['plus'].variance * plus_r**2 + polarisations['cross'].variance * cross_r**2
 
         else:
             waveform_mean = polarisations['plus'].data
-            waveform_variance = polarisations['plus'].covariance
-
-        if model_var:
+            if hasattr(polarisations['plus'], "covariance"):
+                waveform_variance = polarisations['plus'].covariance
+                
+        if not isinstance(polarisations['plus'].covariance, type(None)):
+            inner_product = InnerProduct(self.psd.clone(),
+                                         signal_cov=waveform_variance,
+                                         duration=self.duration,
+                                         f_min=self.f_min,
+                                         f_max=self.f_max)
+            factor = torch.logdet(inner_product.metric.abs()[1:-1, 1:-1])
+        elif model_var:
             inner_product = InnerProduct(self.psd.clone(),
                                          signal_psd=waveform_variance,
                                          duration=self.duration,
@@ -288,9 +307,9 @@ class CUDALikelihood(Likelihood):
             factor = torch.sum(torch.log(1./(self.duration*self.psd.abs())[1:-1]))
             
         products = 0
-        products = -0.5 * (inner_product(self.data, self.data))
-        products += -0.5 * (inner_product(waveform_mean, waveform_mean))
-        products += inner_product(self.data.clone(), waveform_mean)
+        products = 0.5 * (inner_product(self.data, self.data))
+        products += 0.5 * (inner_product(waveform_mean, waveform_mean))
+        products += - inner_product(self.data.clone(), waveform_mean)
         products *= factor
 
         return products
@@ -300,11 +319,11 @@ class CUDALikelihood(Likelihood):
         Calculate the normalisation.
         """
         waveform = self._call_model(p) 
-        psd = self.psd.real[1:-1] / self.model.strain_input_factor**2
+        psd = self.psd.real / self.model.strain_input_factor**2
         if "ra" not in p.keys():
             waveform = waveform['plus']
         if model_var:
-            variance = waveform.variance.abs()[1:-1]
+            variance = waveform.variance.abs()
             normalisation = (torch.sum(torch.log(psd))
                             - torch.log(torch.prod(psd / psd.max()))
                             + torch.log(psd.max())*len(psd))
@@ -323,7 +342,7 @@ class CUDALikelihood(Likelihood):
         """
         Calculate the overall log-likelihood.
         """
-        return self._products(p, model_var) #- self._normalisation(p, model_var)
+        return self._products(p, model_var) - self._normalisation(p, model_var)
     
     def __call__(self, p, model_var=True):
         """Calculate the log likelihood for a given set of model parameters.

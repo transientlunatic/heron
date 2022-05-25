@@ -41,7 +41,7 @@ else:
     device = torch.device('cpu')
 
 
-def train(model, iterations=1000):
+def train(model, iterations=1000, lr=0.1):
     """
     Train the model.
     """
@@ -55,7 +55,7 @@ def train(model, iterations=1000):
 
     optimizer = torch.optim.Adam([
         {'params': model.model_plus.parameters()},
-    ], lr=0.5)
+    ], lr=lr)
 
     # Our loss object. We're using the VariationalELBO
     mll = gpytorch.mlls.ExactMarginalLogLikelihood(model.likelihood, model.model_plus)
@@ -72,18 +72,16 @@ def train(model, iterations=1000):
         output = model.model_plus(model.training_x)
         # Calc loss and backprop gradients
         if model.device == "cuda":
-            loss = -mll(output, model.training_y).cuda()
+            #loss = -mll(output, model.training_y).cuda()
+            loss = torch.distributions.Normal(output.mean, output.variance.sqrt()).log_prob(model.training_y).mean()
         else:
-            loss = -mll(output, model.training_y)
+            #loss = -mll(output, model.training_y)
+            loss = torch.distributions.Normal(output.mean, output.variance.sqrt()).log_prob(model.training_y).mean()
         loss.backward()
         optimizer.step()
         if i % 100 == 0:
             torch.save(model.model_plus.state_dict(), state_vector)
     model.eval()
-
-    #for kernel in model.model_plus.covar_module.base_kernel.kernels:
-    #            print(f"Dim: {kernel.active_dims}: {kernel.lengthscale.item():.3f}")
-
     model.model_plus.eval()
 
 
@@ -96,7 +94,7 @@ class CUDAModel(Model):
             self.device = device
         else:
             self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
+            
     def eval(self):
         """
         Prepare the model to be evaluated.
@@ -148,16 +146,17 @@ class CUDAModel(Model):
         points = self._generate_eval_matrix(p, times_b)
         points = torch.tensor(points, device=self.device).float()
         with torch.no_grad(), gpytorch.settings.fast_pred_var(num_probe_vectors=10), gpytorch.settings.max_root_decomposition_size(5000):
-            f_preds = model(points)
+                f_preds = model(points)
 
         mean = f_preds.mean/self.strain_input_factor
-        var = f_preds.variance.detach().double()/(self.strain_input_factor**2)
-        covariance = f_preds.covariance_matrix.detach().double()
+        var = f_preds.variance.double()/self.strain_input_factor**2 # .detach().double()
+        covariance = f_preds.covariance_matrix.double()#.detach().double()
         covariance /= (self.strain_input_factor**2)
 
         return mean, var, covariance
+        
     
-    def mean(self, times, p, covariance=False):
+    def mean(self, times, p, covariance=False, polarisation=None):
         """
         Provide the mean waveform and its variance.
         Optionally include the covariance.
@@ -186,8 +185,7 @@ class CUDAModel(Model):
         """
         covariance_flag = covariance
 
-        timeseries = []
-        covariances = []
+        timeseries = {}
         if not isinstance(times, torch.Tensor):
             times = torch.tensor(times)
         
@@ -196,16 +194,16 @@ class CUDAModel(Model):
         else:
             polarisations = ["plus"]
         for polarisation in polarisations:
-            mean, var, covariance = self._predict(times, p, polarisation=polarisation)
-            timeseries.append(
-                Timeseries(data=mean.cpu().numpy().astype(np.float64),
+
+            mean, var, covariance = \
+                self._predict(times, p, polarisation=polarisation)
+
+            timeseries[polarisation] = \
+                Timeseries(data=mean,
                            times=times,
-                           variance=var.cpu().numpy().astype(np.float64)))
-            covariances.append(covariance)
-        if covariance_flag:
-            return timeseries, covariances
-        else:
-            return timeseries
+                           covariance=covariance,
+                           variance=var)
+        return timeseries
 
 class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
     """
@@ -213,6 +211,7 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
     """
 
     time_factor = 100
+    other_input_factor = 100
     strain_input_factor = 1e21
     x_dimensions = 8
 
@@ -220,7 +219,10 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
                  datafile: str = None,
                  datalabel: str = None,
                  device: str = None,
-                 size: int = None
+                 size: int = None,
+                 noise: list = [0.001, 0.1],
+                 lengths: dict = {"mass ratio": [0.001, 1],
+                                  "time": [0.001, 0.1]}
                  ):
         """
         Construct a CUDA-based waveform model with pyTorch
@@ -230,6 +232,9 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
         self.training_data = DataWrapper(datafile)
         self.datalabel = datalabel
         self.data_size = size
+        # Kernel and likelihood settings
+        self.noise = noise
+        self.lengths = lengths
         #
         self.x_dimensions = len(self.training_data[self.datalabel]['meta']['parameters'])
         self.parameters = list(self.training_data[self.datalabel]['meta']['parameters'])
@@ -245,7 +250,7 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
         self.eval()
     def _process_inputs(self, times, p):
         times *= self.time_factor
-        p = {k: 100*v for k, v in p.items()}
+        p = {k: self.other_input_factor*v for k, v in p.items()}
         return times, p
 
     def build(self):
@@ -257,9 +262,9 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             return reduce(operator.mul, iterable)
 
         mass_kernel = RBFKernel(active_dims=self.c_ind["mass ratio"],
-                                lengthscale_constraint=Interval(.1, 15))
+                                lengthscale_constraint=Interval(self.lengths['mass ratio'][0], self.lengths['mass ratio'][1]))
         time_kernel = RBFKernel(active_dims=self.c_ind["time"],
-                                lengthscale_constraint=Interval(1, 5))
+                                lengthscale_constraint=Interval(self.lengths['time'][0], self.lengths['time'][1]))
 
         if b"spin 1x" in self.parameters:
             spin_kernels = [RBFKernel(active_dims=dimension,
@@ -298,11 +303,11 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
                                                     polarisation=b"+",
                                                     size = self.data_size)
 
-        training_x = self.training_x = torch.tensor(x*100, device=self.device).float().T
-        training_y = self.training_y = torch.tensor(y*1e21, device=self.device).float()
+        training_x = self.training_x = torch.tensor(x*self.other_input_factor, device=self.device).float().T
+        training_y = self.training_y = torch.tensor(y*self.strain_input_factor, device=self.device).float()
         #training_yx = torch.tensor(data[:, -1]*1e21).float().cuda()
 
-        likelihood = gpytorch.likelihoods.GaussianLikelihood(noise_constraint=Interval(0, .005))
+        likelihood = gpytorch.likelihoods.GaussianLikelihood(noise_constraint=Interval(self.noise[0], self.noise[1]))
         model = ExactGPModel(training_x, training_y, likelihood)
         #model2 = ExactGPModel(training_x, training_yx, likelihood)
         state_vector = pkg_resources.resource_filename('heron', 'models/data/gt-gpytorch.pth')
@@ -336,12 +341,12 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
                 f_preds = polarisation(points)
                 y_preds = self.likelihood(f_preds)
 
-                return_samples.append([Timeseries(data=sample.cpu()/self.strain_input_factor,
+                return_samples.append([Timeseries(data=sample/self.strain_input_factor,
                                          times=times_b)
                                        for sample in y_preds.sample_n(samples)])
         return return_samples
 
-    def frequency_domain_waveform(self, p, window, times=np.linspace(-2, 2, 1000)):
+    def frequency_domain_waveform(self, p, window, times=np.linspace(-2, 2, 1000), polarisation=None):
         """
         Return the frequency domain waveform.
 
@@ -354,30 +359,15 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
            to the data before performing the FFT.
         times : array, optional
            The times at which the model should be evaluated.
+        polarisation : str
+           The polarisation to return. Default is `None` in which case all available polarisations are returned.
         """
-        mean, _, cov = self._predict(times, p)
+        timeseries = self.mean(times, p, polarisation)
+        frequencyseries = {pol: ts.to_frequencyseries()
+                           for pol, ts in timeseries.items()}
+        return frequencyseries
 
-        strain_f = torch.view_as_complex((window.double()*mean.double()).rfft(1))
-        # :todo:`Check windowing`
-        # :todo:`Check the effect of the windowing on the covariance`
-        # :todo:`Check the evaluation of the cv matrix with windowing on the mean`
-        cov_f = torch.view_as_complex(cov.rfft(2))
-
-        # :todo:`This should always be real.`
-        # It is the expectation of x_i·x_i^*
-        # This might not be true if need to use off-diagonal components
-        uncert_f = torch.diag(cov_f.real)
-
-        if np.any(times):
-            srate = 1/np.diff(times).mean()
-            nf = int(np.floor(len(times/2)))+1
-            frequencies = np.linspace(0, srate, nf)
-
-        return FrequencySeries(data=strain_f*self.model.strain_input_factor,
-                               variance=uncert_f*self.model.strain_input_factor**2,
-                               covariance=cov_f*self.model.strain_input_factor**2,
-                               frequencies=frequencies)
-
+    
     def time_domain_waveform(self, p, times=np.linspace(-2, 2, 1000)):
         """
         Return the timedomain waveform.
@@ -475,7 +465,7 @@ class HeronCUDAIMR(CUDAModel, BBHNonSpinSurrogate, HofTSurrogate, FrequencyMixin
 
         catalogue = PPCatalogue("IMRPhenomPv2", total_mass=10, waveforms=[{"mass ratio": q} for q in np.linspace(1, 4.0, 10)])
         data = catalogue.create_training_data(total_mass=10, ma=[(2,2)])
-        data[:,0] *= 1000
+        data[:,0] *= self.time_factor
         data[:,1] = 1./data[:,1]
 
         training_x = torch.tensor(np.random.randn(*data[:,[0,1]].shape)*1e-3 + data[:, [0,1]], device=self.device).float()#.cuda()
@@ -542,8 +532,10 @@ class HeronCUDAIMR(CUDAModel, BBHNonSpinSurrogate, HofTSurrogate, FrequencyMixin
             f_preds = model(points)
 
         mean = f_preds.mean/(distance * self.strain_input_factor)
-        var = f_preds.variance.detach().double()/((distance*self.strain_input_factor**2))
-        covariance = f_preds.covariance_matrix.detach().double()
+        var = f_preds.variance.double()/((distance*self.strain_input_factor**2))
+        covariance = f_preds.covariance_matrix.double()
+
+        
         covariance /= (((self.strain_input_factor)**2))
         covariance /= distance**2
 
@@ -578,19 +570,15 @@ class HeronCUDAIMR(CUDAModel, BBHNonSpinSurrogate, HofTSurrogate, FrequencyMixin
         """
         covariance_flag = covariance
 
-        timeseries = []
-        covariances = []
+        timeseries = {}
         for polarisation in ["plus", "cross"]:
             mean, var, covariance = self._predict(times, p, polarisation=polarisation)
-            timeseries.append(
-                Timeseries(data=mean.cpu().numpy().astype(np.float64),
+            timeseries[polarisation] = \
+                Timeseries(data=mean,#.cpu().numpy().astype(np.float64),
                            times=times,
-                           variance=var.cpu().numpy().astype(np.float64)))
-            covariances.append(covariance)
-        if covariance_flag:
-            return timeseries, covariances
-        else:
-            return timeseries
+                           covariance=covariance,
+                           variance=var),#.cpu().numpy().astype(np.float64))
+        return timeseries
 
     def distribution(self, times, p, samples=100):
         """

@@ -7,12 +7,14 @@ import numpy as np
 
 def diag_cuda(a):
     """Make a vector into a diagonal matrix."""
-    a = torch.view_as_real(a)
-    if a.dim() == 2:
-        b = torch.stack([torch.diag(a[:, 0]), torch.diag(a[:, 1])], dim=-1)
-    elif a.dim() == 3:
-        b = torch.stack([torch.diag(a[:, :, 0]), torch.diag(a[:, :, 1])], dim=-1)
-    return torch.view_as_complex(b)
+    b = torch.diag(a)
+    return b
+    # a = torch.view_as_real(a)
+    # if a.dim() == 2:
+    #     b = torch.stack([torch.diag(a[:, 0]), torch.diag(a[:, 1])], dim=-1)
+    # elif a.dim() == 3:
+    #     b = torch.stack([torch.diag(a[:, :, 0]), torch.diag(a[:, :, 1])], dim=-1)
+    # return torch.view_as_complex(b)
 
 
 class Complex():

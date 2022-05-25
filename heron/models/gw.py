@@ -82,22 +82,8 @@ class FrequencyMixin:
         """
         data = {}
         for polarisation in self.polarisations:
-            mean, _, cov = self._predict(times, p, polarisation=polarisation)
-
-            strain_f = torch.view_as_complex((window*mean.double()).rfft(1))
-            cov_f = torch.view_as_complex(cov.rfft(2))
-
-            dt = times[-1] - times[-2]
+            timeseries = self.mean(times, p, polarisation)
+            frequencyseries = timeseries.to_frequencyseries()
             
-            uncert_f = diag_cuda(cov_f)
-            #Complex(torch.stack([torch.diag(cov_f[:, :, 0]), torch.diag(cov_f[:, :, 1])]).T)
-            if not isinstance(times, type(None)):
-                srate = 1/np.diff(times).mean()
-                nf = int(np.floor(len(times)/2))+1
-                frequencies = np.linspace(0, srate, nf)
-
-            data[polarisation] = FrequencySeries(data=strain_f,
-                                                 frequencies=frequencies,
-                                                 covariance=cov_f,
-                                                 variance=uncert_f)
+            data[polarisation] = frequencyseries
         return data
