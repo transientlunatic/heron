@@ -53,7 +53,7 @@ class InnerProduct():
     """
     def __init__(self, psd, duration, signal_psd=None, signal_cov=None, f_min=None, f_max=None):
         self.noise = psd.to(torch.complex128)
-        if signal_psd:
+        if not isinstance(signal_psd, type(None)):
             self.noise2 = signal_psd.to(torch.complex128)
         else:
             self.noise2 = None
@@ -280,7 +280,7 @@ class CUDALikelihood(Likelihood):
         else:
             waveform_mean = polarisations['plus'].data
 
-        if waveform_variance:
+        if not waveform_variance:
             waveform_variance = polarisations['plus'].variance.abs()
             #if hasattr(polarisations['plus'], "covariance"):
             #    waveform_variance = polarisations['plus'].variance
@@ -327,8 +327,9 @@ class CUDALikelihood(Likelihood):
 
             normalisation = (torch.sum(torch.log(psd))
                             + torch.log(torch.prod(psd / psd.max())))
+            normalisation += torch.sum(torch.log(variance)) + torch.log(torch.prod(variance / variance.max()))
             normalisation *= torch.log(psd.max())*len(psd)
-            #normalisation = torch.sum(torch.log(variance))
+            #normalisation *= torch.log(variance.max())*len(variance)
             #normalisation += torch.logsum(variance)
             
         else:

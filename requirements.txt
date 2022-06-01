@@ -9,8 +9,8 @@ cython
 george
 nestle
 elk-waveform
-gpytorch==1.0.1
-torch==1.7.1
-torchvision==0.5.0
+gpytorch
+torch
+torchvision
 lalsuite
 h5py
