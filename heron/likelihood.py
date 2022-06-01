@@ -52,24 +52,28 @@ class InnerProduct():
 
     """
     def __init__(self, psd, duration, signal_psd=None, signal_cov=None, f_min=None, f_max=None):
-        self.noise = psd
-        self.noise2 = signal_psd
+        self.noise = psd.to(torch.complex128)
+        if signal_psd:
+            self.noise2 = signal_psd.to(torch.complex128)
+        else:
+            self.noise2 = None
         self.signal_cov = signal_cov
         #if not isinstance(self.noise2, type(None)):
         #    reweight = torch.sum(self.noise.modulus / self.noise2.modulus)
         #    self.noise2 = self.noise2 / reweight
         self.duration = duration
-        if not isinstance(self.signal_cov, type(None)):
-            self.metric = (1./self.signal_cov)
-            self.metric += 1./(self.duration*self.noise)
-            
-        elif not isinstance(self.noise2, type(None)):
-            self.metric = 1./(self.duration*self.noise + self.duration*self.noise2.abs())
-        else:
-            self.metric = 1./(self.duration * self.noise)
-        
-        # It looks loke torch is doing the diagonlisation on the CPU no matter where the tensor resides...
+        #if not isinstance(self.signal_cov, type(None)):
+        #    self.metric = (1./self.signal_cov)
+        #    self.metric += (1./(self.duration*self.noise))
+        #    self.metric = self.metric.to(device=self.noise.device, dtype=torch.complex128)
+        if not isinstance(self.noise2, type(None)):
+            self.metric = (1./(self.duration*self.noise + self.duration*self.noise2))
+            self.metric = self.metric.diag().to(device=self.noise.device, dtype=torch.complex128)
+        #else:
+        self.metric = (1./(self.duration * self.noise))
         self.metric = self.metric.diag().to(device=self.noise.device, dtype=torch.complex128)
+        # It looks loke torch is doing the diagonlisation on the CPU no matter where the tensor resides...
+        
             
         if f_min or f_max:
             warnings.warn("""f_min and f_max are not yet implemented. The full frequency series will be used.""",
@@ -214,7 +218,7 @@ class CUDALikelihood(Likelihood):
             self.frequencies = data.frequencies
             self.start = start
             
-        self.data *= self.model.strain_input_factor
+        #self.data *= self.model.strain_input_factor
             
         self.duration = self.times[-1] - self.times[0]
         if not isinstance(psd, type(None)):
@@ -226,7 +230,8 @@ class CUDALikelihood(Likelihood):
             else:
                 self.asd = torch.ones(len(self.data), 2)
             self.psd = (self.asd * self.asd)# * self.model.strain_input_factor**2
-
+        self.psd = self.psd.to(torch.complex128)
+        self.data = self.data.to(torch.complex128)
             
     def _call_model(self, p):
         args = copy(self.gen_args)
@@ -236,15 +241,6 @@ class CUDALikelihood(Likelihood):
             waveform = self._cache
         else:
             waveform = self.model.frequency_domain_waveform(p, window=self.window, times=self.times)
-
-        for pol, wf in waveform.items():
-            # I've just changed these to division; need to check.
-            waveform[pol].data /= self.model.strain_input_factor
-
-            if not isinstance(waveform[pol].variance, type(None)):
-                waveform[pol].variance /= self.model.strain_input_factor**2
-            if not isinstance(waveform[pol].covariance, type(None)):
-                waveform[pol].covariance #/= self.model.strain_input_factor**2
             
         return waveform
 
@@ -261,7 +257,7 @@ class CUDALikelihood(Likelihood):
         assumes that the two polarisations are statistically
         independent.
         """
-
+        waveform_variance = None
         polarisations = self._call_model(p)
         if "ra" in p.keys():
             ra, dec, psi, gpstime = p['ra'], p['dec'], p['psi'], p['gpstime']
@@ -283,34 +279,38 @@ class CUDALikelihood(Likelihood):
 
         else:
             waveform_mean = polarisations['plus'].data
-            if hasattr(polarisations['plus'], "covariance"):
-                waveform_variance = polarisations['plus'].covariance
+
+        if waveform_variance:
+            waveform_variance = polarisations['plus'].variance.abs()
+            #if hasattr(polarisations['plus'], "covariance"):
+            #    waveform_variance = polarisations['plus'].variance
                 
-        if not isinstance(polarisations['plus'].covariance, type(None)):
-            inner_product = InnerProduct(self.psd.clone(),
-                                         signal_cov=waveform_variance,
-                                         duration=self.duration,
-                                         f_min=self.f_min,
-                                         f_max=self.f_max)
-            factor = torch.logdet(inner_product.metric.abs()[1:-1, 1:-1])
-        elif model_var:
+        # if not isinstance(polarisations['plus'].covariance, type(None)):
+        #     inner_product = InnerProduct(self.psd.clone(),
+        #                                  signal_cov=waveform_variance,
+        #                                  duration=self.duration,
+        #                                  f_min=self.f_min,
+        #                                  f_max=self.f_max)
+        #     factor = torch.logdet(inner_product.metric.abs()[1:-1, 1:-1])
+        if model_var:
             inner_product = InnerProduct(self.psd.clone(),
                                          signal_psd=waveform_variance,
                                          duration=self.duration,
                                          f_min=self.f_min,
                                          f_max=self.f_max)
-            factor = torch.logdet(inner_product.metric.abs()[1:-1, 1:-1])
+            factor = torch.logdet(inner_product.metric.abs())
+            #factor = torch.sum(torch.log(inner_product.metric.abs()))
         else:
             inner_product = InnerProduct(self.psd.clone(),
                                          duration=self.duration,
                                          f_min=self.f_min, f_max=self.f_max)
-            factor = torch.sum(torch.log(1./(self.duration*self.psd.abs())[1:-1]))
+            factor = torch.sum(torch.log(1./(self.duration*self.psd.abs())))
             
         products = 0
-        products = 0.5 * (inner_product(self.data, self.data))
-        products += 0.5 * (inner_product(waveform_mean, waveform_mean))
-        products += - inner_product(self.data.clone(), waveform_mean)
-        products *= factor
+        products -= 0.5 * (inner_product(self.data, self.data))
+        products -= 0.5 * (inner_product(waveform_mean, waveform_mean))
+        products = inner_product(self.data.clone(), waveform_mean)
+        products *= factor  # Need to check if this is actually right; I don't think it is
 
         return products
 
@@ -319,22 +319,21 @@ class CUDALikelihood(Likelihood):
         Calculate the normalisation.
         """
         waveform = self._call_model(p) 
-        psd = self.psd.real / self.model.strain_input_factor**2
+        psd = self.psd.abs() #/ self.model.strain_input_factor**2
         if "ra" not in p.keys():
             waveform = waveform['plus']
         if model_var:
             variance = waveform.variance.abs()
+
             normalisation = (torch.sum(torch.log(psd))
-                            - torch.log(torch.prod(psd / psd.max()))
-                            + torch.log(psd.max())*len(psd))
-            normalisation -= torch.sum(torch.log(variance))
-            #normalisation += torch.logdet(variance)
+                            + torch.log(torch.prod(psd / psd.max())))
+            normalisation *= torch.log(psd.max())*len(psd)
+            #normalisation = torch.sum(torch.log(variance))
+            #normalisation += torch.logsum(variance)
             
         else:
-            normalisation = (torch.sum(torch.log(psd))
-                            - torch.log(torch.prod(psd / psd.max()))
-                            + torch.log(psd.max())*len(psd))
-
+            #normalisation = (torch.sum(torch.log(psd)) + torch.sum(torch.log(psd / psd.max())) + torch.log(psd.max()))*len(psd)
+            normalisation = (torch.sum(torch.log(psd)) + torch.sum(torch.log(psd / psd.max())))*len(psd)* torch.log(psd.max())
         return normalisation
 
         

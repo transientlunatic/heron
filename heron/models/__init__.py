@@ -1,5 +1,6 @@
 
 import numpy as np
+import torch
 
 class Model(object):
     """
@@ -64,7 +65,6 @@ class Model(object):
                     value = p[parameter.decode("ascii")]
                 else:
                     value = 0.0
-
                 points[:, self.c_ind[parameter]] *= value
 
         return points

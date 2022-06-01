@@ -71,12 +71,9 @@ def train(model, iterations=1000, lr=0.1):
         # Output from model
         output = model.model_plus(model.training_x)
         # Calc loss and backprop gradients
-        if model.device == "cuda":
-            #loss = -mll(output, model.training_y).cuda()
-            loss = torch.distributions.Normal(output.mean, output.variance.sqrt()).log_prob(model.training_y).mean()
-        else:
-            #loss = -mll(output, model.training_y)
-            loss = torch.distributions.Normal(output.mean, output.variance.sqrt()).log_prob(model.training_y).mean()
+        loss = torch.distributions.Normal(output.mean.to(device=model.device),
+                                          output.variance.sqrt().to(device=model.device)).log_prob(model.training_y).mean()
+        
         loss.backward()
         optimizer.step()
         if i % 100 == 0:
@@ -85,6 +82,36 @@ def train(model, iterations=1000, lr=0.1):
     model.model_plus.eval()
 
 
+class ExactGPModel(gpytorch.models.ExactGP):
+    """
+    Use the GpyTorch Exact GP
+    """
+    def __init__(self, train_x, train_y, likelihood):
+        """Initialise the model"""
+        super().__init__(train_x, train_y, likelihood)
+        self.mean_module = gpytorch.means.ZeroMean()
+
+        time_kernel = RBFKernel()
+        spin_kernels = None
+        
+        if spin_kernels:
+            inner_kernels = time_kernel*mass_kernel*prod(spin_kernels)
+        else:
+            inner_kernels = time_kernel#*mass_kernel
+
+        self.covar_module = gpytorch.kernels.ScaleKernel(
+            inner_kernels
+        )
+
+    def forward(self, x):
+        """Run the forward method of the model"""
+        mean_x = self.mean_module(x)
+        covar_x = self.covar_module(x)
+        return gpytorch.distributions.MultivariateNormal(mean_x,
+                                                         covar_x
+        )
+
+    
 class CUDAModel(Model):
     """
     The factory class for all CUDA-based models.
@@ -149,7 +176,7 @@ class CUDAModel(Model):
                 f_preds = model(points)
 
         mean = f_preds.mean/self.strain_input_factor
-        var = f_preds.variance.double()/self.strain_input_factor**2 # .detach().double()
+        var = f_preds.variance.double().abs()/self.strain_input_factor # .detach().double()
         covariance = f_preds.covariance_matrix.double()#.detach().double()
         covariance /= (self.strain_input_factor**2)
 
@@ -273,21 +300,22 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
         else:
             spin_kernels = None
 
+
         class ExactGPModel(gpytorch.models.ExactGP):
             """
             Use the GpyTorch Exact GP
             """
             def __init__(self, train_x, train_y, likelihood):
                 """Initialise the model"""
-                super(ExactGPModel, self).__init__(train_x,
-                                                   train_y, likelihood)
+                super().__init__(train_x, train_y, likelihood)
                 self.mean_module = gpytorch.means.ZeroMean()
-                
+
+
                 if spin_kernels:
                     inner_kernels = time_kernel*mass_kernel*prod(spin_kernels)
                 else:
                     inner_kernels = time_kernel*mass_kernel
-                    
+
                 self.covar_module = gpytorch.kernels.ScaleKernel(
                     inner_kernels
                 )
@@ -297,7 +325,10 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
                 mean_x = self.mean_module(x)
                 covar_x = self.covar_module(x)
                 return gpytorch.distributions.MultivariateNormal(mean_x,
-                                                                 covar_x)
+                                                                 covar_x
+                )
+
+        
 
         x, y = self.training_data.get_training_data(label=self.datalabel,
                                                     polarisation=b"+",
@@ -305,28 +336,22 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
 
         training_x = self.training_x = torch.tensor(x*self.other_input_factor, device=self.device).float().T
         training_y = self.training_y = torch.tensor(y*self.strain_input_factor, device=self.device).float()
-        #training_yx = torch.tensor(data[:, -1]*1e21).float().cuda()
-
+        
         likelihood = gpytorch.likelihoods.GaussianLikelihood(noise_constraint=Interval(self.noise[0], self.noise[1]))
         model = ExactGPModel(training_x, training_y, likelihood)
+
+        if self.device.type == "cuda":
+            model = model.cuda() # Annoyingly this can't be passe din as a device keyword
+        
         #model2 = ExactGPModel(training_x, training_yx, likelihood)
         state_vector = pkg_resources.resource_filename('heron', 'models/data/gt-gpytorch.pth')
 
-        if self.device == "cuda":
-            model = model.cuda()
-            likelihood = likelihood.cuda()
-            #model2 = model2.cuda()
-
         # FIXME: fix this dirty hack
         model2 = model
-
-
         #model.load_state_dict(torch.load(state_vector))
         #model2.load_state_dict(torch.load(state_vector))
 
         return [model, model2], likelihood
-
-
 
     def distribution(self, times, p, samples=100):
         """
@@ -441,9 +466,9 @@ class HeronCUDAIMR(CUDAModel, BBHNonSpinSurrogate, HofTSurrogate, FrequencyMixin
             return reduce(operator.mul, iterable)
 
         mass_kernel = RBFKernel(active_dims=1,
-                                lengthscale_constraint=GreaterThan(.1))
+                                lengthscale_constraint=GreaterThan(torch.tensor(.1, device=self.device)))
         time_kernel = RBFKernel(active_dims=0,
-                                lengthscale_constraint=GreaterThan(1))
+                                lengthscale_constraint=GreaterThan(torch.tensor(1, device=self.device)))
         total_kernel = gpytorch.kernels.ScaleKernel((time_kernel * mass_kernel))
         class ExactGPModel(gpytorch.models.ExactGP):
             """
@@ -532,7 +557,7 @@ class HeronCUDAIMR(CUDAModel, BBHNonSpinSurrogate, HofTSurrogate, FrequencyMixin
             f_preds = model(points)
 
         mean = f_preds.mean/(distance * self.strain_input_factor)
-        var = f_preds.variance.double()/((distance*self.strain_input_factor**2))
+        var = f_preds.variance.double()/((distance*self.strain_input_factor)) # **2
         covariance = f_preds.covariance_matrix.double()
 
         

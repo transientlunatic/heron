@@ -1,78 +1,53 @@
 import unittest
 
+from heron.models.torchbased import HeronCUDA, train
 from heron.likelihood import InnerProduct, Likelihood, CUDALikelihood
 from heron.models.testing import TestModel, CUDATestModel
 from elk.waveform import Timeseries
 
 from torch import tensor
 import torch
+import gpytorch
 
 import numpy as np
 import numpy.testing as npt
-torch.manual_seed(90)
+np.random.seed(90)
 
-
-class TestInnerProduct(unittest.TestCase):
-    device=torch.device("cuda")
-    def setUp(self):
-        self.vector_length = 180
-        self.window = torch.blackman_window(self.vector_length)
-        asd = torch.ones((int(self.vector_length/2)), device=self.device, dtype=torch.cfloat)
-        self.psd = asd * asd
-
-    def test_simple(self):
-        ip = InnerProduct(psd=self.psd, duration=1)
-        a = torch.ones(int(self.vector_length/2), device=self.device, dtype=torch.cfloat)
-        b = torch.ones(int(self.vector_length/2), device=self.device, dtype=torch.cfloat)
-        self.assertEqual((ip(a, b)), 360)
-
-    def test_two_psds(self):
-        """Test that everything works when a signal PSD is included."""
-        ip = InnerProduct(psd=self.psd, signal_psd=self.psd, duration=1)
-        a = torch.ones(int(self.vector_length/2), device=self.device, dtype=torch.cfloat)
-        b = torch.ones(int(self.vector_length/2), device=self.device, dtype=torch.cfloat)
-        self.assertEqual((ip(a, b)), 180)
-
-class TestInnerProductCPU(TestInnerProduct):
-    device = torch.device("cpu")
-
-
-class TestLikelihood(unittest.TestCase):
-    device = torch.device("cuda")
-
-    def setUp(self):
-        self.likelihood = Likelihood()
-
-    def test_antenna_function(self):
-        """Test that the antenna function returns the right sort of numbers."""
-        antenna = self.likelihood._get_antenna_response("H1", ra=0, dec=45, psi=0, time=1000) 
-        self.assertEqual(-0.5540661589835211, antenna.plus)
-        self.assertEqual( 0.7995900298333787, antenna.cross)
 
 class TestCUDALikelihood(unittest.TestCase):
     device = torch.device("cuda")
 
+    @classmethod
+    def setUpClass(cls):
+        cls.generator = HeronCUDA(datafile="notebooks/new-data-interface/test_file_2.h5", datalabel="IMR training", 
+                          device=cls.device, 
+                          noise=[0.000001, 0.0001],
+                          lengths={"mass ratio": [0.001, 0.25],
+                                   "time": [0.001, 20]}
+        )
+        with gpytorch.settings.fast_pred_var(), gpytorch.settings.max_cg_iterations(1500):
+            train(cls.generator, iterations=50)
+        
+    
     def setUp(self):
 
         data_length = 164
         fft_length = int(1+(data_length/2))
         
-        generator = CUDATestModel(device=self.device)
+        generator = self.generator
         window = torch.blackman_window
 
         self.psd = torch.ones(fft_length, device=self.device)
-        self.times = times = torch.linspace(0, 5, data_length)
-        self.test_data = generator.time_domain_waveform(dict(a=0.9),
-                                                        times=times
-        )
-        #self.test_data_plus_noise = self.test_data + torch.randn(164, device=self.device)
+        self.times = times = torch.linspace(0.05, 0.005, data_length)
 
-        #data = Timeseries(self.test_data_plus_noise, times=times)
+        noise = 5e-20*torch.randn(data_length, device=self.device)
+        signal = self.generator.time_domain_waveform(times=self.times, p={"mass ratio":0.7})
+        detection = Timeseries(data=(torch.tensor(signal['plus'].data, device=self.device) + noise), times=signal['plus'].times)
         
         self.likelihood = CUDALikelihood(model=generator,
                                          detector_prefix="H1",
                                          window=window,
-                                         data=self.test_data,
+                                         data=detection,
                                          psd=self.psd,
                                          device=self.device
         )
@@ -82,7 +57,16 @@ class TestCUDALikelihood(unittest.TestCase):
         inner_product = InnerProduct(self.likelihood.psd.clone(),
                                      duration=self.likelihood.duration,
                                      f_min=self.likelihood.f_min, f_max=self.likelihood.f_max)
+        ip = inner_product(self.likelihood.data, self.likelihood.data)
         self.assertGreater(inner_product(self.likelihood.data, self.likelihood.data), 0)
+        self.assertFalse(torch.isnan(ip))
+
+    def test_factor(self):
+        inner_product = InnerProduct(self.likelihood.psd.clone(),
+                                     duration=self.likelihood.duration,
+                                     f_min=self.likelihood.f_min, f_max=self.likelihood.f_max)
+        factor = torch.logdet(inner_product.metric.abs()[1:-1, 1:-1])
+        self.assertGreater(factor, 0)
 
     def test_inner_waveform_waveform(self):
 
@@ -91,10 +75,15 @@ class TestCUDALikelihood(unittest.TestCase):
                                      f_min=self.likelihood.f_min, f_max=self.likelihood.f_max)
 
         
-        polarisations = self.likelihood._call_model({"a": 0.9})
+        polarisations = self.likelihood._call_model({"mass ratio": 0.9})
         waveform_mean = polarisations['plus'].data
         self.assertGreater(inner_product(waveform_mean, waveform_mean), 0)
 
+    def test_waveform_magnitude(self):
+        polarisations = self.likelihood._call_model({"mass ratio": 0.9})
+        self.assertGreater(polarisations['plus'].data[0].real, 0)
+        self.assertLess(polarisations['plus'].data[0].real, 1e-20)
+        
     def test_inner_waveform_data(self):
 
         inner_product = InnerProduct(self.likelihood.psd.clone(),
@@ -102,7 +91,7 @@ class TestCUDALikelihood(unittest.TestCase):
                                      f_min=self.likelihood.f_min, f_max=self.likelihood.f_max)
 
         
-        polarisations = self.likelihood._call_model({"a": 0.9})
+        polarisations = self.likelihood._call_model({"mass ratio": 0.9})
         waveform_mean = polarisations['plus'].data
 
         #torch.testing.assert_close(waveform_mean, self.likelihood.data)
@@ -116,10 +105,10 @@ class TestCUDALikelihood(unittest.TestCase):
                                      duration=self.likelihood.duration,
                                      f_min=self.likelihood.f_min, f_max=self.likelihood.f_max)
 
-        parameters = torch.linspace(0.1, 1.5, 100)
+        parameters = np.linspace(0.1, 1.0, 100)
         products = []
         for parameter in parameters:
-            polarisations = self.likelihood._call_model({"a": parameter})
+            polarisations = self.likelihood._call_model({"mass ratio": parameter})
             waveform_mean = polarisations['plus'].data
             products.append(inner_product(self.likelihood.data, self.likelihood.data))
         products = torch.tensor(products)
@@ -131,14 +120,14 @@ class TestCUDALikelihood(unittest.TestCase):
                                      duration=self.likelihood.duration,
                                      f_min=self.likelihood.f_min, f_max=self.likelihood.f_max)
 
-        parameters = torch.linspace(0., 2.0, 100)
+        parameters = np.linspace(0., 1.0, 100)
         products = []
 
         #torch.testing.assert_close(self.likelihood._call_model({"a": 0.9})['plus'].data,
         #                           self.likelihood.data)
         
         for parameter in parameters:
-            polarisations = self.likelihood._call_model({"a": parameter})
+            polarisations = self.likelihood._call_model({"mass ratio": parameter})
             waveform_mean = polarisations['plus'].data
             products.append(inner_product(waveform_mean, self.likelihood.data)-inner_product(waveform_mean, waveform_mean))
         self.assertLess(parameters[torch.argmax(torch.tensor(products))] - 0.9, 0.05)
@@ -150,16 +139,16 @@ class TestCUDALikelihood(unittest.TestCase):
                                      duration=self.likelihood.duration,
                                      f_min=self.likelihood.f_min, f_max=self.likelihood.f_max)
 
-        parameters = torch.linspace(0.1, 1.5, 100)
+        parameters = np.linspace(0.1, 1., 100)
         products = []
 
-        polarisations = self.likelihood._call_model({"a": 0.9})
+        polarisations = self.likelihood._call_model({"mass ratio": 0.9})
         waveform_mean = polarisations['plus'].data
 
         #torch.testing.assert_close(waveform_mean, self.likelihood.data)
         
         for parameter in parameters:
-            polarisations = self.likelihood._call_model({"a": parameter})
+            polarisations = self.likelihood._call_model({"mass ratio": parameter})
             waveform_mean = polarisations['plus'].data
             products.append(inner_product(waveform_mean, waveform_mean))
         products = torch.tensor(products, device=self.device)
@@ -168,35 +157,6 @@ class TestCUDALikelihood(unittest.TestCase):
         
     def test_simple(self):
         """Check that the correct inference is made for a simple signal."""
-        parameters = torch.linspace(0, 2, 100)
-        likes = torch.tensor([self.likelihood({"a": parameter}, model_var=False) for parameter in parameters])
-        self.assertLess(parameters[torch.argmax(likes)] - 0.9, 0.05)
-
-
-class TestCUDALikelihoodFlatNoise(TestCUDALikelihood):
-    device = torch.device("cuda")
-
-    def setUp(self):
-
-        data_length = 164
-        fft_length = int(1+(data_length/2))
-        
-        generator = CUDATestModel(device=self.device)
-        window = torch.blackman_window
-
-        self.psd = torch.ones(fft_length, device=self.device)
-        self.times = times = torch.linspace(0, 5, data_length)
-        self.test_data = generator.time_domain_waveform(dict(a=0.9),
-                                                        times=times
-        )
-        self.test_data_plus_noise = self.test_data.data + 1.2*torch.randn(164, device=self.device)
-
-        data = Timeseries(self.test_data_plus_noise, times=times)
-        
-        self.likelihood = CUDALikelihood(model=generator,
-                                         detector_prefix="H1",
-                                         window=window,
-                                         data=data,
-                                         psd=self.psd,
-                                         device=self.device
-        )
+        parameters = np.linspace(0, 1., 100)
+        likes = torch.tensor([self.likelihood({"mass ratio": parameter}, model_var=False) for parameter in parameters])
+        self.assertLess(parameters[torch.argmax(likes)] - 0.7, 0.05)
