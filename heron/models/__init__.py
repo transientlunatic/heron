@@ -1,6 +1,7 @@
 
 import numpy as np
 import torch
+from lal import antenna, cached_detector_by_prefix, TimeDelayFromEarthCenter, LIGOTimeGPS
 
 class Model(object):
     """
@@ -56,7 +57,7 @@ class Model(object):
 
         times, p = self._process_inputs(times, p)
         nt = len(times)
-        points = np.ones((nt, self.x_dimensions))
+        points = torch.ones((nt, self.x_dimensions))
         for parameter in self.parameters:
             if parameter == b"time":
                 points[:,self.c_ind[b'time']] = times
@@ -68,3 +69,34 @@ class Model(object):
                 points[:, self.c_ind[parameter]] *= value
 
         return points
+
+    def _get_antenna_response(self, detector, ra, dec, psi, time):
+        """
+        Get the antenna responses for a given detector.
+
+        Parameters
+        ----------
+        detectors : str
+           The detector abbreviation, for example ``H1`` for the 4-km 
+           detector at LIGO Hanford Observatory.
+        ra : float
+           The right-ascension of the source, in radians.
+        dec : float
+           The declination of the source, in radians.
+        psi : float
+           The polarisation angle, in radians.
+
+        time : float, or array of floats
+           The GPS time, or an array of GPS times, at which 
+           the response should be evaluated.
+
+        Returns
+        -------
+        plus : float, or array
+           The 'plus' component of the response function.
+        cross : float, or array
+           The 'cross' component of the response function.
+        """
+        responses = antenna.AntennaResponse(detector, ra, dec, psi=psi, times=time)
+        return responses
+

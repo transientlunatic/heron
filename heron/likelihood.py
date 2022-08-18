@@ -1,6 +1,7 @@
 """
 Code for matched filtering using CUDA and pytorch.
 """
+from math import sqrt
 from copy import copy
 import torch
 import elk
@@ -19,6 +20,75 @@ if not DISABLE_CUDA and torch.cuda.is_available():
 else:
     device = torch.device('cpu')
 
+
+class Overlap():
+    def __init__(self, psd, duration, window, signal_psd=None, signal_cov=None, f_min=None, f_max=None):
+        self.psd = psd
+
+        self.window = window
+            
+        self.duration = duration
+        self.signal_psd = signal_psd
+        self.signal_cov = signal_cov
+
+        self.f_min = f_min
+        self.f_max = f_max
+            
+        self.inner_product = InnerProduct(self.psd,
+                                          duration=self.duration,
+                                          f_min=self.f_min, f_max=self.f_max)
+
+    def __call__(self, a, b):
+        if isinstance(a, elk.waveform.Timeseries):
+            self.data_a = torch.fft.rfft(a.data) #self.window*a.data)
+            self.times_a = a.times
+
+        if isinstance(b, elk.waveform.Timeseries):
+            b.data = torch.tensor(b.data)
+            self.data_b = torch.fft.rfft(b.data) #self.window*b.data)
+            self.times_b = b.times
+
+        overlap = self.inner_product(self.data_a, self.data_b)
+        normalisation = 1. / torch.sqrt(self.inner_product(self.data_a, self.data_a)) / torch.sqrt(self.inner_product(self.data_b, self.data_b))
+        return 4 * 1./(self.times_a[-1] - self.times_a[0])/len(self.times_a) * torch.abs(overlap) * normalisation
+
+class Match:
+    def __init__(self, psd, duration, window, signal_psd=None, signal_cov=None, f_min=None, f_max=None):
+        self.psd = psd
+
+        self.window = window
+            
+        self.duration = duration
+        self.signal_psd = signal_psd
+        self.signal_cov = signal_cov
+
+        self.f_min = f_min
+        self.f_max = f_max
+            
+        self.inner_product = InnerProduct(self.psd,
+                                          duration=self.duration,
+                                          f_min=self.f_min, f_max=self.f_max)
+
+    def __call__(self, a, b):
+        if isinstance(a, elk.waveform.Timeseries):
+            self.data_a = torch.fft.rfft(self.window(len(a.data), device=a.data.device)*a.data)
+            self.times_a = a.times
+
+        if isinstance(b, elk.waveform.Timeseries):
+            b.data = torch.tensor(b.data, device=a.data.device)
+            self.data_b = torch.fft.rfft(self.window(len(b.data), device=b.data.device)*b.data)
+            self.times_b = b.times
+
+        correlation = self.data_a.conj() * self.data_b
+        if self.inner_product.noise:
+            correlation /= self.inner_product.noise
+
+        fs = (len(self.times_a)-1)/(self.times_a[-1]-self.times_a[0])
+            
+        normalisation = 2 * fs / torch.sqrt(self.inner_product(self.data_a, self.data_a)) / torch.sqrt(self.inner_product(self.data_b, self.data_b))
+        return  torch.fft.ifft(correlation)  * normalisation
+        
+    
 
 class InnerProduct():
     """
@@ -52,7 +122,10 @@ class InnerProduct():
 
     """
     def __init__(self, psd, duration, signal_psd=None, signal_cov=None, f_min=None, f_max=None):
-        self.noise = psd.to(torch.complex128)
+        if not (isinstance(psd, type(None))):
+            self.noise = psd.to(torch.complex128)
+        else:
+            self.noise = psd
         if not isinstance(signal_psd, type(None)):
             self.noise2 = signal_psd.to(torch.complex128)
         else:
@@ -63,24 +136,27 @@ class InnerProduct():
         #    self.noise2 = self.noise2 / reweight
         self.duration = duration
         #if not isinstance(self.signal_cov, type(None)):
-        #    self.metric = (1./self.signal_cov)
-        #    self.metric += (1./(self.duration*self.noise))
-        #    self.metric = self.metric.to(device=self.noise.device, dtype=torch.complex128)
-        if not isinstance(self.noise2, type(None)):
-            self.metric = (1./(self.duration*self.noise + self.duration*self.noise2))
+            # self.metric = self.signal_cov
+            # self.metric += self.duration*self.noise
+            # self.metric = torch.inverse(self.metric)
+            # self.metric = self.metric.to(device=self.noise.device, dtype=torch.complex128)
+        if not isinstance(self.noise2, type(None)) and not (isinstance(self.noise, type(None))):
+            self.metric = (1./(self.noise + self.noise2)/self.duration)
             self.metric = self.metric.diag().to(device=self.noise.device, dtype=torch.complex128)
-        #else:
-        self.metric = (1./(self.duration * self.noise))
-        self.metric = self.metric.diag().to(device=self.noise.device, dtype=torch.complex128)
-        # It looks loke torch is doing the diagonlisation on the CPU no matter where the tensor resides...
+        elif not (isinstance(self.noise, type(None))):
+            self.metric = (1./(self.noise)/self.duration)
+            self.metric = self.metric.diag().to(device=self.noise.device, dtype=torch.complex128)
+        else:
+            self.metric = (1./(self.duration))
+            #self.metric = self.metric.diag().to(device=self.ndevice, dtype=torch.complex128)
         
             
         if f_min or f_max:
             warnings.warn("""f_min and f_max are not yet implemented. The full frequency series will be used.""",
                           RuntimeWarning)
 
-        self.f_min = f_min
-        self.f_max = f_max
+        self.f_min = f_min if f_min else 1
+        self.f_max = f_max if f_max else -1
 
     def __call__(self, a, b):
         return self.inner(a,b) #, self.duration)
@@ -90,45 +166,20 @@ class InnerProduct():
         Calculate the noise-weighted inner product of a and b.
         """
         a = a.to(dtype=torch.complex128)
-        b = b.to(dtype=torch.complex128) # TODO Check why these aren't always on the correct device.
-        c = a.conj() @ self.metric @ b #[1:-1]
-        return  4.0*torch.abs(c.real)
+        b = b.to(dtype=torch.complex128)
+        if isinstance(self.metric, float):
+            c = (b[self.f_min:self.f_max].conj() * self.metric) @ a[self.f_min:self.f_max]
+        elif self.metric.dim() == 0:
+            c = (b[self.f_min:self.f_max].conj() @ self.metric[self.f_min:self.f_max].real.to(dtype=torch.complex128)) @ a[self.f_min:self.f_max]
+        else:
+            c = a[self.f_min:self.f_max].conj() @ self.metric[self.f_min:self.f_max, self.f_min:self.f_max].real.to(dtype=torch.complex128) @ b[self.f_min:self.f_max]
+        return  4.0*c.real#*(1./self.duration)
 
 
-class Likelihood():
+class Likelihood:
     """
     A factory class for all heron likelihoods.
     """
-
-    def _get_antenna_response(self, detector, ra, dec, psi, time):
-        """
-        Get the antenna responses for a given detector.
-
-        Parameters
-        ----------
-        detectors : str
-           The detector abbreviation, for example ``H1`` for the 4-km 
-           detector at LIGO Hanford Observatory.
-        ra : float
-           The right-ascension of the source, in radians.
-        dec : float
-           The declination of the source, in radians.
-        psi : float
-           The polarisation angle, in radians.
-
-        time : float, or array of floats
-           The GPS time, or an array of GPS times, at which 
-           the response should be evaluated.
-
-        Returns
-        -------
-        plus : float, or array
-           The 'plus' component of the response function.
-        cross : float, or array
-           The 'cross' component of the response function.
-        """
-        responses = antenna.AntennaResponse(detector, ra, dec, psi=psi, times=time)
-        return responses
 
 
 
@@ -190,7 +241,7 @@ class CUDALikelihood(Likelihood):
        this likelihood.
     """
 
-    def __init__(self, model, data, window, detector_prefix, asd=None, psd=None, start=None, device=device, generator_args={}, f_min=None, f_max=None):
+    def __init__(self, model, data, window, detector_prefix, asd=None, psd=None, start=0, device=device, generator_args={}, f_min=None, f_max=None):
         """Produces a likelihood object given a model and some data."""
         self._detector_prefix = detector_prefix
         self.detector = cached_detector_by_prefix[detector_prefix]
@@ -198,29 +249,33 @@ class CUDALikelihood(Likelihood):
         self._cache = None
         self._weights_cache = None
         self.model = model
-        self.window = window(len(data.data), device=device) #torch.tensor(window(int(1+len(data.data)/2)), device=device)
+        self.window = window#(len(data.data), device=device) #torch.tensor(window(int(1+len(data.data)/2)), device=device)
 
         self.device = device
 
         self.f_min = f_min
         self.f_max = f_max
         self.gen_args = generator_args
+        self.gen_args['detector'] = self._detector_prefix
+        
         if isinstance(data, elk.waveform.Timeseries):
-            self.data = torch.fft.rfft(self.window*data.data)
-            self.times = data.times
+            self.data = data.to_frequencyseries(window=self.window).data#torch.fft.rfft(self.window*data.data)
+            self.times = data.times.clone()
+            self.duration = self.times[-1] - self.times[0]
+            
         elif isinstance(data, elk.waveform.FrequencySeries):
+            # Work with a frequency-domain input.
             self.data = data.data.clone()
-            #self.data.tensor = self.data.tensor.clone()
-
             freqs = data.frequencies
-            nt = 2*(len(freqs)-1)
-            self.times = torch.linspace(0, nt/freqs[-1], nt) + start
-            self.frequencies = data.frequencies
-            self.start = start
+            nt = (len(freqs)-1)*2
+            self.duration = nt/freqs[-1]
+            self.times = torch.linspace(0, self.duration, nt) + start
+            self.frequencies = torch.tensor(data.frequencies, device=data.data.device)
+            
+        self.start = start
             
         #self.data *= self.model.strain_input_factor
-            
-        self.duration = self.times[-1] - self.times[0]
+
         if not isinstance(psd, type(None)):
             self.psd = psd #* self.model.strain_input_factor**2
         else:
@@ -237,11 +292,15 @@ class CUDALikelihood(Likelihood):
         args = copy(self.gen_args)
         args.update(p)
         p = args
+        
         if self._cache_location == p:
             waveform = self._cache
         else:
-            waveform = self.model.frequency_domain_waveform(p, window=self.window, times=self.times)
-            
+            waveform = self.model.frequency_domain_waveform(p=p,
+                                                            window=self.window,
+                                                            times=self.times.clone())
+            self._cache = waveform
+            self._cache_location = p
         return waveform
 
     def snr(self, signal):
@@ -260,28 +319,14 @@ class CUDALikelihood(Likelihood):
         waveform_variance = None
         polarisations = self._call_model(p)
         if "ra" in p.keys():
-            ra, dec, psi, gpstime = p['ra'], p['dec'], p['psi'], p['gpstime']
-            response = self._get_antenna_reponse(self._detector_prefix,
-                                                ra,
-                                                dec,
-                                                psi,
-                                                gpstime)
-            dt = TimeDelayFromEarthCenter(self.detector.location, ra, dec, LIGOTimeGPS(gpstime))
-
-            tshiftvec = torch.exp(1j*2*torch.pi*dt*self.frequencies)
-
-            plus_r = torch.tensor(response['plus'], device=self.device)
-            cross_r = torch.tensor(response['cross'], device=self.device)
-            
-            waveform_mean = (polarisations['plus'].data * plus_r + polarisations['cross'].data * cross_r)*tshiftvec
-            if hasattr(polarisations["plus"], "covariance"):
-                waveform_variance = polarisations['plus'].variance * plus_r**2 + polarisations['cross'].variance * cross_r**2
-
+            waveform_mean = polarisations.data
+            waveform_variance = polarisations.variance.abs()
         else:
             waveform_mean = polarisations['plus'].data
-
-        if not waveform_variance:
             waveform_variance = polarisations['plus'].variance.abs()
+
+        # if not waveform_variance:
+
             #if hasattr(polarisations['plus'], "covariance"):
             #    waveform_variance = polarisations['plus'].variance
                 
@@ -298,19 +343,14 @@ class CUDALikelihood(Likelihood):
                                          duration=self.duration,
                                          f_min=self.f_min,
                                          f_max=self.f_max)
-            factor = torch.logdet(inner_product.metric.abs())
-            #factor = torch.sum(torch.log(inner_product.metric.abs()))
         else:
-            inner_product = InnerProduct(self.psd.clone(),
+            inner_product = InnerProduct(self.psd,
                                          duration=self.duration,
                                          f_min=self.f_min, f_max=self.f_max)
-            factor = torch.sum(torch.log(1./(self.duration*self.psd.abs())))
-            
         products = 0
-        products -= 0.5 * (inner_product(self.data, self.data))
-        products -= 0.5 * (inner_product(waveform_mean, waveform_mean))
-        products = inner_product(self.data.clone(), waveform_mean)
-        products *= factor  # Need to check if this is actually right; I don't think it is
+        products -= 0.5 * inner_product(self.data, self.data)
+        products -= 0.5 * inner_product(waveform_mean, waveform_mean)
+        products += inner_product(self.data, waveform_mean)
 
         return products
 
@@ -323,26 +363,19 @@ class CUDALikelihood(Likelihood):
         if "ra" not in p.keys():
             waveform = waveform['plus']
         if model_var:
-            variance = waveform.variance.abs()
-
-            normalisation = (torch.sum(torch.log(psd))
-                            + torch.log(torch.prod(psd / psd.max())))
-            normalisation += torch.sum(torch.log(variance)) + torch.log(torch.prod(variance / variance.max()))
-            normalisation *= torch.log(psd.max())*len(psd)
-            #normalisation *= torch.log(variance.max())*len(variance)
-            #normalisation += torch.logsum(variance)
-            
+            variance = waveform.variance
+            normalisation = torch.diag(psd) + torch.diag(variance)
         else:
-            #normalisation = (torch.sum(torch.log(psd)) + torch.sum(torch.log(psd / psd.max())) + torch.log(psd.max()))*len(psd)
-            normalisation = (torch.sum(torch.log(psd)) + torch.sum(torch.log(psd / psd.max())))*len(psd)* torch.log(psd.max())
-        return normalisation
+            normalisation = torch.diag(psd)
+        normalisation = torch.logdet(torch.sqrt(normalisation.abs())) * sqrt(2 * torch.pi)
+        return normalisation 
 
         
     def _log_likelihood(self, p, model_var):
         """
         Calculate the overall log-likelihood.
         """
-        return self._products(p, model_var) - self._normalisation(p, model_var)
+        return self._products(p, model_var) #- self._normalisation(p, model_var)
     
     def __call__(self, p, model_var=True):
         """Calculate the log likelihood for a given set of model parameters.

@@ -1,9 +1,9 @@
 import unittest
 
-from heron.likelihood import InnerProduct, Likelihood, CUDALikelihood
+from heron.likelihood import InnerProduct, Match, Likelihood, CUDALikelihood
 from heron.models.testing import TestModel, CUDATestModel
 from elk.waveform import Timeseries
-
+from elk.catalogue import PPCatalogue
 from torch import tensor
 import torch
 
@@ -12,6 +12,27 @@ import numpy.testing as npt
 torch.manual_seed(90)
 
 
+class TestOverlap(unittest.TestCase):
+    pass
+
+class TestMatch(unittest.TestCase):
+    device = torch.device("cuda")
+    
+    def setUp(self):
+        M = 20
+        self.imr_cat = PPCatalogue("IMRPhenomPv2", total_mass=M, fmin=10)
+        self.match_filter = Match(psd=None, duration=0.07, window=torch.blackman_window)
+        
+        
+    def test_match_identical(self):
+        """Check that identical waveforms match perfectly."""
+        p = {"mass ratio": 1.0}
+        a = self.imr_cat.waveform(p, [-0.05, 0.02, 4000])[0]
+        a.data = torch.Tensor(a.data)
+        match = self.match_filter(a, a)
+        print(f"Match: {float(torch.max(match))}")
+        self.assertLess(torch.abs(match).max() - 1, 0.01)
+        
 class TestInnerProduct(unittest.TestCase):
     device=torch.device("cuda")
     def setUp(self):

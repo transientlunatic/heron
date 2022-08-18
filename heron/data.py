@@ -295,14 +295,14 @@ class DataWrapper001:
                                                                  #                          polarisation,
                                                                  #                          label)
 
-        xdata = np.zeros((len(locations), len(iloc)))
+        xdata = np.zeros((len(locations), sum(iloc)))
         ydata = np.array(training_data[f"{label}"]["data"][iloc])
 
         for i, location in enumerate(locations):
-            xdata[i, :] = training_data[f"{label}"]["locations"][f"{location}"]
+            xdata[i, :] = training_data[f"{label}"]["locations"][f"{location}"][iloc]
 
         if size:
-            idx = np.random.randint(0, len(iloc), size=size)
+            idx = np.random.randint(0, sum(iloc), size=size)
             xdata = xdata[:, idx]
             ydata = ydata[idx]
             

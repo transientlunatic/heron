@@ -7,6 +7,7 @@ import copy
 import numpy as np
 import heron
 import heron.models.georgebased
+import heron.likelihood
 import elk
 
 import pandas as pd
@@ -14,8 +15,13 @@ from elk.catalogue import NRCatalogue
 import matplotlib.pyplot as plt
 
 import pycbc
+import torch
 
 def match(a, b, psd=None):
+
+    if isinstance(a.data, torch.Tensor):
+        ip = heron.likelihood.InnerProduct(duration=(a.times[-1] - a.times[0]))
+        return ip.inner(a, b)
     
     data_a = a.pycbc()
     data_b = b.pycbc()
@@ -49,10 +55,11 @@ def sample_match(generator, times, p, comparison, psd=None):
     psd : `pycbc.psd`, optional
        The PSD which should be used to evaluate the waveform match.
     """
-    
-    ts_data = generator.mean(p=p.copy(), times=times.copy())[0]
-
-    return match(ts_data, comparison, psd)[0]
+    window = torch.blackman_window
+    overlap = heron.likelihood.Match(psd=psd, duration=times[-1]-times[0], window=window)
+    ts_data = generator.mean(p=p.copy(), times=times)['plus']
+    comparison.data = torch.tensor(comparison.data, device=ts_data.data.device)
+    return overlap(ts_data, comparison)
     
 
 def nrcat_match(generator, catalogue):
