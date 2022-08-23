@@ -278,7 +278,8 @@ class DataWrapper001:
         self._add_meta("parameters", "time", group)
         self._add_meta("polarisations", polarisation, group)
         self._add_meta("sources", source, group)
-        self._add_meta("reference mass", reference_mass, group)
+        print("reference mass", reference_mass)
+        self._add_meta("reference mass", [reference_mass], group)
         
         
     def get_training_data(self,

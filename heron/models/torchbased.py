@@ -216,12 +216,21 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
                  ):
         """
         Construct a CUDA-based waveform model with pyTorch
+
+        Parameters
+        ----------
         """
         super().__init__(device=device)
         #
         self.training_data = DataWrapper(datafile)
         self.datalabel = datalabel
         self.data_size = size
+        #
+        if len(self.training_data[self.datalabel]['meta']['reference mass'])>0:
+            self.reference_mass = self.training_data[self.datalabel]['meta']['reference mass']
+        else:
+            self.reference_mass = 20.0
+            
         # Kernel and likelihood settings
         self.noise = noise
         self.lengths = lengths
@@ -390,8 +399,31 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
         """
         Return the timedomain waveform.
         """
-        polarisations = self.mean(times, p)
 
+
+        if "distance" in p:
+            # The distance in megaparsec
+            distance = p['distance']
+        else:
+            distance = 1
+
+        if "total mass" in p:
+            total_mass = p['total mass']
+        elif "mass 1" in p:
+            mass_1 = p['mass 1']
+            mass_2 = p['mass 2']
+            total_mass = mass_1 + mass_2
+            mass_ratio = mass_2 / mass_1
+            p['mass ratio'] = mass_ratio
+        else:
+            total_mass = 20
+
+        mass_factor = total_mass / self.reference_mass
+        eval_times = torch.linspace(times[0] / mass_factor, times[-1] / mass_factor, len(times))
+
+        polarisations = self.mean(eval_times, p)
+            
+            
         if "ra" in p.keys():
             ra, dec, psi, gpstime = p['ra'], p['dec'], p['psi'], p['gpstime']
             detector = cached_detector_by_prefix[p['detector']]
@@ -405,9 +437,10 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             waveform_mean = (polarisations['plus'].data * response.plus + polarisations['cross'].data * response.cross) 
             waveform_variance = polarisations['plus'].variance * response.plus**2 + polarisations['cross'].variance * response.cross**2
             
-            waveform = Timeseries(data=waveform_mean,
-                                  variance=waveform_variance,
-                                  times=torch.tensor(polarisations['plus'].times + dt, device=self.device)
+            waveform = Timeseries(data=mass_factor*waveform_mean/distance,
+                                  variance=(mass_factor**2)*waveform_variance/distance**2,
+                                  times=torch.tensor(times + dt, device=self.device),
+                                  detector=p['detector']
             )
         else:
             waveform = polarisations

@@ -180,9 +180,118 @@ class Likelihood:
     """
     A factory class for all heron likelihoods.
     """
+    def __call__(self, p, model_var=True):
+        """Calculate the log likelihood for a given set of model parameters.
 
+        Parameters
+        ----------
+        p : dict
+           The dictionary of waveform parameters.
+        model_var : bool, optional
+           Flag to include the waveform uncertainty in the likelihood estimate.
+           Defaults to True.
 
+        Returns
+        -------
+        log_likelihood : float
+           The log-likelihood of the data at point ``p`` in the waveform
+           parameter space.
+        """
+        return self._log_likelihood(p, model_var)
 
+    
+
+class CUDATimedomainLikelihood(Likelihood):
+    """
+    A general likelihood function for models with waveform uncertainty in the time domain.
+
+    Parameters
+    ----------
+    model : ``heron.model``
+       The waveform model to use.
+    data : ``elk.waveform.Timeseries``
+       The timeseries data to analyse.
+    asd : ``heron.utils.Complex``, optional
+       The frequency series representing the amplitude spectral
+       density of the noise in ``data``. Defaults to None.
+    psd : ``heron.utils.Complex``, optional
+       The frequency series representing the power spectral
+       density of the noise in ``data``. Defaults to None.
+    device : torch device
+       The torch device which should be used to caluclate the likelihood.
+       If CUDA is available on the system this will default to use CUDA,
+       otherwise the calculation will fall-back to the CPU.
+    generator_args : dict, optional
+       Additional arguments to be passed to the generating function.
+    f_min : float, optional
+       The minimum frequency to be used in evaluating the likelihood.
+    f_max : float, optional
+       The maximum frequency to be used in evaluating the likelihood.
+
+    Examples
+    --------
+    >>> import torch
+    >>> import elk
+    >>> import elk.waveform
+    >>> from .utils import Complex
+    >>> generator = HeronCUDAIMR()
+    >>> window = torch.blackman_window(164)
+    >>> noise = torch.randn(164, device=device) * 1e-20
+    >>> asd = Complex((window*noise).rfft(1))
+    >>> signal = generator.time_domain_waveform({'mass ratio': 0.9},
+                              times=np.linspace(-0.01, 0.005, 164))
+    >>> detection = Timeseries(
+           data=(torch.tensor(signal[0].data, device=device)+noise).cpu(),
+           times=signal[0].times)
+    >>> l = Likelihood(generator, detection, window, 'H1', asd=asd.clone())
+    >>> l({"mass ratio": 0.5})
+
+    Methods
+    -------
+
+    """
+
+    def __init__(self, model, data, detector_prefix=None, asd=None, psd=None, device=device, generator_args={}, f_min=None, f_max=None):
+        """Produces a likelihood object given a model and some data."""
+        self._detector_prefix = detector_prefix
+        self.detector = cached_detector_by_prefix[detector_prefix]
+        self._cache_location = None
+        self._cache = None
+        self._weights_cache = None
+        self.model = model
+        self.device = device
+
+        self.gen_args = generator_args
+        if not data.detector:
+            self.gen_args['detector'] = self._detector_prefix
+        else:
+            self.gen_args['detector'] = data.detector
+        
+        if isinstance(data, elk.waveform.Timeseries):
+            self.data = data.data.clone()
+            self.times = data.times.clone()
+            self.duration = self.times[-1] - self.times[0]
+            
+        elif isinstance(data, elk.waveform.FrequencySeries):
+            # TODO: Correctly handle frequency domain input data
+            pass
+
+        # Convert PSD into the noise matrix
+        self.C = torch.fft.irfft(torch.tensor(psd.data, device=self.device, dtype=torch.double), norm="forward") * psd.df
+        self.C = torch.tensor(scipy.linalg.toeplitz(psd), device="cuda")
+        
+    def _log_likelihood(self, p, model_var):
+        """
+        Calculate the overall log-likelihood.
+        """
+        draw = self._call_model(p)
+        residual = (self.data - draw.data).to(dtype=torch.double)
+
+        
+        like = -0.5 * residual @ torch.inverse(self.C+draw.covariance) @ residual - 0.5 * (torch.logdet(2*torch.pi*(self.C+draw.covariance)))
+        return like
+
+    
 class CUDALikelihood(Likelihood):
     """
     A general likelihood function for models with waveform uncertainty.
@@ -377,21 +486,3 @@ class CUDALikelihood(Likelihood):
         """
         return self._products(p, model_var) #- self._normalisation(p, model_var)
     
-    def __call__(self, p, model_var=True):
-        """Calculate the log likelihood for a given set of model parameters.
-
-        Parameters
-        ----------
-        p : dict
-           The dictionary of waveform parameters.
-        model_var : bool, optional
-           Flag to include the waveform uncertainty in the likelihood estimate.
-           Defaults to True.
-
-        Returns
-        -------
-        log_likelihood : float
-           The log-likelihood of the data at point ``p`` in the waveform
-           parameter space.
-        """
-        return self._log_likelihood(p, model_var)
