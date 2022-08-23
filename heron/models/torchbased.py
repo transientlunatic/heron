@@ -405,13 +405,13 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             waveform_mean = (polarisations['plus'].data * response.plus + polarisations['cross'].data * response.cross) 
             waveform_variance = polarisations['plus'].variance * response.plus**2 + polarisations['cross'].variance * response.cross**2
             
-            waveform = TimeSeries(data=waveform_mean,
+            waveform = Timeseries(data=waveform_mean,
                                   variance=waveform_variance,
                                   times=torch.tensor(polarisations['plus'].times + dt, device=self.device)
             )
-        
-        waveforms = polarisations
-        return polarisations
+        else:
+            waveform = polarisations
+        return waveform
 
     def plot_td(self, parameters, times=np.linspace(-2, 2, 1000), f=None):
         """
