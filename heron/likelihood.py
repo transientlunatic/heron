@@ -141,7 +141,7 @@ class InnerProduct():
             # self.metric = torch.inverse(self.metric)
             # self.metric = self.metric.to(device=self.noise.device, dtype=torch.complex128)
         if not isinstance(self.noise2, type(None)) and not (isinstance(self.noise, type(None))):
-            self.metric = (1./(self.noise + self.noise2)/self.duration)
+            self.metric = (1./((self.noise/self.duration) + self.noise2**2))
             self.metric = self.metric.diag().to(device=self.noise.device, dtype=torch.complex128)
         elif not (isinstance(self.noise, type(None))):
             self.metric = (1./(self.noise)/self.duration)

@@ -391,6 +391,24 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
         Return the timedomain waveform.
         """
         polarisations = self.mean(times, p)
+
+        if "ra" in p.keys():
+            ra, dec, psi, gpstime = p['ra'], p['dec'], p['psi'], p['gpstime']
+            detector = cached_detector_by_prefix[p['detector']]
+            response = self._get_antenna_response(detector,
+                                                ra,
+                                                dec,
+                                                psi,
+                                                gpstime)
+            dt = TimeDelayFromEarthCenter(detector.location, ra, dec, LIGOTimeGPS(gpstime))
+            
+            waveform_mean = (polarisations['plus'].data * response.plus + polarisations['cross'].data * response.cross) 
+            waveform_variance = polarisations['plus'].variance * response.plus**2 + polarisations['cross'].variance * response.cross**2
+            
+            waveform = TimeSeries(data=waveform_mean,
+                                  variance=waveform_variance,
+                                  times=torch.tensor(polarisations['plus'].times + dt, device=self.device)
+            )
         
         waveforms = polarisations
         return polarisations
