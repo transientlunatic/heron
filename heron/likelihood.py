@@ -8,6 +8,8 @@ import elk
 import elk.waveform
 from .utils import diag_cuda, Complex
 
+import scipy.linalg
+
 from lal import antenna, cached_detector_by_prefix, TimeDelayFromEarthCenter, LIGOTimeGPS
 
 import warnings
@@ -251,7 +253,7 @@ class CUDATimedomainLikelihood(Likelihood):
 
     """
 
-    def __init__(self, model, data, detector_prefix=None, asd=None, psd=None, device=device, generator_args={}, f_min=None, f_max=None):
+    def __init__(self, model, data, times, detector_prefix=None, asd=None, psd=None, device=device, generator_args={}, f_min=None, f_max=None):
         """Produces a likelihood object given a model and some data."""
         self._detector_prefix = detector_prefix
         self.detector = cached_detector_by_prefix[detector_prefix]
@@ -269,7 +271,7 @@ class CUDATimedomainLikelihood(Likelihood):
         
         if isinstance(data, elk.waveform.Timeseries):
             self.data = data.data.clone()
-            self.times = data.times.clone()
+            self.times = times.clone()
             self.duration = self.times[-1] - self.times[0]
             
         elif isinstance(data, elk.waveform.FrequencySeries):
@@ -277,18 +279,35 @@ class CUDATimedomainLikelihood(Likelihood):
             pass
 
         # Convert PSD into the noise matrix
-        self.C = torch.fft.irfft(torch.tensor(psd.data, device=self.device, dtype=torch.double), norm="forward") * psd.df
-        self.C = torch.tensor(scipy.linalg.toeplitz(psd), device="cuda")
+        self.C = torch.fft.irfft(torch.tensor(psd.data, device=self.device, dtype=torch.double), norm="forward", n=(len(data.data))) * psd.df
+        self.C = torch.tensor(scipy.linalg.toeplitz(self.C.cpu()), device=self.device)
+
+    def _call_model(self, p):
+        args = copy(self.gen_args)
+        args.update(p)
+        p = args
         
-    def _log_likelihood(self, p, model_var):
+        if self._cache_location == p:
+            waveform = self._cache
+        else:
+            waveform = self.model.time_domain_waveform(p=p,
+                                                       times=self.times.clone())
+            self._cache = waveform
+            self._cache_location = p
+        return waveform
+
+        
+    def _log_likelihood(self, p, model_var=True):
         """
         Calculate the overall log-likelihood.
         """
         draw = self._call_model(p)
         residual = (self.data - draw.data).to(dtype=torch.double)
 
-        
-        like = -0.5 * residual @ torch.inverse(self.C+draw.covariance) @ residual - 0.5 * (torch.logdet(2*torch.pi*(self.C+draw.covariance)))
+        if model_var:
+            like = -0.5 * residual @ torch.inverse(self.C+draw.covariance) @ residual - 0.5 * (torch.logdet(2*torch.pi*(self.C+draw.covariance)))
+        else:
+            like = -0.5 * residual @ torch.inverse(self.C) @ residual - 0.5 * (torch.logdet(2*torch.pi*(self.C)))
         return like
 
     
