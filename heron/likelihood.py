@@ -279,7 +279,7 @@ class CUDATimedomainLikelihood(Likelihood):
             pass
 
         # Convert PSD into the noise matrix
-        self.C = torch.fft.irfft(torch.tensor(psd.data, device=self.device, dtype=torch.double), norm="forward", n=(len(data.data))) * psd.df
+        self.C = torch.fft.irfft(torch.tensor(psd.data, device=self.device, dtype=torch.double), norm="forward", n=len(self.times)) * psd.df
         self.C = torch.tensor(scipy.linalg.toeplitz(self.C.cpu()), device=self.device)
 
     def _call_model(self, p):
@@ -296,6 +296,18 @@ class CUDATimedomainLikelihood(Likelihood):
             self._cache_location = p
         return waveform
 
+    def snr(self, p, model_var=True):
+        """
+        Calculate the SNR.
+        """
+        draw = self._call_model(p)
+        residual = (self.data - draw.data).to(dtype=torch.double)
+
+        if model_var:
+            snr = residual @ torch.inverse(self.C+draw.covariance) @ residual
+        else:
+            snr = residual @ torch.inverse(self.C) @ residual
+        return torch.sqrt(snr)
         
     def _log_likelihood(self, p, model_var=True):
         """

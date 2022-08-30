@@ -410,6 +410,7 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
         if "total mass" in p:
             total_mass = p['total mass']
         elif "mass 1" in p:
+            print("component masses")
             mass_1 = p['mass 1']
             mass_2 = p['mass 2']
             total_mass = mass_1 + mass_2
@@ -419,24 +420,25 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             total_mass = 20
 
         mass_factor = total_mass / self.reference_mass
+        
         eval_times = torch.linspace(times[0] / mass_factor, times[-1] / mass_factor, len(times))
 
         polarisations = self.mean(eval_times, p)
             
             
         if "ra" in p.keys():
-            ra, dec, psi, gpstime = p['ra'], p['dec'], p['psi'], p['gpstime']
+            ra, dec, psi, gpstime = p['ra'], p['dec'], torch.tensor(p['psi']), p['gpstime']
             detector = cached_detector_by_prefix[p['detector']]
             response = self._get_antenna_response(detector,
                                                 ra,
                                                 dec,
-                                                psi,
+                                                float(psi),
                                                 gpstime)
             dt = TimeDelayFromEarthCenter(detector.location, ra, dec, LIGOTimeGPS(gpstime))
             
-            waveform_mean = (polarisations['plus'].data * response.plus + polarisations['cross'].data * response.cross) 
-            waveform_variance = polarisations['plus'].variance * response.plus**2 + polarisations['cross'].variance * response.cross**2
-            waveform_covariance = polarisations['plus'].covariance * response.plus**2 + polarisations['cross'].covariance * response.cross**2
+            waveform_mean = (polarisations['plus'].data * response.plus * torch.cos(psi) + polarisations['cross'].data * response.cross * torch.sin(psi))
+            waveform_variance = (polarisations['plus'].variance * torch.cos(psi) * response.plus**2 + polarisations['cross'].variance * response.cross**2 * torch.sin(psi))
+            waveform_covariance = (polarisations['plus'].covariance * response.plus**2 * torch.cos(psi) + polarisations['cross'].covariance * response.cross**2 * torch.sin(psi))
             
             waveform = Timeseries(data=mass_factor*waveform_mean/distance,
                                   variance=(mass_factor**2)*waveform_variance/distance**2,
