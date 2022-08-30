@@ -65,16 +65,18 @@ psd = np.array([masked_psd(float(f)) for f in frequencies])
 psd = PSD(data=psd, frequencies=frequencies)
 
 p = {
-    "mass ratio": 0.6,
-    "mass_1":35,
-    "mass_2": 30,
-    "ra": 1.0,
-    "dec": 0.5,
-    "psi": 0.1,
-    "gpstime": 1000,
+    #"mass ratio": 1.16,
+    #"total mass": 65,
+    "mass 1":35.,
+    "mass 2": 32.,
+    "ra": 1.79,
+    "dec": -1.22,
+    "psi": 1.47,
+    "gpstime": 1126259462,
     "detector": "L1",
     "distance": 400,
 }
+
 signal = model.time_domain_waveform(times=times, p=p)
 noise = torch.tensor(noise_psd(len(times), frequencies=frequencies, psd=masked_psd), device="cuda")
 detection = Timeseries(data=torch.tensor(signal.data)+noise, times=signal.times)
@@ -85,14 +87,15 @@ heron_likelihood = CUDATimedomainLikelihood(
 # check likelihood works
 masses = np.linspace(0.1,1.0,100)
 likes = torch.tensor([heron_likelihood({
-        "mass ratio": m,
-        "total mass": 40,
-        "ra": 1.0,
-        "dec": 0.5,
-        "psi": 0.1,
-        "gpstime": 1000,
-        "detector": "L1",
-        "distance": 1000,}, model_var=True).cpu()
+    "mass ratio": m,
+    "total mass": 40,
+    "ra": 1.79,
+    "dec": -1.22,
+    "psi": 1.47,
+    "gpstime": 1126259462,
+    "detector": "L1",
+    "distance": 400,
+}, model_var=True).cpu()
         for m in masses])
 
 
@@ -103,7 +106,7 @@ priors = {
     "mass ratio": [0.1, 1.0],
     "distance": [100, 1000],
     "total mass": [20, 100],
-    "gpstime": [1000.0-1e-1, 1000.0+1e-1],
+    "gpstime": [1126259461.9, 1126259462.1],
 }
 
 device = heron_likelihood.device
@@ -111,12 +114,12 @@ device = heron_likelihood.device
 base_p = {
     "mass ratio": 0.6,
     "total mass": 40,
-    "ra": 1.0,
-    "dec": 0.5,
-    "psi": 0.1,
-    "gpstime": 1000,
+    "ra": 1.79,
+    "dec": -1.22,
+    "psi": 1.47,
+    "gpstime": 1126259462,
     "detector": "L1",
-    "distance": 1000,
+    "distance": 400,
 }
 
 
