@@ -105,6 +105,7 @@ logger = setup_logger(output=output, label='heron_test', log_level='WARNING')
 priors = {
     "mass ratio": [0.1, 1.0],
     "distance": [100, 1000],
+    "psi": [0, 2*np.pi],
     "total mass": [20, 100],
     "gpstime": [1126259461.9, 1126259462.1],
 }
