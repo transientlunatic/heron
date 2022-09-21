@@ -60,6 +60,18 @@ def train(model, iterations=1000, lr=0.1):
         loss.backward()
         optimizer.step()
         model.model_cross.load_state_dict(model.model_plus.state_dict())
+
+    # Update the hyperparameters in the training file
+    model.training_data.h5file.close()
+    training_data = DataWrapper(model.datafile, write=True)
+    try:
+        del(training_data["model states"][model.name])
+    except KeyError:
+        pass
+    training_data.add_state(name=model.name, group=model.datalabel, data=model.model_plus.state_dict())
+    
+    model.training_data = DataWrapper(model.datafile)
+    #
     model.model_plus.eval()
     model.model_cross.eval()
     model.likelihood.eval()
@@ -211,6 +223,7 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
                  device: str = None,
                  size: int = None,
                  noise: list = [0.001, 0.1],
+                 name: str = "HeronCUDA",
                  lengths: dict = {"mass ratio": [0.001, 1],
                                   "time": [0.001, 0.1]}
                  ):
@@ -219,9 +232,42 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
 
         Parameters
         ----------
+        datafile : str
+           The name or path to the file containing the training data.
+        datalabel : str
+           The label for the training set to be used for this model.
+        name : str
+           The name of the model; used to find the saved model state information.
+        size : int, optional
+           The size of the training data set to be used.
+           Defaults to None in which case all of the training data is used.
+        noise : list, optional
+           A list containing the lower and upper bounds of the noise to be added to
+           the likelihood function.
+        lengths : dict, optional
+           A dictionary of lengthscales for the kernels.
+        
+        Examples
+        --------
+        Loading a non-spinning model trained with IMRPhenomPv2 waveforms:
+        >>> import torch
+        >>> from heron.models.torchbased import HeronCUDA,  train
+        >>> model = HeronCUDA(datafile="training_data.h5", 
+        >>>          datalabel="IMR training linear", 
+        >>>          name="Heron IMR Non-spinning",
+        >>>          device=torch.device("cuda"),
+        >>>         )
         """
         super().__init__(device=device)
+        self.name = name
         #
+        if not os.path.exists(datafile):
+            if os.path.exists(os.path.join(DATA_PATH, datafile)):
+                datafile = os.path.join(DATA_PATH, datafile)
+            else:
+                raise FileNotFoundError
+        #
+        self.datafile = datafile
         self.training_data = DataWrapper(datafile)
         self.datalabel = datalabel
         self.data_size = size
@@ -246,6 +292,14 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
         #
         (self.model_plus, self.model_cross), (self.likelihood, self.likelihood_cross) = self.build()
         #
+        # Load the trained hyperparameters if they're available
+        #
+        try:
+            hypers = self.training_data.get_states(name=self.name, device=self.device)["hyperparameters"]
+            self.model_plus.load_state_dict(hypers)
+            self.model_cross.load_state_dict(hypers)
+        except KeyError:
+            print("This model needs to be trained as training states could not be found!")
         self.eval()
         
     # def _process_inputs(self, times, p):
@@ -293,7 +347,6 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
         x, y = self.training_data.get_training_data(label=self.datalabel, polarisation=b"+")
         training_x = self.training_x = torch.tensor(x*self.other_input_factor,
                                                     device=self.device, dtype=torch.float).T[::2]#[1, :398]
-        print(self.training_x.shape)
         training_y = self.training_y = torch.tensor(y*self.strain_input_factor,
                                                     device=self.device, dtype=torch.float)[::2]#[:398]
 

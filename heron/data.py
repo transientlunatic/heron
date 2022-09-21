@@ -8,7 +8,13 @@ import h5py
 import numpy as np
 #import pandas as pd
 import matplotlib.pyplot as plt
+import yaml
+import torch
 
+def noop(self, *args, **kw):
+    pass
+
+yaml.emitter.Emitter.process_tag = noop
 
 class DataWrapper001:
     """The data wrapper for heron models using the v0.0.1 of the data
@@ -142,6 +148,62 @@ class DataWrapper001:
         else:
             raise Exception
 
+    def add_state(self,
+                  name: str,
+                  group: str,
+                  data: dict):
+        """
+        Add a model state dictionary to the data file.
+        
+        This interface is designed to take information about a model and save
+        it in a way which can then be reconstructed later.
+
+        Parameters
+        ----------
+        name : str
+            The name of this model.
+        group : str
+            The data group of the training data used for this model state.
+        data : dict 
+            The hyperparameter information for this model.
+        
+        Examples
+        --------
+        Add data to a data structure from a CSV file.
+        >>> from heron.data import DataWrapper
+        >>> data = DataWrapper.create("test_file.h5")
+        """
+        if not "model states" in self.h5file:
+            _ = self.h5file.create_group("model states")
+        model_states = self.h5file["model states"]
+
+        outputs = {}
+        for key, value in data.items():
+            outputs[key] = value.cpu().numpy().astype(np.float64).tolist()
+        
+        if f"{name}/hyperparameters" in model_states:
+            model_states[f"{name}/hyperparameters"] = yaml.dump(outputs)
+        else:
+            model_states.create_dataset(f"{name}/hyperparameters", data=yaml.dump(outputs))
+        model_states[f"{name}/datagroup"] = group
+
+        
+
+    def get_states(self, name, device="cpu"):
+        """
+        Get the trained state for a given model.
+        
+        """
+        hypers = yaml.safe_load(str(self.h5file["model states"][name]['hyperparameters'].asstr()[()]))
+
+        out = {}
+        for key, value in hypers.items():
+            if isinstance(value, float):
+                value = np.array(value)
+            out[key] = torch.Tensor(value)#, device=device)
+        
+        return {"hyperparameters": out}
+        
     def add_data(self,
                  group: str,
                  polarisation: str,
