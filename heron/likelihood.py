@@ -232,21 +232,8 @@ class CUDATimedomainLikelihood(Likelihood):
 
     Examples
     --------
-    >>> import torch
-    >>> import elk
-    >>> import elk.waveform
-    >>> from .utils import Complex
-    >>> generator = HeronCUDAIMR()
-    >>> window = torch.blackman_window(164)
-    >>> noise = torch.randn(164, device=device) * 1e-20
-    >>> asd = Complex((window*noise).rfft(1))
-    >>> signal = generator.time_domain_waveform({'mass ratio': 0.9},
-                              times=np.linspace(-0.01, 0.005, 164))
-    >>> detection = Timeseries(
-           data=(torch.tensor(signal[0].data, device=device)+noise).cpu(),
-           times=signal[0].times)
-    >>> l = Likelihood(generator, detection, window, 'H1', asd=asd.clone())
-    >>> l({"mass ratio": 0.5})
+
+    
 
     Methods
     -------
@@ -306,20 +293,33 @@ class CUDATimedomainLikelihood(Likelihood):
         if model_var:
             snr = residual @ torch.inverse(self.C+draw.covariance) @ residual
         else:
-            snr = residual @ torch.inverse(self.C) @ residual
+            noise = torch.ones(self.C.shape[0])*1e-40
+            noise = scipy.linalg.toeplitz(noise)
+            noise = torch.tensor(noise, device=self.device)
+            snr = residual @ torch.inverse(self.C + noise) @ residual
         return torch.sqrt(snr)
         
-    def _log_likelihood(self, p, model_var=True):
+    def _log_likelihood(self, p, model_var=True, noise=0):
         """
         Calculate the overall log-likelihood.
         """
         draw = self._call_model(p)
         residual = (self.data - draw.data).to(dtype=torch.double)
-
+        minimum = self.C.min()
         if model_var:
-            like = -0.5 * residual @ torch.inverse(self.C+draw.covariance) @ residual - 0.5 * (torch.logdet(2*torch.pi*(self.C+draw.covariance)))
+            like = -0.5 * (residual @ torch.inverse((self.C+draw.covariance)) @ residual)
+            like += 0.5 * (torch.logdet(2*torch.pi*((self.C+draw.covariance))))
         else:
-            like = -0.5 * residual @ torch.inverse(self.C) @ residual - 0.5 * (torch.logdet(2*torch.pi*(self.C)))
+            noise = torch.ones(self.C.shape[0], dtype=torch.float64) * noise
+            noise = scipy.linalg.toeplitz(noise.numpy())
+            noise = torch.tensor(noise, device=self.device)
+            # noise = 0
+            # for the psd inverse f transform of the inverse of the PSD
+            # did we get rid of the low-frequency zeros
+            # what happens if we use a "flat" PSD without adding noise
+            # could rescale the matrix before inverting and then rescaling again
+            like = -0.5 * (residual @ torch.inverse((self.C)) @ residual)
+            like += 0.5 * (torch.logdet(2*torch.pi*(self.C)))
         return like
 
     
@@ -510,7 +510,6 @@ class CUDALikelihood(Likelihood):
         normalisation = torch.logdet(torch.sqrt(normalisation.abs())) * sqrt(2 * torch.pi)
         return normalisation 
 
-        
     def _log_likelihood(self, p, model_var):
         """
         Calculate the overall log-likelihood.

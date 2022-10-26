@@ -1,0 +1,8 @@
+import unittest
+import torch
+
+class TestDiagonalCUDA:
+
+    def test_vector_to_matrix(self):
+        a = torch.ones(100, device="cuda")
+        self.assertEqual(a.diag().device, "cuda")
