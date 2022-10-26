@@ -15,7 +15,7 @@ documentation-coverage:
   allow_failure: true
   script:
    - pip install docstr-coverage
-   - docstr-coverage -F 60.0 asimov
+   - docstr-coverage -F 60.0 heron
   coverage: '/Total coverage: (\d+\.\d+%)/'
   
 pylint:
