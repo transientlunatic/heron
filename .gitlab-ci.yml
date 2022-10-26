@@ -46,6 +46,7 @@ test-python27:
   script:
     - pip install numpy
     - pip install -r requirements.txt
+    - pip install -r requirements_test.txt
     - python setup.py test
 
 test-python36:
@@ -54,6 +55,7 @@ test-python36:
   script:
     - pip install numpy
     - pip install -r requirements.txt
+    - pip install -r requirements_test.txt
     - python setup.py test
 
 test-python37:
@@ -62,6 +64,7 @@ test-python37:
   script:
     - pip install numpy
     - pip install -r requirements.txt
+    - pip install -r requirements_test.txt
     - python setup.py test
 
 test-python38:
@@ -70,6 +73,7 @@ test-python38:
   script:
     - pip install numpy
     - pip install -r requirements.txt
+    - pip install -r requirements_test.txt
     - python setup.py test
 
 test-python39:
@@ -80,6 +84,7 @@ test-python39:
   script:
     - pip install numpy
     - pip install -r requirements.txt
+    - pip install -r requirements_test.txt
     - coverage run -m xmlrunner discover tests/ -o junit-reports
     - coverage report
     - coverage xml
@@ -101,6 +106,7 @@ test-python310:
   script:
     - pip install numpy
     - pip install -r requirements.txt
+    - pip install -r requirements_test.txt
     - python setup.py test
 
 test-python311:
@@ -109,8 +115,9 @@ test-python311:
   script:
     - pip install numpy
     - pip install -r requirements.txt
+    - pip install -r requirements_test.txt
     - python setup.py test
-
+  allow_failure: True
 
 ####
 # Science Tests
@@ -122,6 +129,7 @@ science-python39:
   script:
     - pip install numpy
     - pip install -r requirements.txt
+    - pip install -r requirements_test.txt
     - python -m unittest discover science-tests/
   allow_failure: True
 
