@@ -18,7 +18,6 @@ import torch
 
 models = {"HeronCUDA": torchbased.HeronCUDA}
 
-
 class TestCUDAWaveformHypothesis(unittest.TestCase):
 
     def setUp(self):
