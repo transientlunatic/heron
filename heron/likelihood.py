@@ -9,6 +9,7 @@ import elk.waveform
 from .utils import diag_cuda, Complex
 
 import scipy.linalg
+import scipy.signal
 
 from lal import antenna, cached_detector_by_prefix, TimeDelayFromEarthCenter, LIGOTimeGPS
 
@@ -250,6 +251,8 @@ class CUDATimedomainLikelihood(Likelihood):
         self.model = model
         self.device = device
 
+        self.psd = psd
+        
         self.gen_args = generator_args
         if not data.detector:
             self.gen_args['detector'] = self._detector_prefix
@@ -278,17 +281,24 @@ class CUDATimedomainLikelihood(Likelihood):
             waveform = self._cache
         else:
             waveform = self.model.time_domain_waveform(p=p,
-                                                       times=self.times.clone())
+                                                       times=self.times)
+
+            sos = scipy.signal.butter(10, 20, 'hp', fs=float(1/(waveform.times[1] - waveform.times[0])), output='sos')
+            waveform.data = torch.tensor(scipy.signal.sosfilt(sos, waveform.data.cpu()), device=waveform.data.device)
             self._cache = waveform
             self._cache_location = p
         return waveform
 
+    def _residual(self, draw):
+        residual = (self.data - draw.data).to(dtype=torch.double)
+        return residual
+    
     def snr(self, p, model_var=True):
         """
         Calculate the SNR.
         """
         draw = self._call_model(p)
-        residual = (self.data - draw.data).to(dtype=torch.double)
+        residual = self._residual(draw)
 
         if model_var:
             snr = residual @ torch.inverse(self.C+draw.covariance) @ residual
@@ -298,17 +308,26 @@ class CUDATimedomainLikelihood(Likelihood):
             noise = torch.tensor(noise, device=self.device)
             snr = residual @ torch.inverse(self.C + noise) @ residual
         return torch.sqrt(snr)
-        
-    def _log_likelihood(self, p, model_var=True, noise=0):
+
+    def _residual_power(self, residual):
+        return residual @ residual
+    
+    def _weighted_residual_power(self, residual, weight):
+        return torch.matmul(residual, torch.inverse(weight)) @ residual
+
+    def _normalisation(self, weight):
+        return torch.logdet(2*torch.pi*weight)
+    
+    def _log_likelihood(self, p, model_var=True, noise=1e-20):
         """
         Calculate the overall log-likelihood.
         """
         draw = self._call_model(p)
-        residual = (self.data - draw.data).to(dtype=torch.double)
-        minimum = self.C.min()
+        residual = self._residual(draw)
+
         if model_var:
-            like = -0.5 * (residual @ torch.inverse((self.C+draw.covariance)) @ residual)
-            like += 0.5 * (torch.logdet(2*torch.pi*((self.C+draw.covariance))))
+            like = -0.5 * self._weighted_residual_power(residual, self.C + draw.covariance)
+            like += 0.5 * self._normalisation(self.C+draw.covariance)
         else:
             noise = torch.ones(self.C.shape[0], dtype=torch.float64) * noise
             noise = scipy.linalg.toeplitz(noise.numpy())
@@ -318,8 +337,8 @@ class CUDATimedomainLikelihood(Likelihood):
             # did we get rid of the low-frequency zeros
             # what happens if we use a "flat" PSD without adding noise
             # could rescale the matrix before inverting and then rescaling again
-            like = -0.5 * (residual @ torch.inverse((self.C)) @ residual)
-            like += 0.5 * (torch.logdet(2*torch.pi*(self.C)))
+            like = -0.5 * self._weighted_residual_power(residual, self.C)
+            like += 0.5 * self._normalisation(self.C)
         return like
 
     

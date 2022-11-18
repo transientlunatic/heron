@@ -553,7 +553,7 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             times[0] / mass_factor, times[-1] / mass_factor, len(times)
         )
 
-        polarisations = self.mean(eval_times, p)
+        
 
         if "ra" in p.keys():
             ra, dec, psi, gpstime = (
@@ -569,7 +569,7 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             dt = TimeDelayFromEarthCenter(
                 detector.location, ra, dec, LIGOTimeGPS(gpstime)
             )
-
+            polarisations = self.mean(eval_times + dt, p)
             waveform_mean = polarisations["plus"].data * response.plus * torch.cos(
                 psi
             ) + polarisations["cross"].data * response.cross * torch.sin(psi)
@@ -592,9 +592,10 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
                 data=mass_factor * waveform_mean / distance,
                 variance=(mass_factor**2) * waveform_variance / distance**2,
                 covariance=(mass_factor**2) * waveform_covariance / distance**2,
-                times=torch.tensor(times + dt, device=self.device),
+                times=torch.tensor(times, device=self.device),
                 detector=p["detector"],
             )
         else:
+            polarisations = self.mean(eval_times, p)
             waveform = polarisations
         return waveform
