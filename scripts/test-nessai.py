@@ -42,9 +42,14 @@ def noise_psd(N, frequencies, psd = lambda f: 1):
 
     return np.fft.irfft(noise_f, n=(N));
 
-model = HeronCUDA(datafile="test_file_2.h5", datalabel="IMR training linear",
+# model = HeronCUDA(datafile="test_file_2.h5", datalabel="IMR training linear",
+#                   device=torch.device("cuda"),
+model = HeronCUDA(datafile="training_data.h5", 
+                  datalabel="IMR training linear", 
+                  name="Heron IMR Non-spinning",
                   device=torch.device("cuda"),
                  )
+#train(model, iterations=1000)                 )
 #train(model, iterations=500)
 
 # We want to sample at a sample rate of 2048-Hz
@@ -105,7 +110,7 @@ likes = torch.tensor([heron_likelihood({
 
 
 output = 'heron_test_2'
-logger = setup_logger(output=output, label='heron_test', log_level='WARNING')
+logger = setup_logger(output=output, label=output, log_level='WARNING')
 
 priors = {
     "mass ratio": [0.1, 1.0],
