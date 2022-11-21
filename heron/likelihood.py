@@ -251,6 +251,8 @@ class CUDATimedomainLikelihood(Likelihood):
         self.model = model
         self.device = device
 
+        self.lower_frequency = 20
+        
         self.psd = psd
         
         self.gen_args = generator_args
@@ -283,7 +285,7 @@ class CUDATimedomainLikelihood(Likelihood):
             waveform = self.model.time_domain_waveform(p=p,
                                                        times=self.times)
 
-            sos = scipy.signal.butter(10, 20, 'hp', fs=float(1/(waveform.times[1] - waveform.times[0])), output='sos')
+            sos = scipy.signal.butter(10, self.lower_frequency, 'hp', fs=float(1/(waveform.times[1] - waveform.times[0])), output='sos')
             waveform.data = torch.tensor(scipy.signal.sosfilt(sos, waveform.data.cpu()), device=waveform.data.device)
             self._cache = waveform
             self._cache_location = p
@@ -301,7 +303,8 @@ class CUDATimedomainLikelihood(Likelihood):
         residual = self._residual(draw)
 
         if model_var:
-            snr = residual @ torch.inverse(self.C+draw.covariance) @ residual
+            snr = self._weighted_residual_power(residual, self.C+draw.covariance)
+            #snr = residual @ torch.inverse(self.C+draw.covariance) @ residual
         else:
             noise = torch.ones(self.C.shape[0])*1e-40
             noise = scipy.linalg.toeplitz(noise)

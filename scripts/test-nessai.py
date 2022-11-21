@@ -15,6 +15,7 @@ from nessai.flowsampler import FlowSampler
 from nessai.model import Model
 from nessai.utils import setup_logger
 
+import scipy.signal
 
 class PSD:
     def __init__(self, data, frequencies):
@@ -44,7 +45,7 @@ def noise_psd(N, frequencies, psd = lambda f: 1):
 model = HeronCUDA(datafile="test_file_2.h5", datalabel="IMR training linear",
                   device=torch.device("cuda"),
                  )
-train(model, iterations=500)
+#train(model, iterations=500)
 
 # We want to sample at a sample rate of 2048-Hz
 srate = 4096
@@ -65,21 +66,25 @@ psd = np.array([masked_psd(float(f)) for f in frequencies])
 psd = PSD(data=psd, frequencies=frequencies)
 
 p = {
-    #"mass ratio": 1.16,
-    #"total mass": 65,
-    "mass 1":35.,
-    "mass 2": 32.,
+    "mass ratio": 0.5,
+    "total mass": 60,
+    #"mass 1":35.,
+    #"mass 2": 32.,
     "ra": 1.79,
     "dec": -1.22,
     "psi": 1.47,
     "gpstime": 1126259462,
     "detector": "L1",
-    "distance": 400,
+    "distance": 1000,
 }
 
 signal = model.time_domain_waveform(times=times, p=p)
 noise = torch.tensor(noise_psd(len(times), frequencies=frequencies, psd=masked_psd), device="cuda")
+
+
 detection = Timeseries(data=torch.tensor(signal.data)+noise, times=signal.times)
+sos = scipy.signal.butter(10, 20, 'hp', fs=float(1/(detection.times[1] - detection.times[0])), output='sos')
+detection.data = torch.tensor(scipy.signal.sosfilt(sos, detection.data.cpu()), device=detection.data.device)
 
 heron_likelihood = CUDATimedomainLikelihood(
     model, times=times, data=detection, detector_prefix="L1", psd=psd
@@ -99,15 +104,15 @@ likes = torch.tensor([heron_likelihood({
         for m in masses])
 
 
-output = 'heron_test'
+output = 'heron_test_2'
 logger = setup_logger(output=output, label='heron_test', log_level='WARNING')
 
 priors = {
     "mass ratio": [0.1, 1.0],
-    "distance": [100, 1000],
-    "psi": [0, 2*np.pi],
+    #"distance": [100, 1000],
+    #"psi": [0, 2*np.pi],
     "total mass": [20, 100],
-    "gpstime": [1126259461.9, 1126259462.1],
+    #"gpstime": [1126259461.9, 1126259462.1],
 }
 
 device = heron_likelihood.device
