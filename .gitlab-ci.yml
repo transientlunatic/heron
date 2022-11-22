@@ -86,17 +86,17 @@ test-python39:
     - pip install -r requirements.txt
     - pip install -r requirements_test.txt
     - coverage run -m xmlrunner discover tests/ -o junit-reports
-    - coverage report
-    - coverage xml
-  artifacts:
-    when: always
-    paths:
-      - public/coverage.txt
-    reports:
-      junit: junit-reports/*
-      coverage_report:
-        coverage_format: cobertura
-        path: coverage.xml
+    #- coverage report
+    #- coverage xml
+  # artifacts:
+  #   when: always
+  #   paths:
+  #     - public/coverage.txt
+  #   reports:
+  #     junit: junit-reports/*
+  #     coverage_report:
+  #       coverage_format: cobertura
+  #       path: coverage.xml
   coverage: '/TOTAL\s+\d+\s+\d+\s+(\d+%)/'
 
 
