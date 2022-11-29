@@ -1,6 +1,13 @@
 
 executable = /home/daniel/.pyenv/versions/machine-learning/bin/python
-args = test-nessai.py False
+args = test-nessai.py False 2022-11-29-01
+request_gpus = 1
+log                     = heron.log
+output                  = heron.txt
+error                   = heron.txt
+queue
+executable = /home/daniel/.pyenv/versions/machine-learning/bin/python
+args = test-nessai.py True 2022-11-29-01
 request_gpus = 1
 log                     = heron.log
 output                  = heron.txt

@@ -19,8 +19,9 @@ from nessai.utils import setup_logger
 
 import scipy.signal
 
+
 uncertainty = sys.argv[1] or True
-test_number = "2022-11-28-01"
+test_number = sys.argv[2] or "2022-11-28-01"
 
 class PSD:
     def __init__(self, data, frequencies):
@@ -75,11 +76,9 @@ masked_psd = lambda f:psd_func(f) if f>=20 else 0
 psd = np.array([masked_psd(float(f)) for f in frequencies])
 psd = PSD(data=psd, frequencies=frequencies)
 
-p = {
+injection_parameters = {
     "mass ratio": 0.5,
     "total mass": 60,
-    #"mass 1":35.,
-    #"mass 2": 32.,
     "ra": 1.79,
     "dec": -1.22,
     "psi": 1.47,
@@ -88,7 +87,7 @@ p = {
     "distance": 100,
 }
 
-signal = model.time_domain_waveform(times=times, p=p)
+signal = model.time_domain_waveform(times=times, p=injection_parameters)
 noise = torch.tensor(noise_psd(len(times), frequencies=frequencies, psd=masked_psd), device="cuda")
 
 
@@ -99,24 +98,12 @@ detection.data = torch.tensor(scipy.signal.sosfilt(sos, detection.data.cpu()), d
 heron_likelihood = CUDATimedomainLikelihood(
     model, times=times, data=detection, detector_prefix="L1", psd=psd
 )
-# check likelihood works
-masses = np.linspace(0.1,1.0,100)
-likes = torch.tensor([heron_likelihood({
-    "mass ratio": m,
-    "total mass": 40,
-    "ra": 1.79,
-    "dec": -1.22,
-    "psi": 1.47,
-    "gpstime": 1126259462,
-    "detector": "L1",
-    "distance": 400,
-}, model_var=uncertainty).cpu()
-        for m in masses])
+
 
 if uncertainty:
     output = f'{test_number}'
 else:
-    output = output += "_nouncer"
+    output += f'{test_number}_nouncer'
 
 logger = setup_logger(output=output, label=output, log_level='WARNING')
 
@@ -130,17 +117,7 @@ priors = {
 
 device = heron_likelihood.device
 
-base_p = {
-    "mass ratio": 0.6,
-    "total mass": 40,
-    "ra": 1.79,
-    "dec": -1.22,
-    "psi": 1.47,
-    "gpstime": 1126259462,
-    "detector": "L1",
-    "distance": 100,
-}
-
+base_p = injection_parameters
 
 class HeronModel(Model):
     """Nessai mode for Heron Likelihoods.
@@ -172,7 +149,7 @@ class HeronModel(Model):
         with torch.inference_mode():
             # Need to convert from numpy floats to python floats
             base_p.update({n: float(x[n]) for n in self.names})
-            return self.heron_likelihood(base_p, model_var=False).cpu().numpy()
+            return self.heron_likelihood(base_p, model_var=uncertainty).cpu().numpy()
 
 
 nessai_model = HeronModel(heron_likelihood, priors)
