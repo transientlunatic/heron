@@ -3,6 +3,8 @@
 import numpy as np
 import lalsimulation
 
+import sys
+
 from heron.models.torchbased import HeronCUDA,  train
 from heron.likelihood import CUDALikelihood, InnerProduct, CUDATimedomainLikelihood
 from heron.data import DataWrapper
@@ -16,6 +18,9 @@ from nessai.model import Model
 from nessai.utils import setup_logger
 
 import scipy.signal
+
+uncertainty = sys.argv[1] or True
+test_number = "2022-11-28-01"
 
 class PSD:
     def __init__(self, data, frequencies):
@@ -80,7 +85,7 @@ p = {
     "psi": 1.47,
     "gpstime": 1126259462,
     "detector": "L1",
-    "distance": 1000,
+    "distance": 100,
 }
 
 signal = model.time_domain_waveform(times=times, p=p)
@@ -105,11 +110,14 @@ likes = torch.tensor([heron_likelihood({
     "gpstime": 1126259462,
     "detector": "L1",
     "distance": 400,
-}, model_var=True).cpu()
+}, model_var=uncertainty).cpu()
         for m in masses])
 
+if uncertainty:
+    output = f'{test_number}'
+else:
+    output = output += "_nouncer"
 
-output = 'heron_test_2'
 logger = setup_logger(output=output, label=output, log_level='WARNING')
 
 priors = {
@@ -130,7 +138,7 @@ base_p = {
     "psi": 1.47,
     "gpstime": 1126259462,
     "detector": "L1",
-    "distance": 400,
+    "distance": 100,
 }
 
 
@@ -164,7 +172,7 @@ class HeronModel(Model):
         with torch.inference_mode():
             # Need to convert from numpy floats to python floats
             base_p.update({n: float(x[n]) for n in self.names})
-            return self.heron_likelihood(base_p, model_var=True).cpu().numpy()
+            return self.heron_likelihood(base_p, model_var=False).cpu().numpy()
 
 
 nessai_model = HeronModel(heron_likelihood, priors)
