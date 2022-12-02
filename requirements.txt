@@ -11,6 +11,5 @@ nestle
 elk-waveform
 gpytorch
 torch
-torchvision
 lalsuite
 h5py

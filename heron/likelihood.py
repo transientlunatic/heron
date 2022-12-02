@@ -284,7 +284,6 @@ class CUDATimedomainLikelihood(Likelihood):
         else:
             waveform = self.model.time_domain_waveform(p=p,
                                                        times=self.times)
-
             sos = scipy.signal.butter(10, self.lower_frequency, 'hp', fs=float(1/(waveform.times[1] - waveform.times[0])), output='sos')
             waveform.data = torch.tensor(scipy.signal.sosfilt(sos, waveform.data.cpu()), device=waveform.data.device)
             self._cache = waveform
