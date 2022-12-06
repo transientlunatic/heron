@@ -142,3 +142,21 @@ class Complex():
         complex number.
         """
         return self*b.reciprocal
+
+def noise_psd(N, frequencies, psd = lambda f: 1):
+    """
+    Generate noise with a given PSD
+    """
+    reals = np.random.randn(len(frequencies))
+    imags = np.random.randn(len(frequencies))
+
+    T = 1/(frequencies[1]-frequencies[0])
+
+    S = np.sqrt(N*N/4/(T) * np.array([psd(float(f)) for f in frequencies]))
+
+    noise_r =  S * (reals)
+    noise_i =  S * (imags)
+
+    noise_f = noise_r + 1j * noise_i
+
+    return np.fft.irfft(noise_f, n=(N));

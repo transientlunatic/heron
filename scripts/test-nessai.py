@@ -7,7 +7,11 @@ import sys
 
 from heron.models.torchbased import HeronCUDA,  train
 from heron.likelihood import CUDALikelihood, InnerProduct, CUDATimedomainLikelihood
+
 from heron.data import DataWrapper
+from heron.types import PSD
+from heron.utils import noise_psd
+
 import gpytorch
 import torch
 from elk.waveform import Timeseries
@@ -20,65 +24,51 @@ from nessai.utils import setup_logger
 import scipy.signal
 
 
-uncertainty = sys.argv[1] or True
+uncertainty = True if sys.argv[1] == "True" else False
 test_number = sys.argv[2] or "2022-11-28-01"
 
-class PSD:
-    def __init__(self, data, frequencies):
-        self.data = data
-        self.frequencies = frequencies
-        self.df = frequencies[1] - frequencies[0]
-
-
-def noise_psd(N, frequencies, psd = lambda f: 1):
-    """
-    Generate noise with a given PSD
-    """
-    reals = np.random.randn(N//2+1)
-    imags = np.random.randn(N//2+1)
-
-    T = 1/(frequencies[1]-frequencies[0])
-
-    S = np.sqrt(N*N/4/(T) * np.array([psd(float(f)) for f in frequencies]))
-
-    noise_r =  S * (reals)
-    noise_i =  S * (imags)
-
-    noise_f = noise_r + 1j * noise_i
-
-    return np.fft.irfft(noise_f, n=(N));
-
-# model = HeronCUDA(datafile="test_file_2.h5", datalabel="IMR training linear",
-#                   device=torch.device("cuda"),
 model = HeronCUDA(datafile="training_data.h5", 
                   datalabel="IMR training linear", 
                   name="Heron IMR Non-spinning",
                   device=torch.device("cuda"),
                  )
-#train(model, iterations=1000)                 )
-#train(model, iterations=500)
 
 # We want to sample at a sample rate of 2048-Hz
 srate = 4096
 # This means that we'll have 2048 samples per second, or a sample spacing of 1/srate
 dt = 1./srate
 # This gives us a time axis:
-times = torch.linspace(-0.05, 0.005, int((0.005+0.05)*srate))
+times = torch.linspace(-0.05, 0.1, int((0.1+0.05)*srate))
 #
 # If we work in the Fourier domain then the maximum frequency will be half the sampling rate
 f_max = srate / 2
 df = 1./(times[-1]-times[0])
 frequencies = torch.arange((len(times) +1 ) // 2) / (dt * len(times))
 #
- #
 psd_func = lalsimulation.SimNoisePSDaLIGOZeroDetHighPower # lalsimulation.SimNoisePSDaLIGOEarlyHighSensitivityP1200087
-masked_psd = lambda f:psd_func(f) if f>=20 else 0
+masked_psd = lambda f:psd_func(f) if f>=20 else psd_func(20)
+# psd_func = lalsimulation.SimNoisePSDaLIGOZeroDetHighPower # lalsimulation.SimNoisePSDaLIGOEarlyHighSensitivityP1200087
+# masked_psd = lambda f:psd_func(f) if f>=20 else 0
 psd = np.array([masked_psd(float(f)) for f in frequencies])
 psd = PSD(data=psd, frequencies=frequencies)
+#df = 1/(times[-1] - times[0])
+#psd = np.array([masked_psd(f) for f in np.arange(0, df+1/(times[1] - times[0]), df)])
+#psd = PSD(data=psd, frequencies=frequencies)
 
+
+# injection_parameters = {
+#     "mass ratio": 0.5,
+#     "total mass": 60,
+#     "ra": 1.79,
+#     "dec": -1.22,
+#     "psi": 1.47,
+#     "gpstime": 1126259462,
+#     "detector": "L1",
+#     "distance": 100,
+# }
 injection_parameters = {
-    "mass ratio": 0.5,
-    "total mass": 60,
+    "mass ratio": 0.6,
+    "total mass": 65,
     "ra": 1.79,
     "dec": -1.22,
     "psi": 1.47,
@@ -90,20 +80,27 @@ injection_parameters = {
 signal = model.time_domain_waveform(times=times, p=injection_parameters)
 noise = torch.tensor(noise_psd(len(times), frequencies=frequencies, psd=masked_psd), device="cuda")
 
-
 detection = Timeseries(data=torch.tensor(signal.data)+noise, times=signal.times)
 sos = scipy.signal.butter(10, 20, 'hp', fs=float(1/(detection.times[1] - detection.times[0])), output='sos')
 detection.data = torch.tensor(scipy.signal.sosfilt(sos, detection.data.cpu()), device=detection.data.device)
+
+df = 1/(times[-1] - times[0])
+psd = np.array([masked_psd(f) for f in np.arange(0, df+1/(times[1] - times[0]), df)])
+psd = PSD(data=psd, frequencies=frequencies)
 
 heron_likelihood = CUDATimedomainLikelihood(
     model, times=times, data=detection, detector_prefix="L1", psd=psd
 )
 
+print("Likelihood of injection: ", heron_likelihood(p=injection_parameters, model_var=True).cpu())
+print("Likelihood of injection no uncertainty: ", heron_likelihood(p=injection_parameters, model_var=False).cpu())
+
+print(f"Uncertainty {uncertainty}")
 
 if uncertainty:
     output = f'{test_number}'
 else:
-    output += f'{test_number}_nouncer'
+    output = f'{test_number}_nouncer'
 
 logger = setup_logger(output=output, label=output, log_level='WARNING')
 
