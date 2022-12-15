@@ -38,6 +38,9 @@ setup(
         'heron',
     ],
     package_dir={'heron': 'heron'},
+    entry_points={
+        "console_scripts": ["heron=heron.cli:heron"],
+    },
     include_package_data=True,
     install_requires=requirements,
     license="ISCL",
