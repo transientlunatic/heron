@@ -151,8 +151,9 @@ def noise_psd(N, frequencies, psd = lambda f: 1):
     imags = np.random.randn(len(frequencies))
 
     T = 1/(frequencies[1]-frequencies[0])
-
-    S = np.sqrt(N*N/4/(T) * np.array([psd(float(f)) for f in frequencies]))
+    if callable(psd):
+        psd = np.array([psd(float(f)) for f in frequencies])
+    S = np.sqrt(N*N/4/(T) * psd)
 
     noise_r =  S * (reals)
     noise_i =  S * (imags)
