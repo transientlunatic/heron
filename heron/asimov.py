@@ -29,6 +29,7 @@ class Pipeline(asimov.pipeline.Pipeline):
             "output": f"{name}.out",
             "error": f"{name}.err",
             "log": f"{name}.log",
+            "request_gpus": 1,
             "batch_name": f"heron/{name}",
         }
 
