@@ -20,7 +20,7 @@ import scipy.signal
 
 from nessai.flowsampler import FlowSampler
 
-models = {"Heron": HeronCUDA(datafile="training_data.h5",
+models = {"heron": HeronCUDA(datafile="training_data.h5",
                              datalabel="IMR training linear",
                              name="Heron IMR Non-spinning",
                              device=torch.device("cuda"),
