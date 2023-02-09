@@ -4,6 +4,7 @@ from nessai.utils import setup_logger
 import torch
 import numpy as np
 
+
 class HeronSampler(Model):
     """Nessai model for Heron Likelihoods.
 
@@ -16,12 +17,10 @@ class HeronSampler(Model):
     priors
         Prior dictionary.
     """
+
     allow_vectorised = False
 
-    def __init__(self, heron_likelihood,
-                 priors,
-                 base_p,
-                 uncertainty=True):
+    def __init__(self, heron_likelihood, priors, base_p, uncertainty=True):
         # Names of parameters to sample
         self.names = list(priors.keys())
         self.bounds = priors
@@ -39,4 +38,8 @@ class HeronSampler(Model):
         with torch.inference_mode():
             # Need to convert from numpy floats to python floats
             self.base_p.update({n: float(x[n]) for n in self.names})
-            return self.heron_likelihood(self.base_p, model_var=self.waveform_uncertainty).cpu().numpy()
+            return (
+                self.heron_likelihood(self.base_p, model_var=self.waveform_uncertainty)
+                .cpu()
+                .numpy()
+            )

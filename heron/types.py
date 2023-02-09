@@ -3,4 +3,3 @@ class PSD:
         self.data = data
         self.frequencies = frequencies
         self.df = frequencies[1] - frequencies[0]
-
