@@ -326,9 +326,9 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
         # Load the trained hyperparameters if they're available
         #
         try:
-            hypers = self.training_data.get_states(name=self.model_name, device=self.device)[
-                "hyperparameters"
-            ]
+            hypers = self.training_data.get_states(
+                name=self.model_name, device=self.device
+            )["hyperparameters"]
             self.model_plus.load_state_dict(hypers)
             self.model_cross.load_state_dict(hypers)
         except KeyError as e:
@@ -552,8 +552,6 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
         eval_times = torch.linspace(
             times[0] / mass_factor, times[-1] / mass_factor, len(times)
         )
-
-        
 
         if "ra" in p.keys():
             ra, dec, psi, gpstime = (

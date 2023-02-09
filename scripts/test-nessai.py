@@ -10,12 +10,10 @@ from heron.likelihood import CUDALikelihood, InnerProduct, CUDATimedomainLikelih
 
 from heron.data import DataWrapper
 from heron.types import PSD
-from heron.utils import noise_psd
 
 import gpytorch
 import torch
 from elk.waveform import Timeseries
-from heron.models.torchbased import HeronCUDA,  train
 
 from nessai.flowsampler import FlowSampler
 from nessai.model import Model
@@ -106,7 +104,7 @@ logger = setup_logger(output=output, label=output, log_level='WARNING')
 
 priors = {
     "mass ratio": [0.1, 1.0],
-    #"distance": [100, 1000],
+    "distance": [10, 200],
     #"psi": [0, 2*np.pi],
     "total mass": [20, 100],
     #"gpstime": [1126259461.9, 1126259462.1],
