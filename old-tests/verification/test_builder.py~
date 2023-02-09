@@ -1,8 +1,0 @@
-import unittest
-
-class TestSimpleModel(unittest.TestCase):
-    """
-    These tests are designed to verify that heron can build an extremely simple model,
-    and then have the functions produced from it verified with the same tests we use
-    for waveforms.
-    """
