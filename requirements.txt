@@ -8,7 +8,7 @@ jinja2
 cython
 george
 nestle
-elk-waveform
+elk-waveform>=0.13
 gpytorch
 torch
 lalsuite
