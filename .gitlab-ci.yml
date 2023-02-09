@@ -39,26 +39,6 @@ flake8:
     reports:
       junit: report.xml
 
-test-python27:
-  stage: test
-  image: python:2.7
-  allow_failure: true
-  script:
-    - pip install numpy
-    - pip install -r requirements.txt
-    - pip install -r requirements_test.txt
-    - python setup.py test
-
-test-python36:
-  stage: test
-  image: python:3.6
-  script:
-    - pip install numpy
-    - pip install -r requirements.txt
-    - pip install -r requirements_test.txt
-    - python setup.py test
-
-
 test-python38:
   stage: test
   image: python:3.8
