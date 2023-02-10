@@ -19,9 +19,8 @@ This version of heron is implemented slightly differently to older versions, and
 	      
    readme
    installation
-   usage
+   getting-started
    authors
-	     api.. 
    
 Tutorials and Examples
 ======================

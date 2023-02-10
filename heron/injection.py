@@ -44,6 +44,11 @@ def psd_from_lalinference(name: str, frequencies, lower_frequency: float = 20):
 
 def frequencies_from_times(times):
     """Get the frequency axies which corresponds to a given time axis."""
+    times = torch.linspace(
+        -times["before"],
+        times["after"],
+        int(times["sample rate"] * (times["before"] + times["after"])),
+    )
     dt = times[1] - times[0]
     frequencies = torch.arange((len(times) + 1) // 2) / (dt * len(times))
     return frequencies
@@ -63,6 +68,6 @@ def create_noise_series(psd: PSD, times, device="cuda"):
     """
     frequencies = frequencies_from_times(times)
     noise = torch.tensor(
-        noise_psd(len(times), frequencies=frequencies, psd=psd.data), device=device
+        noise_psd(int(times["sample rate"] * (times["before"] + times["after"])), frequencies=frequencies, psd=psd.data), device=device
     )
     return noise

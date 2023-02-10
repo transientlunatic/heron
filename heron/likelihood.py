@@ -309,12 +309,11 @@ class CUDATimedomainLikelihood(Likelihood):
         self,
         model,
         data,
-        times,
         detector_prefix=None,
         asd=None,
         psd=None,
         device=device,
-        generator_args={},
+        generator_args={"duration": 0.51, "sample rate": 2048},
         f_min=None,
         f_max=None,
     ):
@@ -339,7 +338,7 @@ class CUDATimedomainLikelihood(Likelihood):
 
         if isinstance(data, elk.waveform.Timeseries):
             self.data = data.data.clone()
-            self.times = times.clone()
+            self.times = data.times.clone()
             self.duration = self.times[-1] - self.times[0]
 
         elif isinstance(data, elk.waveform.FrequencySeries):
@@ -361,11 +360,11 @@ class CUDATimedomainLikelihood(Likelihood):
         args = copy(self.gen_args)
         args.update(p)
         p = args
-
+        
         if self._cache_location == p:
             waveform = self._cache
         else:
-            waveform = self.model.time_domain_waveform(p=p, times=self.times)
+            waveform = self.model.time_domain_waveform(p=p)
             sos = scipy.signal.butter(
                 10,
                 self.lower_frequency,
@@ -417,7 +416,6 @@ class CUDATimedomainLikelihood(Likelihood):
         """
         draw = self._call_model(p)
         residual = self._residual(draw)
-
         if model_var:
             like = -0.5 * self._weighted_residual_power(
                 residual, self.C + draw.covariance

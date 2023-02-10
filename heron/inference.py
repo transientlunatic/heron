@@ -53,12 +53,20 @@ def inference(settings):
 
     srate = settings["data"]["sample rate"]
     duration = settings["data"]["duration"]
-    times = torch.linspace(
-        settings["data"]["start time"],
-        settings["data"]["start time"] + duration,
-        floor(duration * srate),
-    )
+    #times = torch.linspace(
+    #    settings["data"]["start time"],
+    #    settings["data"]["start time"] + duration,
+    #    floor(duration * srate),
+    #)
 
+    times = {"duration": duration,
+             "sample rate": srate,
+             "before": 0.05,
+             "after": 0.01,
+             }
+    
+    settings["injection"].update(times)
+    
     if "injection" in settings:
         click.echo("Generating injection")
 
@@ -72,10 +80,10 @@ def inference(settings):
         )
         noise = heron.injection.create_noise_series(psd, times)
         signal = models[settings["injection model"]].time_domain_waveform(
-            times=times, p=settings["injection"]
+            p=settings["injection"]
         )
 
-        detection = Timeseries(data=signal.data + noise, times=signal.times)
+        detection = Timeseries(data=signal.data + noise, times=settings['injection']['gpstime']+signal.times)
         sos = scipy.signal.butter(
             10,
             20,
@@ -89,17 +97,18 @@ def inference(settings):
         )
 
         f, ax = plt.subplots(1, 1, dpi=300)
-        ax.plot(times.cpu(), noise.cpu())
+        ax.plot(detection.times.cpu(), noise.cpu())
         ax.plot(detection.times.cpu(), detection.data.cpu())
         ax.plot(detection.times.cpu(), signal.data.cpu())
         with report:
+            report += "Injected waveform"
             report += f
-
+            
     heron_likelihood = CUDATimedomainLikelihood(
         models[settings["waveform"]["model"]],
-        times=times,
         data=detection,
         detector_prefix="L1",
+        generator_args=times,
         psd=psd,
     )
 

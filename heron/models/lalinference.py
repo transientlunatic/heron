@@ -43,13 +43,20 @@ class IMRPhenomPv2(Model):
         interpolator = interp.interp1d(x_old, y_old)
         return interpolator(x_new)
 
-    def time_domain_waveform(self, p, times):
+    def time_domain_waveform(self, p):
         params = {
             "total mass": 20,
             "mass ratio": 1.0,
             "inclination": 0,
             "distance": 1000,
         }
+
+        epoch = p["gpstime"]
+        times = torch.linspace(
+            -p["before"],
+            p["after"],
+            int(p["sample rate"] * (p["before"] + p["after"])),
+        )
         params.update(p)
         p = params
         # waveform = generate_waveform(q=params['mass ratio'],
@@ -124,7 +131,7 @@ class IMRPhenomPv2(Model):
 
         detection = Timeseries(
             data=torch.tensor(waveform_mean, device=self.device),
-            times=torch.tensor(times, device=self.device),
+            times=torch.tensor(times, device=self.device, dtype=torch.float64),
             detector=p["detector"],
         )
         detection.variance = torch.zeros(len(detection.times), device=self.device)

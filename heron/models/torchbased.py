@@ -525,11 +525,21 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
 
         return waveform
 
-    def time_domain_waveform(self, p, times):
+    def time_domain_waveform(self, p):
         """
         Return the timedomain waveform.
         """
 
+        defaults = {
+            "before": 0.05,
+            "after": 0.01,
+            "pad before": 0.2,
+            "pad after": 0.05
+        }
+        
+        defaults.update(p)
+        p = defaults
+        
         if "distance" in p:
             # The distance in megaparsec
             distance = p["distance"]
@@ -549,8 +559,17 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
 
         mass_factor = total_mass / self.reference_mass
 
+        epoch = p["gpstime"]
+        times = torch.linspace(
+            epoch - p["before"],
+            epoch + p["after"],
+            int(p["sample rate"] * (p["before"] + p["after"])),
+            device=self.device
+        )
+
         eval_times = torch.linspace(
-            times[0] / mass_factor, times[-1] / mass_factor, len(times)
+            (times[0]-epoch) / mass_factor, (times[-1]-epoch) / mass_factor, len(times),
+            device=self.device
         )
 
         if "ra" in p.keys():
@@ -567,10 +586,17 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             dt = TimeDelayFromEarthCenter(
                 detector.location, ra, dec, LIGOTimeGPS(gpstime)
             )
-            polarisations = self.mean(eval_times + dt, p)
+            polarisations = self.mean(eval_times, p)
             waveform_mean = polarisations["plus"].data * response.plus * torch.cos(
                 psi
             ) + polarisations["cross"].data * response.cross * torch.sin(psi)
+
+            shift = int(torch.round(dt / torch.diff(times)[0]))
+            pre_pad = int(torch.round(p['pad before'] / torch.diff(times)[0]))
+            post_pad = int(torch.round(p['pad after'] / torch.diff(times)[0]))
+            waveform_mean = torch.nn.functional.pad(waveform_mean, (pre_pad, post_pad))
+            waveform_mean = torch.roll(waveform_mean, shift)
+            waveform_mean = waveform_mean[pre_pad:-post_pad]
             waveform_variance = polarisations["plus"].variance * torch.cos(
                 psi
             ) * response.plus**2 + polarisations[
@@ -578,6 +604,10 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             ].variance * response.cross**2 * torch.sin(
                 psi
             )
+            waveform_variance = torch.nn.functional.pad(waveform_variance, (pre_pad, post_pad))
+            waveform_variance = torch.roll(waveform_variance, shift)
+            waveform_variance = waveform_variance[pre_pad:-post_pad]
+
             waveform_covariance = polarisations[
                 "plus"
             ].covariance * response.plus**2 * torch.cos(psi) + polarisations[
@@ -590,7 +620,7 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
                 data=mass_factor * waveform_mean / distance,
                 variance=(mass_factor**2) * waveform_variance / distance**2,
                 covariance=(mass_factor**2) * waveform_covariance / distance**2,
-                times=torch.tensor(times, device=self.device),
+                times=times,
                 detector=p["detector"],
             )
         else:
