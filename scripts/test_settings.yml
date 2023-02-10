@@ -21,8 +21,8 @@ priors:
   total mass: [20, 100]
 
 waveform:
-  model: IMRPhenomPv2
-  variance: False
+  model: Heron #IMRPhenomPv2
+  variance: True
 
 data:
   start time: -0.05
