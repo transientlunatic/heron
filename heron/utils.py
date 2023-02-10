@@ -5,6 +5,7 @@ Various utilities and non-GPR based stuff.
 import torch
 import numpy as np
 
+
 def diag_cuda(a):
     """Make a vector into a diagonal matrix."""
     b = torch.diag(a)
@@ -17,7 +18,7 @@ def diag_cuda(a):
     # return torch.view_as_complex(b)
 
 
-class Complex():
+class Complex:
     """
     Complex numbers in torch and CUDA.
     """
@@ -48,7 +49,7 @@ class Complex():
     @property
     def real(self):
         """Return the real part of the number."""
-        return self.tensor.clone().T[0]#[:, 0]
+        return self.tensor.clone().T[0]  # [:, 0]
 
     @property
     def imag(self):
@@ -64,7 +65,7 @@ class Complex():
         elif isinstance(other, type(self.tensor)):
             # Assume other is a real tensor
             t = self.tensor.clone()
-            t[:,0]+=other
+            t[:, 0] += other
             return Complex(t)
 
     def __sub__(self, other):
@@ -80,13 +81,13 @@ class Complex():
         if isinstance(other, Complex):
             return self.product(other)
         elif isinstance(other, type(self.tensor)):
-            return Complex(self.tensor*other)
+            return Complex(self.tensor * other)
         elif isinstance(other, float):
-            return Complex(other*self.tensor)
+            return Complex(other * self.tensor)
         elif isinstance(other, complex):
             t = self.tensor.clone()
-            t[:,0] = self.tensor[:,0]*other.real - self.tensor[:,1]*other.imag
-            t[:,1] = self.tensor[:,1]*other.real + self.tensor[:,0]*other.imag
+            t[:, 0] = self.tensor[:, 0] * other.real - self.tensor[:, 1] * other.imag
+            t[:, 1] = self.tensor[:, 1] * other.real + self.tensor[:, 0] * other.imag
             return Complex(t)
         else:
             raise NotImplementedError(f"Cannot __mul__({type(self)},{type(other)})")
@@ -109,8 +110,14 @@ class Complex():
            The product of this number and **b**.
         """
 
-        return Complex(torch.stack([(self.real*b.real) - (self.imag*b.imag),
-                                    (self.real*b.imag) + (self.imag*b.real)]).T)
+        return Complex(
+            torch.stack(
+                [
+                    (self.real * b.real) - (self.imag * b.imag),
+                    (self.real * b.imag) + (self.imag * b.real),
+                ]
+            ).T
+        )
 
     def clone(self):
         return Complex(self.tensor.clone())
@@ -121,7 +128,7 @@ class Complex():
         Calculate the polar radius squared of the number
         """
         temp = self.tensor.clone().T
-        return temp[0]**2 + temp[1]**2
+        return temp[0] ** 2 + temp[1] ** 2
 
     @property
     def modulus(self):
@@ -133,31 +140,35 @@ class Complex():
         """
         Calculate the reciprocal of this number.
         """
-        return Complex(torch.stack([  torch.div(self.real, self.r2), 
-                                      -torch.div(self.imag, self.r2)]).T)
+        return Complex(
+            torch.stack(
+                [torch.div(self.real, self.r2), -torch.div(self.imag, self.r2)]
+            ).T
+        )
 
     def division(self, b):
         """
-        Calculate the division of this number with another 
+        Calculate the division of this number with another
         complex number.
         """
-        return self*b.reciprocal
+        return self * b.reciprocal
 
-def noise_psd(N, frequencies, psd = lambda f: 1):
+
+def noise_psd(N, frequencies, psd=lambda f: 1):
     """
     Generate noise with a given PSD
     """
     reals = np.random.randn(len(frequencies))
     imags = np.random.randn(len(frequencies))
 
-    T = 1/(frequencies[1]-frequencies[0])
+    T = 1 / (frequencies[1] - frequencies[0])
     if callable(psd):
         psd = np.array([psd(float(f)) for f in frequencies])
-    S = np.sqrt(N*N/4/(T) * psd)
+    S = np.sqrt(N * N / 4 / (T) * psd)
 
-    noise_r =  S * (reals)
-    noise_i =  S * (imags)
+    noise_r = S * (reals)
+    noise_i = S * (imags)
 
     noise_f = noise_r + 1j * noise_i
 
-    return np.fft.irfft(noise_f, n=(N));
+    return np.fft.irfft(noise_f, n=(N))

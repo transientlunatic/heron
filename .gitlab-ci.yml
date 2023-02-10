@@ -39,34 +39,6 @@ flake8:
     reports:
       junit: report.xml
 
-test-python27:
-  stage: test
-  image: python:2.7
-  allow_failure: true
-  script:
-    - pip install numpy
-    - pip install -r requirements.txt
-    - pip install -r requirements_test.txt
-    - python setup.py test
-
-test-python36:
-  stage: test
-  image: python:3.6
-  script:
-    - pip install numpy
-    - pip install -r requirements.txt
-    - pip install -r requirements_test.txt
-    - python setup.py test
-
-test-python37:
-  stage: test
-  image: python:3.7
-  script:
-    - pip install numpy
-    - pip install -r requirements.txt
-    - pip install -r requirements_test.txt
-    - python setup.py test
-
 test-python38:
   stage: test
   image: python:3.8
@@ -148,54 +120,3 @@ pages:
     - public
   only:
   - master
-
-# Build recipe for standalone wheels on Linux
-wheel-27:
-  image: python:2.7
-  stage: build
-  script:
-    - pip install wheel
-    # Build wheel
-    - python setup.py bdist_wheel --universal
-  dependencies: []
-  artifacts:
-    expire_in: 3h
-    paths:
-      - dist
-
-wheel-36:
-  image: python:3.6
-  stage: build
-  script:
-    - pip install wheel
-    # Build wheel
-    - python setup.py bdist_wheel --universal
-  dependencies: []
-  artifacts:
-    expire_in: 3h
-    paths:
-      - dist
-
-wheel-37:
-  image: python:3.7
-  stage: build
-  script:
-    - pip install wheel
-    # Build wheel
-    - python setup.py bdist_wheel --universal
-  dependencies: []
-  artifacts:
-    expire_in: 3h
-    paths:
-      - dist
-
-deploy:wheel:
-  stage: deploy
-  script:
-    - pip install twine
-    - twine upload dist/*
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-      if: '$CI_COMMIT_TAG'
-      when: on_success
-    - when: never

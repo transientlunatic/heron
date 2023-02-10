@@ -2,19 +2,23 @@
 Common data format handling for heron models
 """
 
-#import typing
+# import typing
 
 import h5py
 import numpy as np
-#import pandas as pd
+
+# import pandas as pd
 import matplotlib.pyplot as plt
 import yaml
 import torch
 
+
 def noop(self, *args, **kw):
     pass
 
+
 yaml.emitter.Emitter.process_tag = noop
+
 
 class DataWrapper001:
     """The data wrapper for heron models using the v0.0.1 of the data
@@ -24,9 +28,7 @@ class DataWrapper001:
 
     """
 
-    def __init__(self,
-                 filename: str,
-                 write: bool = False):
+    def __init__(self, filename: str, write: bool = False):
         """Initialise a datawrapper using the 0.0.1 API.
 
         Parameters
@@ -55,11 +57,10 @@ class DataWrapper001:
         self.h5file = h5py.File(filename, mode)
 
     def __getitem__(self, item):
-        return self.h5file['training data'][item]
+        return self.h5file["training data"][item]
 
-    
     @classmethod
-    def create(cls, filename) -> 'DataWrapper001':
+    def create(cls, filename) -> "DataWrapper001":
         """
         Create a new data file.
         This method simply creates the file in which the data is stored.
@@ -89,10 +90,7 @@ class DataWrapper001:
 
         return cls(filename, write=True)
 
-    def _add_meta(self,
-                  meta: str,
-                  data: str,
-                  group: str):
+    def _add_meta(self, meta: str, data: str, group: str):
         """Add a new data source to the data file.
 
         Insert a new source of metadata to the data object. For normal
@@ -123,17 +121,20 @@ class DataWrapper001:
             if any([datum in training_data[f"{group}/meta/{meta}"] for datum in data]):
                 pass
             else:
-                training_data[f"{group}/meta/{meta}"].resize((training_data[f"{group}/meta/{meta}"].shape[0] + len(data) ), axis=0)
-                training_data[f"{group}/meta/{meta}"][-len(data):] = data
+                training_data[f"{group}/meta/{meta}"].resize(
+                    (training_data[f"{group}/meta/{meta}"].shape[0] + len(data)), axis=0
+                )
+                training_data[f"{group}/meta/{meta}"][-len(data) :] = data
         else:
-            training_data.create_dataset(f"{group}/meta/{meta}",
-                                         (len(data),), data=data, chunks=True, maxshape=(None, ))
+            training_data.create_dataset(
+                f"{group}/meta/{meta}",
+                (len(data),),
+                data=data,
+                chunks=True,
+                maxshape=(None,),
+            )
 
-
-    def _assign_integer_keys(self,
-                             meta: str,
-                             value,
-                             group: str):
+    def _assign_integer_keys(self, meta: str, value, group: str):
 
         if isinstance(value, str):
             value = value.encode("ascii")
@@ -143,18 +144,15 @@ class DataWrapper001:
             if meta in training_data[f"{group}"]["meta"]:
                 if value in training_data[f"{group}"]["meta"][f"{meta}"]:
                     ixes = dict(enumerate(training_data[f"{group}/meta/{meta}"]))
-                    ixes = dict((v,k) for k,v in ixes.items())
+                    ixes = dict((v, k) for k, v in ixes.items())
                     return int(ixes[value])
         else:
             raise Exception
 
-    def add_state(self,
-                  name: str,
-                  group: str,
-                  data: dict):
+    def add_state(self, name: str, group: str, data: dict):
         """
         Add a model state dictionary to the data file.
-        
+
         This interface is designed to take information about a model and save
         it in a way which can then be reconstructed later.
 
@@ -164,9 +162,9 @@ class DataWrapper001:
             The name of this model.
         group : str
             The data group of the training data used for this model state.
-        data : dict 
+        data : dict
             The hyperparameter information for this model.
-        
+
         Examples
         --------
         Add data to a data structure from a CSV file.
@@ -180,38 +178,42 @@ class DataWrapper001:
         outputs = {}
         for key, value in data.items():
             outputs[key] = value.cpu().numpy().astype(np.float64).tolist()
-        
+
         if f"{name}/hyperparameters" in model_states:
             model_states[f"{name}/hyperparameters"] = yaml.dump(outputs)
         else:
-            model_states.create_dataset(f"{name}/hyperparameters", data=yaml.dump(outputs))
+            model_states.create_dataset(
+                f"{name}/hyperparameters", data=yaml.dump(outputs)
+            )
         model_states[f"{name}/datagroup"] = group
-
-        
 
     def get_states(self, name, device="cpu"):
         """
         Get the trained state for a given model.
-        
+
         """
-        hypers = yaml.safe_load(str(self.h5file["model states"][name]['hyperparameters'].asstr()[()]))
+        hypers = yaml.safe_load(
+            str(self.h5file["model states"][name]["hyperparameters"].asstr()[()])
+        )
 
         out = {}
         for key, value in hypers.items():
             if isinstance(value, float):
                 value = np.array(value)
-            out[key] = torch.Tensor(value)#, device=device)
-        
+            out[key] = torch.Tensor(value)  # , device=device)
+
         return {"hyperparameters": out}
-        
-    def add_data(self,
-                 group: str,
-                 polarisation: str,
-                 reference_mass: float,
-                 source: str,
-                 parameters: list,
-                 locations: np.ndarray,
-                 data: np.ndarray):
+
+    def add_data(
+        self,
+        group: str,
+        polarisation: str,
+        reference_mass: float,
+        source: str,
+        parameters: list,
+        locations: np.ndarray,
+        data: np.ndarray,
+    ):
         """
         Add a new data series to the data structure.
 
@@ -259,36 +261,41 @@ class DataWrapper001:
         self._add_meta("sources", source, group)
         self._add_meta("reference mass", reference_mass, group)
 
-        polarisation = np.ones(len(data)) * self._assign_integer_keys("polarisations",
-                                                                      polarisation,
-                                                                      group)
-        source = np.ones(len(data)) * self._assign_integer_keys("sources",
-                                                                source,
-                                                                group)
+        polarisation = np.ones(len(data)) * self._assign_integer_keys(
+            "polarisations", polarisation, group
+        )
+        source = np.ones(len(data)) * self._assign_integer_keys(
+            "sources", source, group
+        )
 
         for i, parameter in enumerate(parameters):
-            training_data.create_dataset(f"{group}/locations/{parameter}",
-                                         (len(locations[:,i]),),
-                                         data=locations[:,i],
-                                         chunks=True,
-                                         maxshape=(None, ))
-        training_data.create_dataset(f"{group}/polarisation",
-                                     data=polarisation,
-                                     chunks=True,
-                                     maxshape=(None))
-        training_data.create_dataset(f"{group}/source",
-                                     data=source, chunks=True, maxshape=(None))
-        training_data.create_dataset(f"{group}/data",
-                                     data=data, chunks=True, maxshape=(None))
+            training_data.create_dataset(
+                f"{group}/locations/{parameter}",
+                (len(locations[:, i]),),
+                data=locations[:, i],
+                chunks=True,
+                maxshape=(None,),
+            )
+        training_data.create_dataset(
+            f"{group}/polarisation", data=polarisation, chunks=True, maxshape=(None)
+        )
+        training_data.create_dataset(
+            f"{group}/source", data=source, chunks=True, maxshape=(None)
+        )
+        training_data.create_dataset(
+            f"{group}/data", data=data, chunks=True, maxshape=(None)
+        )
 
-    def add_waveform(self,
-                     group: str,
-                     polarisation: str,
-                     reference_mass: float,
-                     source: str,
-                     locations: dict,
-                     times: np.ndarray,
-                     data: np.ndarray):
+    def add_waveform(
+        self,
+        group: str,
+        polarisation: str,
+        reference_mass: float,
+        source: str,
+        locations: dict,
+        times: np.ndarray,
+        data: np.ndarray,
+    ):
         """
         Add a single waveform to the training data.
         """
@@ -296,67 +303,82 @@ class DataWrapper001:
 
         for parameter, location in locations.items():
             if f"{group}/locations/{parameter}" not in training_data:
-                training_data.create_dataset(f"{group}/locations/{parameter}",
-                                             (len(data),),
-                                             data=np.ones(len(data))*location,
-                                             chunks=True,
-                                             maxshape=(None,))
+                training_data.create_dataset(
+                    f"{group}/locations/{parameter}",
+                    (len(data),),
+                    data=np.ones(len(data)) * location,
+                    chunks=True,
+                    maxshape=(None,),
+                )
             else:
-                training_data[f"{group}/locations/{parameter}"].resize((training_data[f"{group}/locations/{parameter}"].shape[0] + len(data) ), axis=0)
-                training_data[f"{group}/locations/{parameter}"][-len(data):] = np.ones(len(data))*location
+                training_data[f"{group}/locations/{parameter}"].resize(
+                    (
+                        training_data[f"{group}/locations/{parameter}"].shape[0]
+                        + len(data)
+                    ),
+                    axis=0,
+                )
+                training_data[f"{group}/locations/{parameter}"][-len(data) :] = (
+                    np.ones(len(data)) * location
+                )
 
         if f"{group}/locations/time" not in training_data:
-            training_data.create_dataset(f"{group}/locations/time",
-                                         (len(times), ),
-                                         data=times,
-                                         chunks=True,
-                                         maxshape=(None, ))
+            training_data.create_dataset(
+                f"{group}/locations/time",
+                (len(times),),
+                data=times,
+                chunks=True,
+                maxshape=(None,),
+            )
         else:
-            training_data[f"{group}/locations/time"].resize((training_data[f"{group}/locations/time"].shape[0] + len(data) ), axis=0)
-            training_data[f"{group}/locations/time"][-len(data):] = times
+            training_data[f"{group}/locations/time"].resize(
+                (training_data[f"{group}/locations/time"].shape[0] + len(data)), axis=0
+            )
+            training_data[f"{group}/locations/time"][-len(data) :] = times
 
         if f"{group}/polarisation" not in training_data:
-            training_data.create_dataset(f"{group}/polarisation",
-                                         (len(times), ),
-                                         data=len(data)*[str(polarisation)],
-                                         chunks=True,
-                                         maxshape=(None, ))
+            training_data.create_dataset(
+                f"{group}/polarisation",
+                (len(times),),
+                data=len(data) * [str(polarisation)],
+                chunks=True,
+                maxshape=(None,),
+            )
         else:
-            training_data[f"{group}/polarisation"].resize((training_data[f"{group}/polarisation"].shape[0] + len(data) ), axis=0)
-            training_data[f"{group}/polarisation"][-len(data):] = len(data)*[str(polarisation)]
+            training_data[f"{group}/polarisation"].resize(
+                (training_data[f"{group}/polarisation"].shape[0] + len(data)), axis=0
+            )
+            training_data[f"{group}/polarisation"][-len(data) :] = len(data) * [
+                str(polarisation)
+            ]
 
         if f"{group}/data" not in training_data:
-            training_data.create_dataset(f"{group}/data",
-                                         (len(data), ),
-                                         data=data,
-                                         chunks=True,
-                                         maxshape=(None, ))
+            training_data.create_dataset(
+                f"{group}/data", (len(data),), data=data, chunks=True, maxshape=(None,)
+            )
         else:
-            training_data[f"{group}/data"].resize((training_data[f"{group}/data"].shape[0] + len(data) ), axis=0)
-            training_data[f"{group}/data"][-len(data):] = data
+            training_data[f"{group}/data"].resize(
+                (training_data[f"{group}/data"].shape[0] + len(data)), axis=0
+            )
+            training_data[f"{group}/data"][-len(data) :] = data
 
-        
         self._add_meta("parameters", list(locations.keys()), group)
         self._add_meta("parameters", "time", group)
         self._add_meta("polarisations", polarisation, group)
         self._add_meta("sources", source, group)
         print("reference mass", reference_mass)
         self._add_meta("reference mass", [reference_mass], group)
-        
-        
-    def get_training_data(self,
-                          label: str,
-                          polarisation: str = b"+",
-                          form: str = None,
-                          size: int = None
-                          ):
+
+    def get_training_data(
+        self, label: str, polarisation: str = b"+", form: str = None, size: int = None
+    ):
         training_data = self.h5file["training data"]
         locations = list(training_data[label]["locations"].keys())
 
         iloc = np.array(training_data[label]["polarisation"]) == polarisation
-                                                                 #self._assign_integer_keys("polarisations",
-                                                                 #                          polarisation,
-                                                                 #                          label)
+        # self._assign_integer_keys("polarisations",
+        #                          polarisation,
+        #                          label)
 
         xdata = np.zeros((len(locations), sum(iloc)))
         ydata = np.array(training_data[f"{label}"]["data"][iloc])
@@ -368,31 +390,32 @@ class DataWrapper001:
             idx = np.random.randint(0, sum(iloc), size=size)
             xdata = xdata[:, idx]
             ydata = ydata[idx]
-            
+
         if form is None:
             return xdata, ydata
 
-    def plot_surface(self,
-                     label: str,
-                     x: str,
-                     y: str,
-                     polarisation: str = "+",
-                     decimation: int = 1
-                     ):
+    def plot_surface(
+        self, label: str, x: str, y: str, polarisation: str = "+", decimation: int = 1
+    ):
         training_data = self.h5file["training data"]
         fig, axis = plt.subplots(1, 1, dpi=300)
 
-        iloc = np.array(training_data[label]["polarisation"]) == polarisation #self._assign_integer_keys("polarisations",
-                                                                              #             polarisation,
-                                                                              #             label)
-        axis.scatter(x=training_data[f"{label}"]["locations"][f"{x}"][iloc][::decimation],
-                     y=training_data[f"{label}"]["locations"][f"{y}"][iloc][::decimation],
-                     c=training_data[f"{label}"]["data"][iloc][::decimation],
-                     marker='.')
+        iloc = (
+            np.array(training_data[label]["polarisation"]) == polarisation
+        )  # self._assign_integer_keys("polarisations",
+        #             polarisation,
+        #             label)
+        axis.scatter(
+            x=training_data[f"{label}"]["locations"][f"{x}"][iloc][::decimation],
+            y=training_data[f"{label}"]["locations"][f"{y}"][iloc][::decimation],
+            c=training_data[f"{label}"]["data"][iloc][::decimation],
+            marker=".",
+        )
 
         axis.set_xlabel(x)
         axis.set_ylabel(y)
 
         return fig
+
 
 DataWrapper = DataWrapper001

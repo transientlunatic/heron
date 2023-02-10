@@ -10,12 +10,10 @@ from heron.likelihood import CUDALikelihood, InnerProduct, CUDATimedomainLikelih
 
 from heron.data import DataWrapper
 from heron.types import PSD
-from heron.utils import noise_psd
 
 import gpytorch
 import torch
 from elk.waveform import Timeseries
-from heron.models.torchbased import HeronCUDA,  train
 
 from nessai.flowsampler import FlowSampler
 from nessai.model import Model

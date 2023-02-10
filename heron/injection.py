@@ -34,7 +34,9 @@ def psd_from_lalinference(name: str, frequencies, lower_frequency: float = 20):
             "This noise source is not implemented in LALSimulation"
         )
 
-    masked_psd = lambda f: psd_func(f) if f >= lower_frequency else psd_func(lower_frequency)
+    masked_psd = (
+        lambda f: psd_func(f) if f >= lower_frequency else psd_func(lower_frequency)
+    )
     psd = torch.tensor([masked_psd(float(f)) for f in frequencies], dtype=torch.float64)
     psd = PSD(data=psd, frequencies=frequencies)
     return psd
@@ -42,7 +44,12 @@ def psd_from_lalinference(name: str, frequencies, lower_frequency: float = 20):
 
 def frequencies_from_times(times):
     """Get the frequency axies which corresponds to a given time axis."""
-    dt = (times[1] - times[0])
+    times = torch.linspace(
+        -times["before"],
+        times["after"],
+        int(times["sample rate"] * (times["before"] + times["after"])),
+    )
+    dt = times[1] - times[0]
     frequencies = torch.arange((len(times) + 1) // 2) / (dt * len(times))
     return frequencies
 
@@ -60,5 +67,7 @@ def create_noise_series(psd: PSD, times, device="cuda"):
        The device which the noise series should be stored in.
     """
     frequencies = frequencies_from_times(times)
-    noise = torch.tensor(noise_psd(len(times), frequencies=frequencies, psd=psd.data), device=device)
+    noise = torch.tensor(
+        noise_psd(int(times["sample rate"] * (times["before"] + times["after"])), frequencies=frequencies, psd=psd.data), device=device
+    )
     return noise
