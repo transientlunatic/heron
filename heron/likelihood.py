@@ -380,44 +380,23 @@ class CUDATimedomainLikelihood(Likelihood):
             self._cache_location = p
         return waveform
 
-    def _align_time_axis(self, times, data, draw, attr=None):
+    def _align_time_axis(self, times, data, draw):
         """
         Align the time axis of the drawn waveform to the time axis of the data.
         """
-        if attr:
-            data_2 = getattr(draw, attr)
-        else:
-            data_2 = draw
-        epoch = torch.min(torch.hstack([times, draw.times]))
+        epoch = torch.min(draw.times)
         times -= epoch
-        draw.times -= epoch
-        new_axis = torch.arange(
-            torch.min(torch.hstack([times, draw.times])),
-            torch.max(torch.hstack([times, draw.times])) + torch.diff(times)[0],
-            torch.diff(times)[0],
-            device=times.device
-        )
+        draw.times -= epoch # This probably isn't quite right
+        # Find the closest bin to the starts
+        zero_bin = int(torch.argmin(torch.abs(times - draw.times)))
+        # First roll the data so it aligns with the waveform
+        data = torch.roll(data, -zero_bin)#, axis=0)
 
-        new_idx_1 = (torch.argmin(torch.abs(new_axis-times[0])), 1 + torch.argmin(torch.abs(new_axis-times[-1])))
-        new_idx_2 = (torch.argmin(torch.abs(new_axis-draw.times[0])), 1 + torch.argmin(torch.abs(new_axis-draw.times[-1])))
-        
-        if data_2.ndim == 2:
-            new_data_1 = torch.zeros((len(new_axis), len(new_axis)), dtype=torch.float64, device=new_axis.device) * 1e-50
-            new_data_2 = torch.zeros((len(new_axis), len(new_axis)), dtype=torch.float64, device=new_axis.device) * 1e-50
-            new_data_1[new_idx_1[0]:new_idx_1[1], new_idx_1[0]:new_idx_1[1]] = data
-            new_data_2[new_idx_2[0]:new_idx_2[1], new_idx_2[0]:new_idx_2[1]] = data_2
-
-        elif data_2.ndim == 1:
-            new_data_1 = torch.zeros_like(new_axis, device=new_axis.device, dtype=torch.float64) * 1e-50
-            new_data_2 = torch.zeros_like(new_axis, device=new_axis.device, dtype=torch.float64) * 1e-50
-            new_data_1[new_idx_1[0]:new_idx_1[1]] = data
-            new_data_2[new_idx_2[0]:new_idx_2[1]] = data_2
-
-        return new_axis+epoch, new_data_1, new_data_2
+        return data[:len(draw.data)]
 
     def _residual(self, draw):
-        aligned_times, aligned_data, aligned_draw = self._align_time_axis(self.times, self.data, draw, attr="data")
-        residual = (aligned_data - aligned_draw).to(dtype=torch.double)
+        aligned_data = self._align_time_axis(self.times, self.data, draw)
+        residual = (aligned_data - draw.data).to(dtype=torch.double)
         return residual
 
     def snr(self, p, model_var=True):
@@ -428,15 +407,15 @@ class CUDATimedomainLikelihood(Likelihood):
         residual = self._residual(draw)
 
         if model_var:
-            aligned_times, aligned_C, aligned_draw_covariance = self._align_time_axis(self.times, self.C, draw, attr="covariance")
-            snr = self._weighted_residual_power(residual, aligned_C + aligned_draw_covariance)
+            aligned_C = self._align_time_axis(self.times, self.C, draw)
+            snr = self._weighted_residual_power(residual, aligned_C + draw.covariance)
             # snr = residual @ torch.inverse(self.C+draw.covariance) @ residual
         else:
             noise = torch.ones(self.C.shape[0]) * 1e-40
             noise = scipy.linalg.toeplitz(noise)
             noise = torch.tensor(noise, device=self.device)
-            aligned_times, aligned_C, aligned_noise = self._align_time_axis(self.times, self.C, noise)
-            snr = residual @ torch.inverse(aligned_C + aligned_noise) @ residual
+            aligned_C = self._align_time_axis(self.times, self.C, noise)
+            snr = residual @ torch.inverse(aligned_C + noise) @ residual
         return torch.sqrt(snr)
 
     def _residual_power(self, residual):
@@ -453,19 +432,18 @@ class CUDATimedomainLikelihood(Likelihood):
         Calculate the overall log-likelihood.
         """
         draw = self._call_model(p)
-        
-        aligned_times, aligned_C, aligned_draw_covariance = self._align_time_axis(self.times, self.C, draw, attr="covariance")
+        aligned_C = self._align_time_axis(self.times, self.C, draw)
         residual = self._residual(draw)
         if model_var:
-            noise = torch.ones(aligned_C.shape, dtype=torch.float64) * noise
+            noise = torch.ones(aligned_C.shape[0], dtype=torch.float64) * noise
             noise = scipy.linalg.toeplitz(noise.numpy())
             noise = torch.tensor(noise, device=self.device)
             like = -0.5 * self._weighted_residual_power(
-                residual, aligned_C + aligned_draw_covariance + noise
+                residual, aligned_C + draw.covariance + noise
             )
             like += 0.5 * self._normalisation(self.C + draw.covariance)
         else:
-            aligned_times, aligned_C, aligned_noise = self._align_time_axis(self.times, self.C, draw, attr="covariance")
+            aligned_C = self._align_time_axis(self.times, self.C, draw)
             noise = 1E-200 #aligned_C.mean()/1e60
             noise = torch.randn(aligned_C.shape[0], dtype=torch.float64, device=self.device) * noise
             noise = torch.diag(noise)#scipy.linalg.toeplitz(noise.cpu().numpy())
