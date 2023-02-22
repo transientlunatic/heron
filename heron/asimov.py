@@ -60,12 +60,16 @@ class Pipeline(asimov.pipeline.Pipeline):
     def detect_completion(self):
 
         self.logger.info("Checking for completion.")
-        frames = self.collect_assets()["posterior"]
-        if len(list(frames.values())) > 0:
-            self.logger.info("Posterior samples detected, job complete.")
-            return True
+        assets = self.collect_assets()
+        if "posterior" in assets:
+            posterior = assets["posterior"]
+            if len(list(frames.values())) > 0:
+                self.logger.info("Posterior samples detected, job complete.")
+                return True
+            else:
+                self.logger.info("Datafind job completion was not detected.")
+                return False
         else:
-            self.logger.info("Datafind job completion was not detected.")
             return False
 
     def after_completion(self):
