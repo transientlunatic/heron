@@ -17,12 +17,12 @@ noise model:
   
 priors:
   gpstime: [1126259461.5, 1126259462.5]
-  mass ratio: [0.1, 1.0]
-  distance: [500, 2000]
-  total mass: [20, 100]
+  #mass ratio: [0.1, 1.0]
+  #distance: [500, 2000]
+  #total mass: [20, 100]
 
 waveform:
-  model: Heron #IMRPhenomPv2
+  model: heron
   variance: True
 
 data:

@@ -564,7 +564,8 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             epoch - p["before"],
             epoch + p["after"],
             int(p["sample rate"] * (p["before"] + p["after"])),
-            device=self.device
+            device=self.device,
+            dtype=torch.float64,
         )
 
         eval_times = torch.linspace(
@@ -591,7 +592,8 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
                 psi
             ) + polarisations["cross"].data * response.cross * torch.sin(psi)
 
-            shift = int(torch.round(dt / torch.diff(times)[0]))
+            shift = int(torch.round(dt / torch.diff(times-times[0])[0]))
+            
             pre_pad = int(torch.round(p['pad before'] / torch.diff(times)[0]))
             post_pad = int(torch.round(p['pad after'] / torch.diff(times)[0]))
             waveform_mean = torch.nn.functional.pad(waveform_mean, (pre_pad, post_pad))

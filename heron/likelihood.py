@@ -360,7 +360,7 @@ class CUDATimedomainLikelihood(Likelihood):
         args = copy(self.gen_args)
         args.update(p)
         p = args
-        
+
         if self._cache_location == p:
             waveform = self._cache
         else:
@@ -380,8 +380,23 @@ class CUDATimedomainLikelihood(Likelihood):
             self._cache_location = p
         return waveform
 
+    def _align_time_axis(self, times, data, draw):
+        """
+        Align the time axis of the drawn waveform to the time axis of the data.
+        """
+        epoch = torch.min(draw.times)
+        times -= epoch
+        draw.times -= epoch # This probably isn't quite right
+        # Find the closest bin to the starts
+        zero_bin = int(torch.argmin(torch.abs(times - draw.times)))
+        # First roll the data so it aligns with the waveform
+        data = torch.roll(data, -zero_bin)#, axis=0)
+
+        return data[:len(draw.data)]
+
     def _residual(self, draw):
-        residual = (self.data - draw.data).to(dtype=torch.double)
+        aligned_data = self._align_time_axis(self.times, self.data, draw)
+        residual = (aligned_data - draw.data).to(dtype=torch.double)
         return residual
 
     def snr(self, p, model_var=True):
@@ -392,13 +407,15 @@ class CUDATimedomainLikelihood(Likelihood):
         residual = self._residual(draw)
 
         if model_var:
-            snr = self._weighted_residual_power(residual, self.C + draw.covariance)
+            aligned_C = self._align_time_axis(self.times, self.C, draw)
+            snr = self._weighted_residual_power(residual, aligned_C + draw.covariance)
             # snr = residual @ torch.inverse(self.C+draw.covariance) @ residual
         else:
             noise = torch.ones(self.C.shape[0]) * 1e-40
             noise = scipy.linalg.toeplitz(noise)
             noise = torch.tensor(noise, device=self.device)
-            snr = residual @ torch.inverse(self.C + noise) @ residual
+            aligned_C = self._align_time_axis(self.times, self.C, noise)
+            snr = residual @ torch.inverse(aligned_C + noise) @ residual
         return torch.sqrt(snr)
 
     def _residual_power(self, residual):
@@ -410,28 +427,36 @@ class CUDATimedomainLikelihood(Likelihood):
     def _normalisation(self, weight):
         return torch.logdet(2 * torch.pi * weight)
 
-    def _log_likelihood(self, p, model_var=True, noise=1e-20):
+    def _log_likelihood(self, p, model_var=True, noise=1e-40):
         """
         Calculate the overall log-likelihood.
         """
         draw = self._call_model(p)
+        aligned_C = self._align_time_axis(self.times, self.C, draw)
         residual = self._residual(draw)
         if model_var:
+            noise = torch.ones(aligned_C.shape[0], dtype=torch.float64) * noise
+            noise = scipy.linalg.toeplitz(noise.numpy())
+            noise = torch.tensor(noise, device=self.device)
             like = -0.5 * self._weighted_residual_power(
-                residual, self.C + draw.covariance
+                residual, aligned_C + draw.covariance + noise
             )
             like += 0.5 * self._normalisation(self.C + draw.covariance)
         else:
-            noise = torch.ones(self.C.shape[0], dtype=torch.float64) * noise
-            noise = scipy.linalg.toeplitz(noise.numpy())
-            noise = torch.tensor(noise, device=self.device)
+            aligned_C = self._align_time_axis(self.times, self.C, draw)
+            noise = 1E-200 #aligned_C.mean()/1e60
+            noise = torch.randn(aligned_C.shape[0], dtype=torch.float64, device=self.device) * noise
+            noise = torch.diag(noise)#scipy.linalg.toeplitz(noise.cpu().numpy())
+            #noise = torch.tensor(noise, device=self.device)
             # noise = 0
             # for the psd inverse f transform of the inverse of the PSD
             # did we get rid of the low-frequency zeros
             # what happens if we use a "flat" PSD without adding noise
             # could rescale the matrix before inverting and then rescaling again
-            like = -0.5 * self._weighted_residual_power(residual, self.C)
+
+            like = -0.5 * self._weighted_residual_power(residual, aligned_C+noise)
             like += 0.5 * self._normalisation(self.C)
+            print("LIKE", like, p)
         return like
 
 
