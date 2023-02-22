@@ -52,6 +52,7 @@ class Pipeline(asimov.pipeline.Pipeline):
             with schedd.transaction() as txn:
                 cluster_id = job.queue(txn)
 
+        self.production.job_id = int(cluster_id)
         self.clusterid = cluster_id
 
     def submit_dag(self, dryrun=False):
