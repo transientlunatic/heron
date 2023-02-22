@@ -1,6 +1,8 @@
 import importlib
 import os
 import configparser
+import glob
+import shutil
 
 import asimov.pipeline
 from asimov import config
@@ -55,9 +57,68 @@ class Pipeline(asimov.pipeline.Pipeline):
     def submit_dag(self, dryrun=False):
         return self.clusterid
 
+    def detect_completion(self):
 
-# def submit_description(schedulers):
-#     schedd = htcondor.Schedd(schedulers)
-#     with schedd.transaction() as txn:
-#         cluster_id = job.queue(txn)
-#     return cluster_id
+        self.logger.info("Checking for completion.")
+        frames = self.collect_assets()["posterior"]
+        if len(list(frames.values())) > 0:
+            self.logger.info("Posterior samples detected, job complete.")
+            return True
+        else:
+            self.logger.info("Datafind job completion was not detected.")
+            return False
+
+    def after_completion(self):
+        self.production.status = "uploaded"
+
+    def collect_assets(self):
+        """
+        Collect the assets for this job.
+        """
+
+        outputs = {}
+        files = {"posterior": "result.json"}
+        for name, data_file in files.items():
+            if os.path.exists(data_file):
+                outputs[name] = data_file
+
+        self.production.event.update_data()
+        return outputs
+
+    def html(self):
+        """Return the HTML representation of this pipeline."""
+        pages_dir = os.path.join(self.production.event.name, self.production.name)
+        pages_dir_full = os.path.join(config.get("general", "webroot"), pages_dir)
+
+        out = ""
+
+        image_card = """<div class="card" style="width: 18rem;">
+<img class="card-img-top" src="{0}" alt="Card image cap">
+  <div class="card-body">
+    <p class="card-text">{1}</p>
+  </div>
+</div>
+        """
+        os.makedirs(pages_dir, exist_ok=True)
+
+        for png_file in glob.glob(f"{self.production.rundir}/*.png"):
+            name = png_file.split("/")[-1]
+            shutil.copy(name, os.path.join(pages_dir_full, name))
+        out += """<div class="asimov-pipeline heron">"""
+        if self.production.status in {"running", "stuck"}:
+            out += image_card.format(
+                f"{pages_dir_full}/plots/trace.png",
+                "Trace plot",
+            )
+        if self.production.status in {"finished", "uploaded"}:
+            # out += (
+            #     f"""<p><a href="{pages_dir}/index.html">Full Megaplot output</a></p>"""
+            # )
+            out += image_card.format(
+                f"{pages_dir}/plots/posterior.png",
+                "Posterior plot",
+            )
+
+        out += """</div>"""
+
+        return out
