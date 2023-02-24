@@ -19,8 +19,8 @@ This version of heron is implemented slightly differently to older versions, and
 	      
    readme
    installation
-   usage
-   api
+   getting-started
+   authors
    
 Tutorials and Examples
 ======================
@@ -30,7 +30,9 @@ Tutorials and Examples
 	     
    usage
    theory
+   training
    verification-tutorial
+	likelihood-tutorial
    
 
 Pre-supplied Models
@@ -45,9 +47,21 @@ It's also fairly easy to use the existing framework to implement a new model, us
 
    george
    gpytorch
-   new-model
+
+   model-interface
    
 
+Inference
+=========
+
+Using waveform models which have uncertainty requires a new likelihood function compared to models without.
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Inference
+
+   likelihood
+   
 Testing and verifying models
 ============================
 
@@ -56,6 +70,16 @@ Testing and verifying models
    :caption: Verification
 
    verification
+
+Theory
+======
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Theory
+
+   theory
+   likelihood
    
 Indices and tables
 ==================

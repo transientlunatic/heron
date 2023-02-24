@@ -1,5 +1,6 @@
-Implementing new models
-=======================
+=============================
+The Heron Modelling Interface
+=============================
 
 All models implemented in the `heron` package are built on top of the `Model` class, which provides a number of useful methods to assist in creating a Gaussian process model.
 
@@ -56,3 +57,36 @@ For simpler models which don't include spin effects you should use the ``heron.m
 
 For time-domain strain models you should have your model class inherit the ``heron.models.gw.HofTSurrogate`` class.
 This provides interfaces to the waveform model which are particular to a time-domain model.
+
+
+Frequency domain transforms
+---------------------------
+
+``Heron`` is capable of performing the Fourier transform of the outputs of its models.
+Unlike a conventional waveform model, where the conversion from time-domain to frequency-domain requires applying the DFT to the time-domain waveform, ``heron`` must compute the transformation on the multidimensional normal distribution which the model outputs.
+
+Fortunately, this process is straight-forward.
+A ``Heron`` model provides a mean waveform, and the associated covariance matrix, meaning that a waveform, $h$ drawn from the model can be represented as a series of draws of the form
+
+.. math::
+
+   h(t) ~ \mathcal{N}(\mu, \Sigma)
+
+for :math:`\mu` and :math:`\Sigma` respectively the mean and covariance at the appropriate point in parameter space.
+
+Given the Gaussian function has the property that :math:`\forall A \in \mathcal{C}`
+
+.. math::
+
+   Ax ~ \mathcal(A \mu, A \Sigma A^{\mathrm{T}})
+
+It is possible to represent the discrete Fourier transform as a matrix operator (the DFT Matrix), so for
+
+.. math::
+
+   \tilde{x}(f) = \mathcal{F}[x(t)] = Fx ~ \mathcal{N}(F\mu, F \Sigma F^{\mathrm{T}})
+
+meaning that a draw of a frequency domain waveform can be calculated by drawing from the normal distribution with a mean of ``fft(mean_t)`` and covariance ``fft2(covariance_t)``.
+
+
+The ``frequency_domain_waveform`` method can be used on models which support the conversion to provide frequency domain waveforms.

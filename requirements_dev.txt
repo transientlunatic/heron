@@ -13,3 +13,4 @@ sphinx-versions
 numpydoc
 kentigern
 nbsphinx
+sphinxcontrib-bibtex

@@ -1,0 +1,18 @@
+# HERON CONFIGURATION FILE
+# PRODUCTION: {{ production.name }}
+# EVENT: {{ production.event.name }}
+
+name: {{ production.name }}
+
+injection: {{ production.meta['injection'] }}
+injection model: {{ production.meta['injection model'] }}
+
+noise model: {{ production.meta['noise model'] }}
+
+data: {{ production.meta['data'] }}
+
+priors: {{ production.meta['priors'] }}
+
+waveform: {{ production.meta['waveform'] }}
+
+report: {{ production.meta['report'] }}

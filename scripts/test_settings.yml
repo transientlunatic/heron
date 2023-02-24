@@ -1,0 +1,34 @@
+name: heron-test-imrphenom-injection-withgps
+
+injection:
+  mass ratio: 0.6
+  total mass: 65
+  ra: 1.79
+  dec: -1.22
+  psi: 1.47
+  gpstime: 1126259462
+  detector: L1
+  distance: 1000
+
+injection model:  IMRPhenomPv2
+  
+noise model:
+  name: SimNoisePSDaLIGOZeroDetHighPower
+  
+priors:
+  gpstime: [1126259461.5, 1126259462.5]
+  #mass ratio: [0.1, 1.0]
+  #distance: [500, 2000]
+  #total mass: [20, 100]
+
+waveform:
+  model: heron
+  variance: True
+
+data:
+  start time: -0.05
+  duration: 0.12
+  sample rate: 4096
+
+report:
+  location: /home/daniel/public_html/tests/heron/
