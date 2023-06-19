@@ -6,17 +6,11 @@ from copy import copy
 import torch
 import elk
 import elk.waveform
-from .utils import diag_cuda, Complex
 
 import scipy.linalg
 import scipy.signal
 
-from lal import (
-    antenna,
-    cached_detector_by_prefix,
-    TimeDelayFromEarthCenter,
-    LIGOTimeGPS,
-)
+from lal import cached_detector_by_prefix
 
 import warnings
 
@@ -27,6 +21,34 @@ if not DISABLE_CUDA and torch.cuda.is_available():
     device = torch.device("cuda")
 else:
     device = torch.device("cpu")
+
+def determine_overlap(timeseries_a, timeseries_b):
+    def is_in(time, timeseries):
+        diff = torch.min(torch.abs(timeseries-time))
+        if diff < (timeseries[1]-timeseries[0]):
+            return True, diff
+        else:
+            return False, diff
+
+    overlap = None
+    if is_in(timeseries_a.times[-1], timeseries_b.times)[0] and is_in(timeseries_b.times[0], timeseries_a.times)[0]:
+        overlap = timeseries_b.times[0], timeseries_a.times[-1]
+    elif is_in(timeseries_a.times[0], timeseries_b.times)[0] and is_in(timeseries_b.times[-1], timeseries_a.times)[0]:
+        overlap = timeseries_a.times[0], timeseries_b.times[-1]
+    elif is_in(timeseries_b.times[0], timeseries_a.times)[0] and is_in(timeseries_b.times[-1], timeseries_a.times)[0] and not is_in(timeseries_a.times[-1], timeseries_b.times)[0]:
+        overlap = timeseries_b.times[0], timeseries_b.times[-1]
+    elif is_in(timeseries_a.times[0], timeseries_b.times)[0] and is_in(timeseries_a.times[-1], timeseries_b.times)[0] and not is_in(timeseries_b.times[-1], timeseries_a.times)[0]:
+        overlap = timeseries_a.times[0], timeseries_a.times[-1]
+    else:
+        overlap = None
+        return None
+
+    start_a = (torch.argmin(torch.abs(timeseries_a.times - overlap[0])))
+    finish_a = (torch.argmin(torch.abs(timeseries_a.times - overlap[-1])))
+
+    start_b = (torch.argmin(torch.abs(timeseries_b.times - overlap[0])))
+    finish_b = (torch.argmin(torch.abs(timeseries_b.times - overlap[-1])))
+    return (start_a, finish_a), (start_b, finish_b)
 
 
 class Overlap:
@@ -337,6 +359,7 @@ class CUDATimedomainLikelihood(Likelihood):
             self.gen_args["detector"] = data.detector
 
         if isinstance(data, elk.waveform.Timeseries):
+            self.timeseries = data
             self.data = data.data.clone()
             self.times = data.times.clone()
             self.duration = self.times[-1] - self.times[0]
@@ -379,24 +402,13 @@ class CUDATimedomainLikelihood(Likelihood):
             self._cache = waveform
             self._cache_location = p
         return waveform
-
-    def _align_time_axis(self, times, data, draw):
-        """
-        Align the time axis of the drawn waveform to the time axis of the data.
-        """
-        epoch = torch.min(draw.times)
-        times -= epoch
-        draw.times -= epoch # This probably isn't quite right
-        # Find the closest bin to the starts
-        zero_bin = int(torch.argmin(torch.abs(times - draw.times)))
-        # First roll the data so it aligns with the waveform
-        #data = torch.roll(data, -zero_bin)#, axis=0)
-
-        return data[zero_bin:zero_bin+len(draw.data)]
-
+    
+    def determine_overlap(self, A, B):
+        return determine_overlap(A, B)
+    
     def _residual(self, draw):
-        aligned_data = self._align_time_axis(self.times, self.data, draw)
-        residual = (aligned_data - draw.data).to(dtype=torch.double)
+        indices = self.determine_overlap(self.timeseries, draw)
+        residual = (self.data[indices[0][0]:indices[0][1]] - draw.data[indices[1][0]:indices[1][1]]).to(dtype=torch.double)
         return residual
 
     def snr(self, p, model_var=True):
@@ -408,7 +420,12 @@ class CUDATimedomainLikelihood(Likelihood):
 
         if model_var:
             aligned_C = self._align_time_axis(self.times, self.C, draw)
-            snr = self._weighted_residual_power(residual, aligned_C + draw.covariance)
+            aligned_covariance = self._align_time_axis(
+                self.times, draw.covariance, draw
+            )
+            snr = self._weighted_residual_power(
+                residual, aligned_C + aligned_covariance
+            )
             # snr = residual @ torch.inverse(self.C+draw.covariance) @ residual
         else:
             noise = torch.ones(self.C.shape[0]) * 1e-40
@@ -432,30 +449,39 @@ class CUDATimedomainLikelihood(Likelihood):
         Calculate the overall log-likelihood.
         """
         draw = self._call_model(p)
-        aligned_C = self._align_time_axis(self.times, self.C, draw)
+        diff = torch.min(torch.abs(self.times-float(draw.times[0])))
+        sign = (torch.min(self.times-float(draw.times[0])) / torch.abs(self.times-float(draw.times[0])))[0]
+        if diff > 1e-5:
+            # Redraw with the correct offsets
+            p['before'] += float(diff * int(sign))
+            draw = self._call_model(p)
+        indices = self.determine_overlap(self.timeseries, draw)
+        aligned_C = self.C[indices[0][0]:indices[0][1],indices[0][0]:indices[0][1]]
+
         residual = self._residual(draw)
         if model_var:
             noise = torch.ones(aligned_C.shape[0], dtype=torch.float64) * noise
             noise = scipy.linalg.toeplitz(noise.numpy())
             noise = torch.tensor(noise, device=self.device)
             like = -0.5 * self._weighted_residual_power(
-                residual, aligned_C + draw.covariance + noise
+                residual, aligned_C + draw.covariance[indices[1][0]:indices[1][1], indices[1][0]:indices[1][1]] + noise
             )
-            like += 0.5 * self._normalisation(self.C + draw.covariance)
+            like += 0.5 * self._normalisation(aligned_C + draw.covariance[indices[1][0]:indices[1][1], indices[1][0]:indices[1][1]])
         else:
-            aligned_C = self._align_time_axis(self.times, self.C, draw)
-            noise = 1E-200 #aligned_C.mean()/1e60
-            noise = torch.randn(aligned_C.shape[0], dtype=torch.float64, device=self.device) * noise
-            noise = torch.diag(noise)#scipy.linalg.toeplitz(noise.cpu().numpy())
+            noise = 1e-200  # aligned_C.mean()/1e60
+            noise = (
+                torch.randn(aligned_C.shape[0], dtype=torch.float64, device=self.device)
+                * noise
+            )
+            noise = torch.diag(noise)  # scipy.linalg.toeplitz(noise.cpu().numpy())
             # noise = 0
             # for the psd inverse f transform of the inverse of the PSD
             # did we get rid of the low-frequency zeros
             # what happens if we use a "flat" PSD without adding noise
             # could rescale the matrix before inverting and then rescaling again
 
-            like = -0.5 * self._weighted_residual_power(residual, aligned_C+noise)
+            like = -0.5 * self._weighted_residual_power(residual[:aligned_C.shape[0]], aligned_C + noise)
             like += 0.5 * self._normalisation(self.C)
-            print("LIKE", like, p)
         return like
 
 

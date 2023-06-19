@@ -480,9 +480,7 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
 
         window = window if window else torch.hamming_window
 
-        # print("TIMES BEFORE", times)
         timeseries = self.time_domain_waveform(times=times.clone(), p=p)
-        # print("TIMES AFTER", timeseries['plus'].times)
         frequencyseries = {
             pol: ts.to_frequencyseries(window=window) for pol, ts in timeseries.items()
         }
@@ -568,11 +566,13 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             dtype=torch.float64,
         )
 
+        diff = torch.min(torch.abs(times - epoch))
+        times += diff
+
         eval_times = torch.linspace(
             (times[0]-epoch) / mass_factor, (times[-1]-epoch) / mass_factor, len(times),
             device=self.device
         )
-
         if "ra" in p.keys():
             ra, dec, psi, gpstime = (
                 p["ra"],

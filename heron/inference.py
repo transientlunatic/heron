@@ -103,7 +103,7 @@ def inference(settings):
         with report:
             report += "Injected waveform"
             report += f
-            
+
     heron_likelihood = CUDATimedomainLikelihood(
         models[settings["waveform"]["model"]],
         data=detection,
