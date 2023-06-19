@@ -390,9 +390,9 @@ class CUDATimedomainLikelihood(Likelihood):
         # Find the closest bin to the starts
         zero_bin = int(torch.argmin(torch.abs(times - draw.times)))
         # First roll the data so it aligns with the waveform
-        data = torch.roll(data, -zero_bin)#, axis=0)
+        #data = torch.roll(data, -zero_bin)#, axis=0)
 
-        return data[:len(draw.data)]
+        return data[zero_bin:zero_bin+len(draw.data)]
 
     def _residual(self, draw):
         aligned_data = self._align_time_axis(self.times, self.data, draw)
@@ -447,7 +447,6 @@ class CUDATimedomainLikelihood(Likelihood):
             noise = 1E-200 #aligned_C.mean()/1e60
             noise = torch.randn(aligned_C.shape[0], dtype=torch.float64, device=self.device) * noise
             noise = torch.diag(noise)#scipy.linalg.toeplitz(noise.cpu().numpy())
-            #noise = torch.tensor(noise, device=self.device)
             # noise = 0
             # for the psd inverse f transform of the inverse of the PSD
             # did we get rid of the low-frequency zeros
