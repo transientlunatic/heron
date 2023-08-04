@@ -23,7 +23,7 @@ class HeronSampler(Model):
     def __init__(self, heron_likelihood, priors, base_p, uncertainty=True):
         # Names of parameters to sample
         self.names = list(priors.keys())
-        self.bounds = priors
+        self.bounds = {key: [value['minimum'], value['maximum']] for key, value in priors.items() if 'minimum' in value}
         self.heron_likelihood = heron_likelihood
         self.waveform_uncertainty = uncertainty
         self.base_p = base_p
