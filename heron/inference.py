@@ -83,7 +83,7 @@ def inference(settings):
             p=settings["injection"]
         )
 
-        detection = Timeseries(data=signal.data + noise, times=settings['injection']['gpstime']+signal.times)
+        detection = Timeseries(data=signal.data + noise, times=signal.times)
         sos = scipy.signal.butter(
             10,
             20,

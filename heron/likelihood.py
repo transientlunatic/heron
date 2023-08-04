@@ -22,32 +22,47 @@ if not DISABLE_CUDA and torch.cuda.is_available():
 else:
     device = torch.device("cpu")
 
+
 def determine_overlap(timeseries_a, timeseries_b):
     def is_in(time, timeseries):
-        diff = torch.min(torch.abs(timeseries-time))
-        if diff < (timeseries[1]-timeseries[0]):
+        diff = torch.min(torch.abs(timeseries - time))
+        if diff < (timeseries[1] - timeseries[0]):
             return True, diff
         else:
             return False, diff
 
     overlap = None
-    if is_in(timeseries_a.times[-1], timeseries_b.times)[0] and is_in(timeseries_b.times[0], timeseries_a.times)[0]:
+    if (
+        is_in(timeseries_a.times[-1], timeseries_b.times)[0]
+        and is_in(timeseries_b.times[0], timeseries_a.times)[0]
+    ):
         overlap = timeseries_b.times[0], timeseries_a.times[-1]
-    elif is_in(timeseries_a.times[0], timeseries_b.times)[0] and is_in(timeseries_b.times[-1], timeseries_a.times)[0]:
+    elif (
+        is_in(timeseries_a.times[0], timeseries_b.times)[0]
+        and is_in(timeseries_b.times[-1], timeseries_a.times)[0]
+    ):
         overlap = timeseries_a.times[0], timeseries_b.times[-1]
-    elif is_in(timeseries_b.times[0], timeseries_a.times)[0] and is_in(timeseries_b.times[-1], timeseries_a.times)[0] and not is_in(timeseries_a.times[-1], timeseries_b.times)[0]:
+    elif (
+        is_in(timeseries_b.times[0], timeseries_a.times)[0]
+        and is_in(timeseries_b.times[-1], timeseries_a.times)[0]
+        and not is_in(timeseries_a.times[-1], timeseries_b.times)[0]
+    ):
         overlap = timeseries_b.times[0], timeseries_b.times[-1]
-    elif is_in(timeseries_a.times[0], timeseries_b.times)[0] and is_in(timeseries_a.times[-1], timeseries_b.times)[0] and not is_in(timeseries_b.times[-1], timeseries_a.times)[0]:
+    elif (
+        is_in(timeseries_a.times[0], timeseries_b.times)[0]
+        and is_in(timeseries_a.times[-1], timeseries_b.times)[0]
+        and not is_in(timeseries_b.times[-1], timeseries_a.times)[0]
+    ):
         overlap = timeseries_a.times[0], timeseries_a.times[-1]
     else:
         overlap = None
         return None
 
-    start_a = (torch.argmin(torch.abs(timeseries_a.times - overlap[0])))
-    finish_a = (torch.argmin(torch.abs(timeseries_a.times - overlap[-1])))
+    start_a = torch.argmin(torch.abs(timeseries_a.times - overlap[0]))
+    finish_a = torch.argmin(torch.abs(timeseries_a.times - overlap[-1]))
 
-    start_b = (torch.argmin(torch.abs(timeseries_b.times - overlap[0])))
-    finish_b = (torch.argmin(torch.abs(timeseries_b.times - overlap[-1])))
+    start_b = torch.argmin(torch.abs(timeseries_b.times - overlap[0]))
+    finish_b = torch.argmin(torch.abs(timeseries_b.times - overlap[-1]))
     return (start_a, finish_a), (start_b, finish_b)
 
 
@@ -402,13 +417,16 @@ class CUDATimedomainLikelihood(Likelihood):
             self._cache = waveform
             self._cache_location = p
         return waveform
-    
+
     def determine_overlap(self, A, B):
         return determine_overlap(A, B)
-    
+
     def _residual(self, draw):
         indices = self.determine_overlap(self.timeseries, draw)
-        residual = (self.data[indices[0][0]:indices[0][1]] - draw.data[indices[1][0]:indices[1][1]]).to(dtype=torch.double)
+        residual = (
+            self.data[indices[0][0] : indices[0][1]]
+            - draw.data[indices[1][0] : indices[1][1]]
+        ).to(dtype=torch.double)
         return residual
 
     def snr(self, p, model_var=True):
@@ -449,14 +467,17 @@ class CUDATimedomainLikelihood(Likelihood):
         Calculate the overall log-likelihood.
         """
         draw = self._call_model(p)
-        diff = torch.min(torch.abs(self.times-float(draw.times[0])))
-        sign = (torch.min(self.times-float(draw.times[0])) / torch.abs(self.times-float(draw.times[0])))[0]
+        diff = torch.min(torch.abs(self.times - float(draw.times[0])))
+        sign = (
+            torch.min(self.times - float(draw.times[0]))
+            / torch.abs(self.times - float(draw.times[0]))
+        )[0]
         if diff > 1e-5:
             # Redraw with the correct offsets
-            p['before'] += float(diff * int(sign))
+            p["before"] += float(diff * int(sign))
             draw = self._call_model(p)
         indices = self.determine_overlap(self.timeseries, draw)
-        aligned_C = self.C[indices[0][0]:indices[0][1],indices[0][0]:indices[0][1]]
+        aligned_C = self.C[indices[0][0] : indices[0][1], indices[0][0] : indices[0][1]]
 
         residual = self._residual(draw)
         if model_var:
@@ -464,9 +485,19 @@ class CUDATimedomainLikelihood(Likelihood):
             noise = scipy.linalg.toeplitz(noise.numpy())
             noise = torch.tensor(noise, device=self.device)
             like = -0.5 * self._weighted_residual_power(
-                residual, aligned_C + draw.covariance[indices[1][0]:indices[1][1], indices[1][0]:indices[1][1]] + noise
+                residual,
+                aligned_C
+                + draw.covariance[
+                    indices[1][0] : indices[1][1], indices[1][0] : indices[1][1]
+                ]
+                + noise,
             )
-            like += 0.5 * self._normalisation(aligned_C + draw.covariance[indices[1][0]:indices[1][1], indices[1][0]:indices[1][1]])
+            like += 0.5 * self._normalisation(
+                aligned_C
+                + draw.covariance[
+                    indices[1][0] : indices[1][1], indices[1][0] : indices[1][1]
+                ]
+            )
         else:
             noise = 1e-200  # aligned_C.mean()/1e60
             noise = (
@@ -480,7 +511,9 @@ class CUDATimedomainLikelihood(Likelihood):
             # what happens if we use a "flat" PSD without adding noise
             # could rescale the matrix before inverting and then rescaling again
 
-            like = -0.5 * self._weighted_residual_power(residual[:aligned_C.shape[0]], aligned_C + noise)
+            like = -0.5 * self._weighted_residual_power(
+                residual[: aligned_C.shape[0]], aligned_C + noise
+            )
             like += 0.5 * self._normalisation(self.C)
         return like
 
