@@ -527,16 +527,15 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
         """
         Return the timedomain waveform.
         """
-
         defaults = {
             "before": 0.05,
             "after": 0.01,
             "pad before": 0.2,
             "pad after": 0.05
         }
-        
-        defaults.update(p)
-        p = defaults
+        evals = defaults.copy()
+        evals.update(p)
+        p = evals
         
         if "distance" in p:
             # The distance in megaparsec
@@ -556,7 +555,6 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             total_mass = 20
 
         mass_factor = total_mass / self.reference_mass
-
         epoch = p["gpstime"]
         times = torch.linspace(
             epoch - p["before"],
@@ -567,12 +565,13 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
         )
 
         diff = torch.min(torch.abs(times - epoch))
-        times += diff
+        #times += diff
 
         eval_times = torch.linspace(
-            (times[0]-epoch) / mass_factor, (times[-1]-epoch) / mass_factor, len(times),
+            p['before'] / mass_factor, p['after'] / mass_factor, int((p['after']+p['before'])*p['sample rate']),
             device=self.device
         )
+        
         if "ra" in p.keys():
             ra, dec, psi, gpstime = (
                 p["ra"],
