@@ -485,11 +485,11 @@ class CUDATimedomainLikelihood(Likelihood):
         #     print("Redrawing", diff)
         #     p["before"] += float(diff * int(sign))
         #     draw = self._call_model(p)
-        indices = self.determine_overlap(self.timeseries, draw)
-        if not indices:
-            return -torch.inf
+        # indices = self.determine_overlap(self.timeseries, draw)
+        # if not indices:
+        #     return -torch.inf
 
-        aligned_C = self.C[indices[0][0] : indices[0][1], indices[0][0] : indices[0][1]]
+        aligned_C = self.C#[indices[0][0] : indices[0][1], indices[0][0] : indices[0][1]]
 
         residual = self._residual(draw)
         if model_var:
@@ -499,16 +499,16 @@ class CUDATimedomainLikelihood(Likelihood):
             like = -0.5 * self._weighted_residual_power(
                 residual,
                 aligned_C
-                + draw.covariance[
-                    indices[1][0] : indices[1][1], indices[1][0] : indices[1][1]
-                ]
+                + draw.covariance# [
+                #     indices[1][0] : indices[1][1], indices[1][0] : indices[1][1]
+                # ]
                 + noise,
             )
             like += 0.5 * self._normalisation(
                 aligned_C
-                + draw.covariance[
-                    indices[1][0] : indices[1][1], indices[1][0] : indices[1][1]
-                ]
+                + draw.covariance# [
+                #     indices[1][0] : indices[1][1], indices[1][0] : indices[1][1]
+                # ]
             )
         else:
             noise = 1e-200  # aligned_C.mean()/1e60
