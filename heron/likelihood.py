@@ -424,8 +424,8 @@ class CUDATimedomainLikelihood(Likelihood):
     def _residual(self, draw):
         indices = self.determine_overlap(self.timeseries, draw)
         residual = (
-            self.data[indices[0][0] : indices[0][1]]
-            - draw.data[indices[1][0] : indices[1][1]]
+            self.data#[indices[0][0] : indices[0][1]]
+            - draw.data#[indices[1][0] : indices[1][1]]
         ).to(dtype=torch.double)
         return residual
 
