@@ -556,7 +556,7 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
 
         mass_factor = total_mass / self.reference_mass
         epoch = p["gpstime"]
-        if not times:
+        if isinstance(times, type(None)):
             times = torch.linspace(
                 epoch - p["before"],
                 epoch + p["after"],
