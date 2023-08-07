@@ -471,20 +471,20 @@ class CUDATimedomainLikelihood(Likelihood):
         
         draw = self._call_model(p, times)
         #print("times0", float(self.times[0]), float(draw.times[0]))
-        diff = torch.min(torch.abs(self.times - self.times[0] - p['before'] - float(draw.times[0])))
+        # diff = torch.min(torch.abs(self.times - self.times[0] - p['before'] - float(draw.times[0])))
 
-        if diff > p['before'] + p['after']:
-            return - torch.inf
+        # if diff > p['before'] + p['after']:
+        #     return - torch.inf
         
-        sign = (
-            torch.min(self.times - float(draw.times[0]))
-            / torch.abs(self.times - float(draw.times[0]))
-        )[0]
-        if diff > 1e-5:
-            # Redraw with the correct offsets
-            print("Redrawing", diff)
-            p["before"] += float(diff * int(sign))
-            draw = self._call_model(p)
+        # sign = (
+        #     torch.min(self.times - float(draw.times[0]))
+        #     / torch.abs(self.times - float(draw.times[0]))
+        # )[0]
+        # if diff > 1e-5:
+        #     # Redraw with the correct offsets
+        #     print("Redrawing", diff)
+        #     p["before"] += float(diff * int(sign))
+        #     draw = self._call_model(p)
         indices = self.determine_overlap(self.timeseries, draw)
         if not indices:
             return -torch.inf
