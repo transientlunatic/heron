@@ -523,7 +523,7 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
 
         return waveform
 
-    def time_domain_waveform(self, p):
+    def time_domain_waveform(self, p, times=None):
         """
         Return the timedomain waveform.
         """
@@ -556,22 +556,26 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
 
         mass_factor = total_mass / self.reference_mass
         epoch = p["gpstime"]
-        times = torch.linspace(
-            epoch - p["before"],
-            epoch + p["after"],
-            int(p["sample rate"] * (p["before"] + p["after"])),
-            device=self.device,
-            dtype=torch.float64,
-        )
+        if not times:
+            times = torch.linspace(
+                epoch - p["before"],
+                epoch + p["after"],
+                int(p["sample rate"] * (p["before"] + p["after"])),
+                device=self.device,
+                dtype=torch.float64,
+            )
 
-        diff = torch.min(torch.abs(times - epoch))
-        #times += diff
+            diff = torch.min(torch.abs(times - epoch))
+            #times += diff
 
-        eval_times = torch.linspace(
-            p['before'] / mass_factor, p['after'] / mass_factor, int((p['after']+p['before'])*p['sample rate']),
-            device=self.device
-        )
-        
+            eval_times = torch.linspace(
+                p['before'] / mass_factor, p['after'] / mass_factor, int((p['after']+p['before'])*p['sample rate']),
+                device=self.device
+            )
+
+        else:
+            eval_times = times / mass_factor
+            
         if "ra" in p.keys():
             ra, dec, psi, gpstime = (
                 p["ra"],

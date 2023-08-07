@@ -394,7 +394,7 @@ class CUDATimedomainLikelihood(Likelihood):
         )
         self.C = torch.tensor(scipy.linalg.toeplitz(self.C.cpu()), device=self.device)
 
-    def _call_model(self, p):
+    def _call_model(self, p, times):
         args = copy(self.gen_args)
         args.update(p)
         p = args
@@ -402,7 +402,7 @@ class CUDATimedomainLikelihood(Likelihood):
         if self._cache_location == p:
             waveform = self._cache
         else:
-            waveform = self.model.time_domain_waveform(p=p)
+            waveform = self.model.time_domain_waveform(p=p, times=times)
             sos = scipy.signal.butter(
                 10,
                 self.lower_frequency,
@@ -466,7 +466,10 @@ class CUDATimedomainLikelihood(Likelihood):
         """
         Calculate the overall log-likelihood.
         """
-        draw = self._call_model(p)
+
+        times = (self.times - self.times[0])
+        
+        draw = self._call_model(p, times)
         #print("times0", float(self.times[0]), float(draw.times[0]))
         diff = torch.min(torch.abs(self.times - self.times[0] - p['before'] - float(draw.times[0])))
 
