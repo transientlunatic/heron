@@ -53,11 +53,6 @@ def inference(settings):
 
     srate = settings["data"]["sample rate"]
     duration = settings["data"]["duration"]
-    #times = torch.linspace(
-    #    settings["data"]["start time"],
-    #    settings["data"]["start time"] + duration,
-    #    floor(duration * srate),
-    #)
 
     times = {"duration": duration,
              "sample rate": srate,
