@@ -16,7 +16,7 @@ class Pipeline(asimov.pipeline.Pipeline):
     """
 
     name = "heron"
-    config_template = importlib.resources.path("heron", "heron_template.yml")
+    config_template = importlib.resources.files("heron") / "heron_template.yml"
     _pipeline_command = "heron"
 
     def build_dag(self, dryrun=False):
@@ -32,7 +32,7 @@ class Pipeline(asimov.pipeline.Pipeline):
             "error": f"{name}.err",
             "log": f"{name}.log",
             "request_gpus": 1,
-            "batch_name": f"heron/{name}",
+            "batch_name": f"heron/{self.production.event.name}/{name}",
         }
 
         job = htcondor.Submit(description)

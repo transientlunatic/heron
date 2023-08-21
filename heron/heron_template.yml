@@ -15,4 +15,5 @@ priors: {{ production.meta['priors'] }}
 
 waveform: {{ production.meta['waveform'] }}
 
-report: {{ config['general']['webroot'] }}/{{ production.event.name }}/{{ production.name }}
+report:
+  location: {{ config['general']['webroot'] }}/{{ production.event.name }}/{{ production.name }}

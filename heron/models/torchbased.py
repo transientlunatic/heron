@@ -569,12 +569,12 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             #times += diff
 
             eval_times = torch.linspace(
-                p['before'] / mass_factor, p['after'] / mass_factor, int((p['after']+p['before'])*p['sample rate']),
+                -p['before'] / mass_factor, p['after'] / mass_factor, int((p['after']+p['before'])*p['sample rate']),
                 device=self.device
             )
 
         else:
-            eval_times = times / mass_factor
+            eval_times = (times - p["gpstime"]) / mass_factor
             
         if "ra" in p.keys():
             ra, dec, psi, gpstime = (
