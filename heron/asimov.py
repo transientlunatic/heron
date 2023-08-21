@@ -1,4 +1,5 @@
 import importlib
+import pkg_resources
 import os
 import configparser
 import glob
@@ -16,6 +17,7 @@ class Pipeline(asimov.pipeline.Pipeline):
     """
 
     name = "heron"
+
     config_template = importlib.resources.files("heron") / "heron_template.yml"
     _pipeline_command = "heron"
 
