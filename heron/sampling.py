@@ -30,10 +30,10 @@ class HeronSampler(Model):
         self.base_p = base_p
         self._update_bounds()
         
-        def _update_bounds(self):
-            self.bounds = {
-                key: [self.priors[key].minimum, self.priors[key].maximum]
-                for key in self.names
+    def _update_bounds(self):
+        self.bounds = {
+            key: [self.priors[key].minimum, self.priors[key].maximum]
+            for key in self.names
             }
         
     def log_prior(self, x):
