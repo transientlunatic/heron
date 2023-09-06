@@ -37,7 +37,9 @@ class HeronSampler(Model):
             }
         
     def log_prior(self, x):
-        return sum(self.priors.ln_prob(dict(zip(self.names, x))).values())
+        # print(self.names, x[0])
+        # print(dict(zip(self.names, x)))
+        return self.priors.ln_prob(dict(zip(self.names, x[0])))
 
     def log_likelihood(self, x):
         with torch.inference_mode():
