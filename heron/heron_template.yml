@@ -15,17 +15,15 @@ data: {{ production.meta['data'] }}
 priors:
 {%- if priors.keys() contains "geocentric time" %}
 {%- assign p = priors['geocentric time'] %}
-   geocent_time: {{p['type'] | default: 'Uniform' }}(name="geocent_time", minimum={{p['minimum']}}, maximum={{p['maximum']}}, boundary={{p['boundary'] | default: None}}),
+   gpstime: {{p['type'] | default: 'Uniform' }}(name="geocent_time", minimum={{p['minimum']}}, maximum={{p['maximum']}}, boundary={{p['boundary'] | default: None}}),
 {% endif %}
+{%- if priors.keys() contains "total mass" %}{% assign p = priors['total mass'] %}{% else %}{% assign p = None %}{% endif %}
+   total mass: {{p['type'] | default: Constraint}}(name='mass_1', minimum={{p['minimum'] | default: 1}}, maximum={{p['maximum'] | default: 1000}}),
 {%- if priors.keys() contains "mass ratio" %}{% assign p = priors['mass ratio'] %}{% else %}{% assign p = None %}{% endif %}
-   mass_ratio: {{p['type'] | default: "bilby.gw.prior.UniformInComponentsMassRatio" }}(name='mass_ratio', minimum={{p['minimum']}}, maximum={{p['maximum']}}),
-{%- if priors.keys() contains "mass 1" %}{% assign p = priors['mass 1'] %}{% else %}{% assign p = None %}{% endif %}
-   mass_1: {{p['type'] | default: Constraint}}(name='mass_1', minimum={{p['minimum'] | default: 1}}, maximum={{p['maximum'] | default: 1000}}),
-{%- if priors.keys() contains "mass 2" %}{% assign p = priors['mass 2'] %}{% else %}{% assign p = None %}{% endif %}
-   mass_2: {{p['type'] | default: Constraint}}(name='mass_2', minimum={{p['minimum'] | default: 1 }}, maximum={{p['maximum'] | default: 1000}}),
+   mass ratio: {{p['type'] | default: "bilby.gw.prior.UniformInComponentsMassRatio" }}(name='mass_ratio', minimum={{p['minimum']}}, maximum={{p['maximum']}}),
 {%- if priors.keys() contains "luminosity distance" %}
 {%- assign p = priors['luminosity distance'] %}
-   luminosity_distance: {{ p['type'] | default: PowerLaw}}(name='luminosity_distance', {% for key in p.keys() %}{% if key != "type" %}{{key | replace: " ", "_"}}={{p[key]}},{% endif %} {% endfor %} unit='Mpc'),
+   distance: {{ p['type'] | default: PowerLaw}}(name='luminosity_distance', {% for key in p.keys() %}{% if key != "type" %}{{key | replace: " ", "_"}}={{p[key]}},{% endif %} {% endfor %} unit='Mpc'),
    dec: Cosine(name='dec'),
    ra: Uniform(name='ra', minimum=0, maximum=2 * np.pi, boundary='periodic'),
    psi: Uniform(name='psi', minimum=0, maximum=np.pi, boundary='periodic')
