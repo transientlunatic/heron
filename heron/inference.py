@@ -75,7 +75,7 @@ def inference(settings):
         )
         noise = heron.injection.create_noise_series(psd, times)
         signal = models[settings["injection model"]].time_domain_waveform(
-            p=settings["injection"]
+            p=settings["injection"],
         )
 
         detection = Timeseries(data=signal.data + noise, times=signal.times)
@@ -106,6 +106,17 @@ def inference(settings):
         generator_args=times,
         psd=psd,
     )
+
+    l_times = (self.times - self.times[0])
+    detection = heron_likelihood.call_model(p=settings['injection'], times=l_times)
+    f, ax = plt.subplots(1, 1, dpi=300)
+    ax.plot(detection.times.cpu(), noise.cpu())
+    ax.plot(detection.times.cpu(), detection.data.cpu())
+    ax.plot(detection.times.cpu(), signal.data.cpu())
+
+    with report:
+        report += "## Likelihood"
+        report += f
 
     click.echo(f"Created likelihood on {heron_likelihood.device}")
 
