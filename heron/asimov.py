@@ -17,8 +17,8 @@ class Pipeline(asimov.pipeline.Pipeline):
     """
 
     name = "heron"
-    
-    config_template = pkg_resources.resource_filename("heron", "heron_template.yml")
+
+    config_template = importlib.resources.files("heron") / "heron_template.yml"
     _pipeline_command = "heron"
 
     def build_dag(self, dryrun=False):
@@ -34,7 +34,7 @@ class Pipeline(asimov.pipeline.Pipeline):
             "error": f"{name}.err",
             "log": f"{name}.log",
             "request_gpus": 1,
-            "batch_name": f"heron/{name}",
+            "batch_name": f"heron/{self.production.event.name}/{name}",
         }
 
         job = htcondor.Submit(description)
@@ -96,26 +96,32 @@ class Pipeline(asimov.pipeline.Pipeline):
         """Return the HTML representation of this pipeline."""
         pages_dir = os.path.join(self.production.event.name, self.production.name)
         pages_dir_full = os.path.join(config.get("general", "webroot"), pages_dir)
-
+        plots_dir = os.path.join(pages_dir_full, "plots")
+        os.makedirs(pages_dir_full, exist_ok=True)
+        os.makedirs(plots_dir, exist_ok=True)
         out = ""
 
-        image_card = """<div class="card" style="width: 18rem;">
+        image_card = """<div class="col"><div class="card" style="width: 18rem;">
 <img class="card-img-top" src="{0}" alt="Card image cap">
   <div class="card-body">
     <p class="card-text">{1}</p>
   </div>
-</div>
+</div></div>
         """
         os.makedirs(pages_dir, exist_ok=True)
 
-        for png_file in glob.glob(f"{self.production.rundir}/*.png"):
+        for png_file in glob.glob(f"{self.production.rundir}/{self.production.name}/*.png"):
             name = png_file.split("/")[-1]
-            shutil.copy(name, os.path.join(pages_dir_full, name))
-        out += """<div class="asimov-pipeline heron">"""
+            shutil.copy(png_file, os.path.join(plots_dir, name))
+        out += """<div class="asimov-pipeline heron row">"""
         if self.production.status in {"running", "stuck"}:
             out += image_card.format(
-                f"{pages_dir_full}/plots/trace.png",
+                f"{pages_dir}/plots/trace.png",
                 "Trace plot",
+            )
+            out += image_card.format(
+                f"{pages_dir}/plots/state.png",
+                "State plot",
             )
         if self.production.status in {"finished", "uploaded"}:
             # out += (

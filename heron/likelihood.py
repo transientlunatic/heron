@@ -467,7 +467,7 @@ class CUDATimedomainLikelihood(Likelihood):
         Calculate the overall log-likelihood.
         """
 
-        times = (self.times - self.times[0])
+        times = (self.times)# - self.times[0])
         
         draw = self._call_model(p, times)
         #print("times0", float(self.times[0]), float(draw.times[0]))

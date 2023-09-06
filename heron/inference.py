@@ -57,7 +57,7 @@ def inference(settings):
     times = {"duration": duration,
              "sample rate": srate,
              "before": 0.05,
-             "after": 0.01,
+             "after": 0.05,
              }
     
     settings["injection"].update(times)
@@ -77,6 +77,8 @@ def inference(settings):
         signal = models[settings["injection model"]].time_domain_waveform(
             p=settings["injection"],
         )
+        print(settings["injection"])
+        print(signal.times)
 
         detection = Timeseries(data=signal.data + noise, times=signal.times)
         sos = scipy.signal.butter(
@@ -98,7 +100,7 @@ def inference(settings):
         with report:
             report += "Injected waveform"
             report += f
-
+            
     heron_likelihood = CUDATimedomainLikelihood(
         models[settings["waveform"]["model"]],
         data=detection,
@@ -107,17 +109,16 @@ def inference(settings):
         psd=psd,
     )
 
-    l_times = (self.times - self.times[0])
-    detection = heron_likelihood.call_model(p=settings['injection'], times=l_times)
+    l_times = (heron_likelihood.times)
+    print("l_times", l_times)
+    detection = heron_likelihood._call_model(p=settings['injection'], times=l_times)
     f, ax = plt.subplots(1, 1, dpi=300)
-    ax.plot(detection.times.cpu(), noise.cpu())
     ax.plot(detection.times.cpu(), detection.data.cpu())
-    ax.plot(detection.times.cpu(), signal.data.cpu())
 
     with report:
         report += "## Likelihood"
         report += f
-
+    
     click.echo(f"Created likelihood on {heron_likelihood.device}")
 
     nessai_model = HeronSampler(
