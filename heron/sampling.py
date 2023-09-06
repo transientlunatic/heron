@@ -28,7 +28,14 @@ class HeronSampler(Model):
         self.heron_likelihood = heron_likelihood
         self.waveform_uncertainty = uncertainty
         self.base_p = base_p
-
+        self._update_bounds()
+        
+        def _update_bounds(self):
+            self.bounds = {
+                key: [self.priors[key].minimum, self.priors[key].maximum]
+                for key in self.names
+            }
+        
     def log_prior(self, x):
         return sum(self.priors.ln_prob(dict(zip(self.names, x))).values())
 

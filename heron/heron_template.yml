@@ -11,18 +11,16 @@ noise model: {{ production.meta['noise model'] }}
 
 data: {{ production.meta['data'] }}
 
-{%- assign priors = production.meta['priors'] -%}
+{%- assign priors = production.meta['priors'] %}
 priors:
-{%- if priors.keys() contains "geocentric time" %}
-{%- assign p = priors['geocentric time'] %}
+{%- if priors.keys() contains "geocentric time" %}{%- assign p = priors['geocentric time'] %}
    gpstime: {{p['type'] | default: 'Uniform' }}(name="gpstime", minimum={{p['minimum']}}, maximum={{p['maximum']}}, boundary={{p['boundary'] | default: None}}),
 {% endif %}
 {%- if priors.keys() contains "total mass" %}{% assign p = priors['total mass'] %}{% else %}{% assign p = None %}{% endif %}
    total mass: {{p['type'] | default: Uniform }}(name='total mass', minimum={{p['minimum'] | default: 1}}, maximum={{p['maximum'] | default: 1000}}),
 {%- if priors.keys() contains "mass ratio" %}{% assign p = priors['mass ratio'] %}{% else %}{% assign p = None %}{% endif %}
    mass ratio: {{p['type'] | default: "bilby.gw.prior.UniformInComponentsMassRatio" }}(name='mass ratio', minimum={{p['minimum']}}, maximum={{p['maximum']}}),
-{%- if priors.keys() contains "luminosity distance" %}
-{%- assign p = priors['luminosity distance'] %}
+{%- if priors.keys() contains "luminosity distance" %}{%- assign p = priors['luminosity distance'] %}
    distance: {{ p['type'] | default: PowerLaw}}(name='distance', {% for key in p.keys() %}{% if key != "type" %}{{key | replace: " ", "_"}}={{p[key]}},{% endif %} {% endfor %} unit='Mpc'),
 {% endif %}
    dec: Cosine(name='dec'),
