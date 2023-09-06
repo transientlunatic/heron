@@ -29,7 +29,7 @@ class HeronSampler(Model):
         self.waveform_uncertainty = uncertainty
         self.base_p = base_p
         self._update_bounds()
-        
+        print(self.bounds)
     def _update_bounds(self):
         self.bounds = {
             key: [self.priors[key].minimum, self.priors[key].maximum]
