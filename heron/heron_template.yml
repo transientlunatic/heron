@@ -7,6 +7,8 @@ name: {{ production.name }}
 injection: {{ production.meta['injection'] }}
 injection model: {{ production.meta['injection model'] }}
 
+interferometers: {{ production.meta['interferometers'] }}
+
 noise model: {{ production.meta['noise model'] }}
 
 data: {{ production.meta['data'] }}
