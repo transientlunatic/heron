@@ -105,9 +105,9 @@ def inference(settings):
                 report += f
             injection[ifo] = detection
 
+    likelihood = {}
     for ifo in settings['interferometers']:
             
-        likelihood = {}
         likelihood[ifo] = CUDATimedomainLikelihood(
             models[settings["waveform"]["model"]],
             data=injection[ifo],
@@ -119,8 +119,8 @@ def inference(settings):
     def joint_likelihood(p):
         return sum([likelihood[ifo](p) for ifo in likelihood.keys()])
         
-    l_times = (joint_likelihood[settings['interferometers'][0]].times)
-    detection = joint_likelihood[settings['interferometers'][0]]._call_model(p=settings['injection'], times=l_times)
+    l_times = (likelihood[settings['interferometers'][0]].times)
+    detection = likelihood[settings['interferometers'][0]]._call_model(p=settings['injection'], times=l_times)
     f, ax = plt.subplots(1, 1, dpi=300)
     ax.plot(detection.times.cpu(), detection.data.cpu())
 
@@ -128,7 +128,7 @@ def inference(settings):
         report += "## Likelihood"
         report += f
 
-    click.echo(f"Created likelihood on {joint_likelihood[settings['interferometers'][0]].device}")
+    click.echo(f"Created likelihood on {likelihood[settings['interferometers'][0]].device}")
 
     nessai_model = HeronSampler(
         joint_likelihood,
