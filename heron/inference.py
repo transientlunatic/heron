@@ -110,7 +110,7 @@ def inference(settings):
         likelihood = {}
         likelihood[ifo] = CUDATimedomainLikelihood(
             models[settings["waveform"]["model"]],
-            data=injection,
+            data=injection[ifo],
             detector_prefix="L1",
             generator_args=times,
             psd=psd,
