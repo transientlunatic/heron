@@ -74,16 +74,29 @@ def inference(settings):
                 report += f"## {ifo} Injection"
                 report += settings["injection"]
 
-            psd = heron.injection.psd_from_lalinference(
-                settings["noise model"]["name"],
-                frequencies=heron.injection.frequencies_from_times(times),
-            )
-            noise = heron.injection.create_noise_series(psd, times)
             signal = models[settings["injection model"]].time_domain_waveform(
                 p=settings["injection"],
             )
+                
+            if "noise model" in settings:
+                psd = heron.injection.psd_from_lalinference(
+                    settings["noise model"]["name"],
+                    frequencies=heron.injection.frequencies_from_times(times),
+                )
+                noise = heron.injection.create_noise_series(psd, times)
+                
+                data = signal.data + noise
 
-            detection = Timeseries(data=signal.data + noise, times=signal.times)
+                snr = torch.sum(signal.data / noise)
+
+                print("SNR", snr)
+                
+            else:
+                data = signal.data
+
+                snr = 0
+
+            detection = Timeseries(data=data, times=signal.times)
             sos = scipy.signal.butter(
                 10,
                 20,
@@ -103,6 +116,8 @@ def inference(settings):
             with report:
                 report += "Injected waveform"
                 report += f
+
+                report += f"SNR: {snr}"
             injection[ifo] = detection
 
     likelihood = {}
@@ -111,7 +126,7 @@ def inference(settings):
         likelihood[ifo] = CUDATimedomainLikelihood(
             models[settings["waveform"]["model"]],
             data=injection[ifo],
-            detector_prefix="L1",
+            detector_prefix=ifo,
             generator_args=times,
             psd=psd,
         )
