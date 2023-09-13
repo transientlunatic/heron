@@ -9,6 +9,7 @@ import asimov.pipeline
 from asimov import config
 import htcondor
 from asimov.utils import set_directory
+from .utils import make_metafile
 
 
 class Pipeline(asimov.pipeline.Pipeline):
@@ -76,7 +77,14 @@ class Pipeline(asimov.pipeline.Pipeline):
             return False
 
     def after_completion(self):
-        self.production.status = "uploaded"
+        posterior = collect_assets()['posterior']
+        make_metafile(posterior, os.path.join(self.production.name, "result.dat"))
+        post_pipeline = PESummaryPipeline(production=self.production)
+        self.logger.info("Job has completed. Running PE Summary.")
+        cluster = post_pipeline.submit_dag()
+        self.production.meta["job id"] = int(cluster)
+        self.production.status = "processing"
+        self.production.event.update_data()
 
     def collect_assets(self):
         """
@@ -84,13 +92,24 @@ class Pipeline(asimov.pipeline.Pipeline):
         """
 
         outputs = {}
-        files = {"posterior": "result.json"}
+        files = {"posterior": os.path.join(self.production.name, "result.hdf5")}
         for name, data_file in files.items():
             if os.path.exists(data_file):
                 outputs[name] = data_file
 
         self.production.event.update_data()
         return outputs
+
+    def samples(self, absolute=False):
+        """
+        Return the PESummary ready samples for this job
+        """
+        if absolute:
+            rundir = os.path.abspath(self.production.rundir)
+        else:
+            rundir = self.production.rundir
+
+        return os.path.join(rundir, self.production.name, "result.dat")
 
     def html(self):
         """Return the HTML representation of this pipeline."""
