@@ -132,8 +132,8 @@ def inference(settings):
             psd=psd,
         )
 
-    def joint_likelihood(p):
-        return sum([self.likelihood[ifo](p, model_var) for ifo in self.likelihood.keys()])
+    def joint_likelihood(p, model_var):
+        return sum([likelihood[ifo](p, model_var) for ifo in likelihood.keys()])
         
     l_times = (likelihood[settings['interferometers'][0]].times)
     detection = likelihood[settings['interferometers'][0]]._call_model(p=settings['injection'], times=l_times)
