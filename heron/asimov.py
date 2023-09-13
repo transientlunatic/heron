@@ -67,13 +67,10 @@ class Pipeline(asimov.pipeline.Pipeline):
         assets = self.collect_assets()
         if "posterior" in assets:
             posterior = assets["posterior"]
-            if len(list(posterior.values())) > 0:
-                self.logger.info("Posterior samples detected, job complete.")
-                return True
-            else:
-                self.logger.info("Datafind job completion was not detected.")
-                return False
+            self.logger.info("Posterior samples detected, job complete.")
+            return True
         else:
+            self.logger.info("Datafind job completion was not detected.")
             return False
 
     def after_completion(self):
