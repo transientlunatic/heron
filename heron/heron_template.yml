@@ -9,7 +9,9 @@ injection model: {{ production.meta['injection model'] }}
 
 interferometers: {{ production.meta['interferometers'] }}
 
+{% if "noise model" in production.meta %}
 noise model: {{ production.meta['noise model'] }}
+{% endif %}
 
 data: {{ production.meta['data'] }}
 
