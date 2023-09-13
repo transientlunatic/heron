@@ -106,7 +106,7 @@ class Pipeline(asimov.pipeline.Pipeline):
         else:
             rundir = self.production.rundir
 
-        return os.path.join(rundir, self.production.name, "result.dat")
+        return [os.path.join(rundir, self.production.name, "result.dat")]
 
     def html(self):
         """Return the HTML representation of this pipeline."""
