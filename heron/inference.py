@@ -95,7 +95,7 @@ def inference(settings):
             else:
                 data = signal.data
                 noise = torch.zeros(len(data))
-                psd = PSD(psd=torch.ones(settings['data']['sample rate']),
+                psd = PSD(data=torch.ones(settings['data']['sample rate']),
                           frequencies=heron.injection.frequencies_from_times(times))
                 snr = 0
 
