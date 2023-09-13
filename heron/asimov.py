@@ -75,7 +75,7 @@ class Pipeline(asimov.pipeline.Pipeline):
 
     def after_completion(self):
         posterior = self.collect_assets()["posterior"]
-        datfile = os.path.join(self.produciton.rundir, self.production.name, "result.dat")
+        datfile = os.path.join(self.production.rundir, self.production.name, "result.dat")
         if not os.path.exists(datfile):
             make_metafile(
                 posterior,
