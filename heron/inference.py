@@ -93,7 +93,7 @@ def inference(settings):
                 
             else:
                 data = signal.data
-
+                noise = torch.zeros(len(data))
                 snr = 0
 
             detection = Timeseries(data=data, times=signal.times)
