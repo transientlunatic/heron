@@ -67,7 +67,7 @@ class Pipeline(asimov.pipeline.Pipeline):
         assets = self.collect_assets()
         if "posterior" in assets:
             posterior = assets["posterior"]
-            if len(list(frames.values())) > 0:
+            if len(list(posterior.values())) > 0:
                 self.logger.info("Posterior samples detected, job complete.")
                 return True
             else:
@@ -77,9 +77,9 @@ class Pipeline(asimov.pipeline.Pipeline):
             return False
 
     def after_completion(self):
-        posterior = collect_assets()['posterior']
+        posterior = self.collect_assets()['posterior']
         make_metafile(posterior, os.path.join(self.production.name, "result.dat"))
-        post_pipeline = PESummaryPipeline(production=self.production)
+        post_pipeline = asimov.pipeline.PESummaryPipeline(production=self.production)
         self.logger.info("Job has completed. Running PE Summary.")
         cluster = post_pipeline.submit_dag()
         self.production.meta["job id"] = int(cluster)
