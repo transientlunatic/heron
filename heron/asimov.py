@@ -74,8 +74,13 @@ class Pipeline(asimov.pipeline.Pipeline):
             return False
 
     def after_completion(self):
-        posterior = self.collect_assets()['posterior']
-        make_metafile(posterior, os.path.join(self.production.name, "result.dat"))
+        posterior = self.collect_assets()["posterior"]
+        datfile = os.path.join(self.produciton.rundir, self.production.name, "result.dat")
+        if not os.path.exists(datfile):
+            make_metafile(
+                posterior,
+                datfile,
+            )
         post_pipeline = asimov.pipeline.PESummaryPipeline(production=self.production)
         self.logger.info("Job has completed. Running PE Summary.")
         cluster = post_pipeline.submit_dag()
@@ -126,7 +131,9 @@ class Pipeline(asimov.pipeline.Pipeline):
         """
         os.makedirs(pages_dir, exist_ok=True)
 
-        for png_file in glob.glob(f"{self.production.rundir}/{self.production.name}/*.png"):
+        for png_file in glob.glob(
+            f"{self.production.rundir}/{self.production.name}/*.png"
+        ):
             name = png_file.split("/")[-1]
             shutil.copy(png_file, os.path.join(plots_dir, name))
         out += """<div class="asimov-pipeline heron row">"""
