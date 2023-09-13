@@ -94,6 +94,7 @@ def inference(settings):
             else:
                 data = signal.data
                 noise = torch.zeros(len(data))
+                psd = torch.ones(settings['likelihood']['sample rate'])
                 snr = 0
 
             detection = Timeseries(data=data, times=signal.times)
