@@ -3,6 +3,7 @@ from math import floor
 import click
 import torch
 import heron.injection
+from heron.types import PSD
 
 import yaml
 
@@ -94,7 +95,8 @@ def inference(settings):
             else:
                 data = signal.data
                 noise = torch.zeros(len(data))
-                psd = torch.ones(settings['data']['sample rate'])
+                psd = PSD(psd=torch.ones(settings['data']['sample rate']),
+                          frequencies=heron.injection.frequencies_from_times(times))
                 snr = 0
 
             detection = Timeseries(data=data, times=signal.times)
