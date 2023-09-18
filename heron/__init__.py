@@ -7,7 +7,7 @@ HERON: A Gaussian Process framework for Python
 __date__ = "2017-06-07"
 __maintainer__ = "Daniel Williams <daniel.williams@ligo.org>"
 
-
+import logging
 from pkg_resources import get_distribution, DistributionNotFound
 
 try:
