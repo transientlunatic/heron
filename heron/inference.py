@@ -115,7 +115,7 @@ def inference(settings):
             
             logger.info("Applying butterworth filter to the data")
             detection.data = torch.tensor(
-                scipy.signal.sosfiltfilt(sos, detection.data.cpu()),
+                scipy.signal.sosfilt(sos, detection.data.cpu()),
                 device=detection.data.device,
             )
 
