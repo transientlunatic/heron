@@ -15,3 +15,36 @@ try:
 except DistributionNotFound:
     # package is not installed
     pass
+
+logger_levels = {
+    "debug": logging.DEBUG,
+    "info": logging.INFO,
+    "warning": logging.WARNING,
+    "error": logging.ERROR,
+    "update": 9,
+}
+# try:
+#     LOGGER_LEVEL = logger_levels[config.get("logging", "logging level")]
+# except configparser.NoOptionError:
+LOGGER_LEVEL = logging.DEBUG
+
+# try:
+#     PRINT_LEVEL = logger_levels[config.get("logging", "print level")]
+# except configparser.NoOptionError:
+PRINT_LEVEL = logging.INFO
+
+ch = logging.StreamHandler()
+print_formatter = logging.Formatter("[%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
+ch.setFormatter(print_formatter)
+ch.setLevel(PRINT_LEVEL)
+
+logfile = "heron.log"
+fh = logging.FileHandler(logfile)
+formatter = logging.Formatter(
+    "%(asctime)s [%(name)s][%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S"
+)
+fh.setFormatter(formatter)
+fh.setLevel(LOGGER_LEVEL)
+
+logger.addHandler(ch)
+logger.addHandler(fh)

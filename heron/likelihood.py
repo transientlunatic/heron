@@ -14,6 +14,8 @@ from lal import cached_detector_by_prefix
 
 import warnings
 
+from heron import logger
+
 # TODO Change this so that disabling CUDA is handled more sensibly.
 DISABLE_CUDA = False
 
@@ -22,6 +24,7 @@ if not DISABLE_CUDA and torch.cuda.is_available():
 else:
     device = torch.device("cpu")
 
+logger = logger.getLogger("likelihood")
 
 def determine_overlap(timeseries_a, timeseries_b):
     def is_in(time, timeseries):
@@ -394,14 +397,18 @@ class CUDATimedomainLikelihood(Likelihood):
         )
         self.C = torch.tensor(scipy.linalg.toeplitz(self.C.cpu()), device=self.device)
 
+        logger.info(f"Heron likelihood initialised for {self._detector_prefix}")
+
     def _call_model(self, p, times):
         args = copy(self.gen_args)
         args.update(p)
         p = args
-
+        
         if self._cache_location == p:
+            logger.debug(f"Evaluating [cached] at {p}")
             waveform = self._cache
         else:
+            logger.debug(f"Evaluating at {p}")
             waveform = self.model.time_domain_waveform(p=p, times=times)
             sos = scipy.signal.butter(
                 10,
