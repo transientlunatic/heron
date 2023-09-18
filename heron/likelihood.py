@@ -474,29 +474,10 @@ class CUDATimedomainLikelihood(Likelihood):
         Calculate the overall log-likelihood.
         """
 
-        times = (self.times)# - self.times[0])
+        times = self.times
         
         draw = self._call_model(p, times)
-        #print("times0", float(self.times[0]), float(draw.times[0]))
-        # diff = torch.min(torch.abs(self.times - self.times[0] - p['before'] - float(draw.times[0])))
-
-        # if diff > p['before'] + p['after']:
-        #     return - torch.inf
-        
-        # sign = (
-        #     torch.min(self.times - float(draw.times[0]))
-        #     / torch.abs(self.times - float(draw.times[0]))
-        # )[0]
-        # if diff > 1e-5:
-        #     # Redraw with the correct offsets
-        #     print("Redrawing", diff)
-        #     p["before"] += float(diff * int(sign))
-        #     draw = self._call_model(p)
-        # indices = self.determine_overlap(self.timeseries, draw)
-        # if not indices:
-        #     return -torch.inf
-
-        aligned_C = self.C#[indices[0][0] : indices[0][1], indices[0][0] : indices[0][1]]
+        aligned_C = self.C
 
         residual = self._residual(draw)
         if model_var:
@@ -506,25 +487,20 @@ class CUDATimedomainLikelihood(Likelihood):
             like = -0.5 * self._weighted_residual_power(
                 residual,
                 aligned_C
-                + draw.covariance# [
-                #     indices[1][0] : indices[1][1], indices[1][0] : indices[1][1]
-                # ]
+                + draw.covariance
                 + noise,
             )
             like += 0.5 * self._normalisation(
                 aligned_C
-                + draw.covariance# [
-                #     indices[1][0] : indices[1][1], indices[1][0] : indices[1][1]
-                # ]
+                + draw.covariance
             )
         else:
-            noise = 1e-200  # aligned_C.mean()/1e60
+            noise = 1e-200
             noise = (
                 torch.randn(aligned_C.shape[0], dtype=torch.float64, device=self.device)
                 * noise
             )
-            noise = torch.diag(noise)  # scipy.linalg.toeplitz(noise.cpu().numpy())
-            # noise = 0
+            noise = torch.diag(noise)
             # for the psd inverse f transform of the inverse of the PSD
             # did we get rid of the low-frequency zeros
             # what happens if we use a "flat" PSD without adding noise
@@ -616,7 +592,7 @@ class CUDALikelihood(Likelihood):
         self._cache = None
         self._weights_cache = None
         self.model = model
-        self.window = window  # (len(data.data), device=device) #torch.tensor(window(int(1+len(data.data)/2)), device=device)
+        self.window = window
 
         self.device = device
 
@@ -628,7 +604,7 @@ class CUDALikelihood(Likelihood):
         if isinstance(data, elk.waveform.Timeseries):
             self.data = data.to_frequencyseries(
                 window=self.window
-            ).data  # torch.fft.rfft(self.window*data.data)
+            ).data
             self.times = data.times.clone()
             self.duration = self.times[-1] - self.times[0]
 
@@ -643,17 +619,14 @@ class CUDALikelihood(Likelihood):
 
         self.start = start
 
-        # self.data *= self.model.strain_input_factor
-
         if not isinstance(psd, type(None)):
-            self.psd = psd  # * self.model.strain_input_factor**2
+            self.psd = psd
         else:
             if not isinstance(asd, type(None)):
                 self.asd = asd
-                # self.asd.tensor = self.asd.tensor.clone()
             else:
                 self.asd = torch.ones(len(self.data), 2)
-            self.psd = self.asd * self.asd  # * self.model.strain_input_factor**2
+            self.psd = self.asd * self.asd
         self.psd = self.psd.to(torch.complex128)
         self.data = self.data.to(torch.complex128)
 
@@ -694,18 +667,6 @@ class CUDALikelihood(Likelihood):
             waveform_mean = polarisations["plus"].data
             waveform_variance = polarisations["plus"].variance.abs()
 
-        # if not waveform_variance:
-
-        # if hasattr(polarisations['plus'], "covariance"):
-        #    waveform_variance = polarisations['plus'].variance
-
-        # if not isinstance(polarisations['plus'].covariance, type(None)):
-        #     inner_product = InnerProduct(self.psd.clone(),
-        #                                  signal_cov=waveform_variance,
-        #                                  duration=self.duration,
-        #                                  f_min=self.f_min,
-        #                                  f_max=self.f_max)
-        #     factor = torch.logdet(inner_product.metric.abs()[1:-1, 1:-1])
         if model_var:
             inner_product = InnerProduct(
                 self.psd.clone(),
