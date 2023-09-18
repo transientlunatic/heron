@@ -21,6 +21,9 @@ import scipy.signal
 
 from nessai.flowsampler import FlowSampler
 
+from heron import logger
+logger = logger.getChild("inference")
+
 models = {
     "heron": HeronCUDA(
         datafile="training_data.h5",
@@ -67,7 +70,7 @@ def inference(settings):
     if "injection" in settings:
         injection = {}
         for ifo in settings["interferometers"]:
-            click.echo(f"Generating injection for {ifo}")
+            logger.info(f"Generating injection for {ifo}")
 
             settings["injection"]["detector"] = ifo
             
@@ -80,6 +83,7 @@ def inference(settings):
             )
                 
             if "noise model" in settings:
+                logger.info(f"Using noise model {settings['noise model']}")
                 psd = heron.injection.psd_from_lalinference(
                     settings["noise model"]["name"],
                     frequencies=heron.injection.frequencies_from_times(times),
@@ -93,8 +97,9 @@ def inference(settings):
                 print("SNR", snr)
                 
             else:
+                logger.info("No noise model set so creating noise-free injections")
                 data = signal.data
-                noise = torch.zeros(len(data))
+                noise = torch.zeros(len(data)) 
                 psd = PSD(data=torch.ones(settings['data']['sample rate']),
                           frequencies=heron.injection.frequencies_from_times(times))
                 snr = 0
@@ -107,8 +112,10 @@ def inference(settings):
                 fs=float(1 / (detection.times[1] - detection.times[0])),
                 output="sos",
             )
+            
+            logger.info("Applying butterworth filter to the data")
             detection.data = torch.tensor(
-                scipy.signal.sosfilt(sos, detection.data.cpu()),
+                scipy.signal.sosfiltfilt(sos, detection.data.cpu()),
                 device=detection.data.device,
             )
 
