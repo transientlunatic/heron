@@ -16,6 +16,8 @@ except DistributionNotFound:
     # package is not installed
     pass
 
+logger = logging.getLogger("heron")
+
 logger_levels = {
     "debug": logging.DEBUG,
     "info": logging.INFO,

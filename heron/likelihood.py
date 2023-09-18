@@ -24,7 +24,7 @@ if not DISABLE_CUDA and torch.cuda.is_available():
 else:
     device = torch.device("cpu")
 
-logger = logger.getLogger("likelihood")
+logger = logger.getChild("likelihood")
 
 def determine_overlap(timeseries_a, timeseries_b):
     def is_in(time, timeseries):
