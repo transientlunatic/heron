@@ -5,8 +5,6 @@ Models which use the GPyTorch GPR package as their backbone.
 from functools import reduce
 import operator
 
-import logging
-
 import pkg_resources
 
 import os
@@ -21,6 +19,9 @@ from elk.waveform import Timeseries, FrequencySeries
 from . import Model
 from ..data import DataWrapper
 from .gw import BBHSurrogate, HofTSurrogate
+
+import logging
+logger = logging.getLogger("heron.models.torchbased")
 
 DATA_PATH = pkg_resources.resource_filename("heron", "models/data/")
 disable_cuda = False
@@ -273,12 +274,10 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
         #
         self.model_name = name if name else "Heron IMR Non-spinning"
         self.logger = logging.getLogger("heron.models.HeronCUDA")
-        self.logger.setLevel(logging.INFO)
-        self.logger.info(f"Name:{self.model_name}")
-        self.logger.info(f"Device:{self.device}")
+        self.logger.info(f"Name: {self.model_name}")
+        self.logger.info(f"Device: {self.device}")
         #
         self.datafile = datafile if datafile else "training_data.h5"
-        self.logger.info(f"Data file: {self.datafile}")
         self.datalabel = datalabel if datalabel else "IMR training linear"
         self.logger.info(f"Data label: {self.datalabel}")
         self.data_size = size
@@ -290,6 +289,7 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
                 self.datafile = os.path.join(DATA_PATH, self.datafile)
             else:
                 raise FileNotFoundError
+        self.logger.info(f"Data file: {self.datafile}")
         self.training_data = DataWrapper(self.datafile)
 
         #
@@ -564,9 +564,6 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
                 device=self.device,
                 dtype=torch.float64,
             )
-
-            diff = torch.min(torch.abs(times - epoch))
-            #times += diff
 
             eval_times = torch.linspace(
                 -p['before'] / mass_factor, p['after'] / mass_factor, int((p['after']+p['before'])*p['sample rate']),

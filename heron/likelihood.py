@@ -13,8 +13,7 @@ import scipy.signal
 from lal import cached_detector_by_prefix
 
 import warnings
-
-from heron import logger
+import logging
 
 # TODO Change this so that disabling CUDA is handled more sensibly.
 DISABLE_CUDA = False
@@ -24,7 +23,7 @@ if not DISABLE_CUDA and torch.cuda.is_available():
 else:
     device = torch.device("cpu")
 
-logger = logger.getChild("likelihood")
+logger = logging.getLogger("heron.likelihood")
 
 def determine_overlap(timeseries_a, timeseries_b):
     def is_in(time, timeseries):
@@ -305,6 +304,7 @@ class Likelihood:
            The log-likelihood of the data at point ``p`` in the waveform
            parameter space.
         """
+        logger.debug(f"Likelihood: {self._log_likelihood(p, model_var)}")
         return self._log_likelihood(p, model_var)
 
 
@@ -371,10 +371,10 @@ class CUDATimedomainLikelihood(Likelihood):
         self.psd = psd
 
         self.gen_args = generator_args
-        if not data.detector:
-            self.gen_args["detector"] = self._detector_prefix
-        else:
-            self.gen_args["detector"] = data.detector
+        # if not data.detector:
+        #     self.gen_args["detector"] = self._detector_prefix
+        # else:
+        #     self.gen_args["detector"] = data.detector
 
         if isinstance(data, elk.waveform.Timeseries):
             self.timeseries = data
@@ -387,6 +387,7 @@ class CUDATimedomainLikelihood(Likelihood):
             pass
 
         # Convert PSD into the noise matrix
+        
         self.C = (
             torch.fft.irfft(
                 torch.tensor(psd.data, device=self.device, dtype=torch.double),
@@ -403,12 +404,13 @@ class CUDATimedomainLikelihood(Likelihood):
         args = copy(self.gen_args)
         args.update(p)
         p = args
-        
         if self._cache_location == p:
             logger.debug(f"Evaluating [cached] at {p}")
+            #print(f"Evaluating [cached] at {p}")
             waveform = self._cache
         else:
             logger.debug(f"Evaluating at {p}")
+            #print(f"Evaluating at {p}")
             waveform = self.model.time_domain_waveform(p=p, times=times)
             sos = scipy.signal.butter(
                 10,
@@ -473,9 +475,8 @@ class CUDATimedomainLikelihood(Likelihood):
         """
         Calculate the overall log-likelihood.
         """
-
+        p['detector'] = self._detector_prefix
         times = self.times
-        
         draw = self._call_model(p, times)
         aligned_C = self.C
 
@@ -600,7 +601,6 @@ class CUDALikelihood(Likelihood):
         self.f_max = f_max
         self.gen_args = generator_args
         self.gen_args["detector"] = self._detector_prefix
-
         if isinstance(data, elk.waveform.Timeseries):
             self.data = data.to_frequencyseries(
                 window=self.window
@@ -634,7 +634,6 @@ class CUDALikelihood(Likelihood):
         args = copy(self.gen_args)
         args.update(p)
         p = args
-
         if self._cache_location == p:
             waveform = self._cache
         else:

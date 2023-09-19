@@ -12,6 +12,8 @@ from heron.models.torchbased import HeronCUDA
 from heron.likelihood import CUDALikelihood, InnerProduct, CUDATimedomainLikelihood
 from heron.sampling import HeronSampler
 
+from heron.gw import StrainData
+
 import otter
 import otter.bootstrap as bt
 import matplotlib.pyplot as plt
@@ -21,8 +23,8 @@ import scipy.signal
 
 from nessai.flowsampler import FlowSampler
 
-from heron import logger
-logger = logger.getChild("inference")
+import logging
+logger = logging.getLogger("heron.inference")
 
 models = {
     "heron": HeronCUDA(
@@ -70,6 +72,7 @@ def inference(settings):
     if "injection" in settings:
         injection = {}
         for ifo in settings["interferometers"]:
+            print("Making injections")
             logger.info(f"Generating injection for {ifo}")
 
             settings["injection"]["detector"] = ifo
@@ -91,7 +94,7 @@ def inference(settings):
                 noise = heron.injection.create_noise_series(psd, times)
                 
                 data = signal.data + noise
-
+                data.detector = ifo
                 snr = torch.sum(signal.data / noise)
 
                 print("SNR", snr)
@@ -99,12 +102,12 @@ def inference(settings):
             else:
                 logger.info("No noise model set so creating noise-free injections")
                 data = signal.data
+                data.detector = ifo
                 noise = torch.zeros(len(data)) 
-                psd = PSD(data=torch.ones(settings['data']['sample rate']),
-                          frequencies=heron.injection.frequencies_from_times(times))
                 snr = 0
 
             detection = Timeseries(data=data, times=signal.times)
+
             sos = scipy.signal.butter(
                 10,
                 20,
@@ -118,6 +121,7 @@ def inference(settings):
                 scipy.signal.sosfilt(sos, detection.data.cpu()),
                 device=detection.data.device,
             )
+            detection.detector = ifo
 
             f, ax = plt.subplots(1, 1, dpi=300)
             ax.plot(detection.times.cpu(), noise.cpu())
@@ -132,7 +136,6 @@ def inference(settings):
 
     likelihood = {}
     for ifo in settings['interferometers']:
-            
         likelihood[ifo] = CUDATimedomainLikelihood(
             models[settings["waveform"]["model"]],
             data=injection[ifo],
@@ -141,8 +144,11 @@ def inference(settings):
             psd=psd,
         )
 
+    print(likelihood)
+        
     def joint_likelihood(p, model_var):
-        return sum([likelihood[ifo](p, model_var) for ifo in likelihood.keys()])
+        likes = [l(p, model_var) for l in likelihood.values()]
+        return sum(likes)
         
     l_times = (likelihood[settings['interferometers'][0]].times)
     detection = likelihood[settings['interferometers'][0]]._call_model(p=settings['injection'], times=l_times)
@@ -153,8 +159,8 @@ def inference(settings):
         report += "## Likelihood"
         report += f
 
-    click.echo(f"Created likelihood on {likelihood[settings['interferometers'][0]].device}")
-
+    logger.info(f"Created likelihood on {likelihood[settings['interferometers'][0]].device}")
+    settings["injection"].pop("detector")
     nessai_model = HeronSampler(
         joint_likelihood,
         settings["priors"],

@@ -1,7 +1,6 @@
 import torch
 from lal import antenna
 
-
 class Model(object):
     """
     This is the factory class for statistical models used for waveform generation.

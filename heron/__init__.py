@@ -14,6 +14,7 @@ try:
     __version__ = get_distribution(__name__).version
 except DistributionNotFound:
     # package is not installed
+    __version__ = "dev"
     pass
 
 logger = logging.getLogger("heron")
@@ -33,14 +34,14 @@ LOGGER_LEVEL = logging.DEBUG
 # try:
 #     PRINT_LEVEL = logger_levels[config.get("logging", "print level")]
 # except configparser.NoOptionError:
-PRINT_LEVEL = logging.INFO
+PRINT_LEVEL = logging.DEBUG
 
 ch = logging.StreamHandler()
 print_formatter = logging.Formatter("[%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
 ch.setFormatter(print_formatter)
 ch.setLevel(PRINT_LEVEL)
 
-logfile = "heron.log"
+logfile = f"{__name__}.log"
 fh = logging.FileHandler(logfile)
 formatter = logging.Formatter(
     "%(asctime)s [%(name)s][%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S"
@@ -50,3 +51,5 @@ fh.setLevel(LOGGER_LEVEL)
 
 logger.addHandler(ch)
 logger.addHandler(fh)
+
+logger.info(f"Running {__name__} {__version__}")
