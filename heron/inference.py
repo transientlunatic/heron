@@ -1,16 +1,17 @@
 import os
-from math import floor
+
 import click
 import torch
-import heron.injection
-from heron.types import PSD
 
 import yaml
+import numpy as np
 
 from heron.models.lalinference import IMRPhenomPv2
-from heron.models.torchbased import HeronCUDA
+from heron.models.torchbased import HeronCUDA, device
 from heron.likelihood import CUDALikelihood, InnerProduct, CUDATimedomainLikelihood
 from heron.sampling import HeronSampler
+from heron.injection import models
+from heron.types import PSD
 
 from heron.gw import StrainData
 
@@ -18,23 +19,14 @@ import otter
 import otter.bootstrap as bt
 import matplotlib.pyplot as plt
 
+from gwpy.timeseries import TimeSeries as gwpyTimeSeries
 from elk.waveform import Timeseries
-import scipy.signal
 
 from nessai.flowsampler import FlowSampler
 
 import logging
 logger = logging.getLogger("heron.inference")
 
-models = {
-    "heron": HeronCUDA(
-        datafile="training_data.h5",
-        datalabel="IMR training linear",
-        name="Heron IMR Non-spinning",
-        device=torch.device("cuda"),
-    ),
-    "IMRPhenomPv2": IMRPhenomPv2(torch.device("cuda")),
-}
 
 
 @click.command
@@ -46,16 +38,29 @@ def inference(settings):
     with open(settings, "r") as settings_file:
         settings = yaml.safe_load(settings_file)
 
+
     report = otter.Otter(
-        os.path.join(settings["report"]["location"], f"{settings['name']}.html"),
+        os.path.join(settings["report"]["location"], f"{settings['name']}-inference.html"),
         author="Heron",
-        title=f"Heron PE Report | {settings['name']}",
+        title=f"Heron Inference Report | {settings['name']}",
         author_email="daniel.williams@ligo.org",
     )
 
     with report:
         navbar = bt.Navbar("Heron", background="navbar-dark bg-primary")
         report + navbar
+
+    data = {}
+    for ifo in settings['interferometers']:
+        frame_data = gwpyTimeSeries.read(settings['data']['data files'][ifo],
+                                     settings['data']['channels'][ifo])
+        data[ifo] = Timeseries(data=torch.tensor(frame_data.data, device=device),
+                               times=torch.tensor(frame_data.times, device=device))
+
+    psds = {}
+    for ifo in settings['interferometers']:
+        psd = np.genfromtxt(settings['psds'][ifo])
+        psds[ifo] = PSD(data=psd[:,1], frequencies=psd[:,0])
 
     srate = settings["data"]["sample rate"]
     duration = settings["data"]["duration"]
@@ -65,106 +70,27 @@ def inference(settings):
              "before": 0.05,
              "after": 0.05,
              }
-    
-    settings["injection"].update(times)
-
-    
-    if "injection" in settings:
-        injection = {}
-        for ifo in settings["interferometers"]:
-            print("Making injections")
-            logger.info(f"Generating injection for {ifo}")
-
-            settings["injection"]["detector"] = ifo
-            
-            with report:
-                report += f"## {ifo} Injection"
-                report += settings["injection"]
-
-            signal = models[settings["injection model"]].time_domain_waveform(
-                p=settings["injection"],
-            )
-                
-            if "noise model" in settings:
-                logger.info(f"Using noise model {settings['noise model']}")
-                psd = heron.injection.psd_from_lalinference(
-                    settings["noise model"]["name"],
-                    frequencies=heron.injection.frequencies_from_times(times),
-                )
-                noise = heron.injection.create_noise_series(psd, times)
-                
-                data = signal.data + noise
-                data.detector = ifo
-                snr = torch.sum(signal.data / noise)
-
-                print("SNR", snr)
-                
-            else:
-                logger.info("No noise model set so creating noise-free injections")
-                data = signal.data
-                data.detector = ifo
-                noise = torch.zeros(len(data)) 
-                snr = 0
-
-            detection = Timeseries(data=data, times=signal.times)
-
-            sos = scipy.signal.butter(
-                10,
-                20,
-                "hp",
-                fs=float(1 / (detection.times[1] - detection.times[0])),
-                output="sos",
-            )
-            
-            logger.info("Applying butterworth filter to the data")
-            detection.data = torch.tensor(
-                scipy.signal.sosfilt(sos, detection.data.cpu()),
-                device=detection.data.device,
-            )
-            detection.detector = ifo
-
-            f, ax = plt.subplots(1, 1, dpi=300)
-            ax.plot(detection.times.cpu(), noise.cpu())
-            ax.plot(detection.times.cpu(), detection.data.cpu())
-            ax.plot(detection.times.cpu(), signal.data.cpu())
-            with report:
-                report += "Injected waveform"
-                report += f
-
-                report += f"SNR: {snr}"
-            injection[ifo] = detection
 
     likelihood = {}
     for ifo in settings['interferometers']:
         likelihood[ifo] = CUDATimedomainLikelihood(
             models[settings["waveform"]["model"]],
-            data=injection[ifo],
+            data=data[ifo],
             detector_prefix=ifo,
             generator_args=times,
-            psd=psd,
+            psd=psds[ifo],
         )
-
-    print(likelihood)
         
     def joint_likelihood(p, model_var):
         likes = [l(p, model_var) for l in likelihood.values()]
         return sum(likes)
-        
-    l_times = (likelihood[settings['interferometers'][0]].times)
-    detection = likelihood[settings['interferometers'][0]]._call_model(p=settings['injection'], times=l_times)
-    f, ax = plt.subplots(1, 1, dpi=300)
-    ax.plot(detection.times.cpu(), detection.data.cpu())
-
-    with report:
-        report += "## Likelihood"
-        report += f
 
     logger.info(f"Created likelihood on {likelihood[settings['interferometers'][0]].device}")
-    settings["injection"].pop("detector")
+
     nessai_model = HeronSampler(
         joint_likelihood,
         settings["priors"],
-        settings["injection"],
+        settings["injection"]["parameters"],
         uncertainty=settings["waveform"]["variance"],
     )
 

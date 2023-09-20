@@ -37,7 +37,10 @@ setup(
     package_dir={"heron": "heron"},
     entry_points={
         "console_scripts": ["heron=heron.cli:heron"],
-        "asimov.pipelines": ["heron=heron.asimov:Pipeline"],
+        "asimov.pipelines": [
+            "heron=heron.asimov:Pipeline",
+            "heron injection=heron.asimov:InjectionPipeline",
+        ],
     },
     include_package_data=True,
     install_requires=requirements,
