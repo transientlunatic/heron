@@ -12,10 +12,6 @@ from asimov.utils import set_directory
 from .utils import make_metafile
 
 class MetaPipeline(asimov.pipeline.Pipeline):
-    def __init__(self, name, command):
-        super().__init__(name, command)
-        self.name = name
-        self._pipeline_command = command
 
     def build_dag(self, dryrun=False):
         """
