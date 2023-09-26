@@ -102,7 +102,7 @@ class Pipeline(MetaPipeline):
         """
 
         outputs = {}
-        files = {"posterior": os.path.join(self.production.name, "result.hdf5")}
+        files = {"posterior": os.path.join(self.production.rundir, self.production.name, self.production.name, "result.hdf5")}
         for name, data_file in files.items():
             if os.path.exists(data_file):
                 outputs[name] = data_file
