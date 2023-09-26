@@ -13,7 +13,7 @@ from .utils import make_metafile
 
 class MetaPipeline(asimov.pipeline.Pipeline):
     def __init__(self, name, command):
-        super().__init__()
+        super().__init__(name, command)
         self.name = name
         self._pipeline_command = command
 
