@@ -21,6 +21,7 @@ from ..data import DataWrapper
 from .gw import BBHSurrogate, HofTSurrogate
 
 import logging
+
 logger = logging.getLogger("heron.models.torchbased")
 
 DATA_PATH = pkg_resources.resource_filename("heron", "models/data/")
@@ -527,16 +528,11 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
         """
         Return the timedomain waveform.
         """
-        defaults = {
-            "before": 0.05,
-            "after": 0.01,
-            "pad before": 0.2,
-            "pad after": 0.05
-        }
+        defaults = {"before": 0.05, "after": 0.01, "pad before": 0.2, "pad after": 0.05, "theta_jn": 0}
         evals = defaults.copy()
         evals.update(p)
         p = evals
-        
+
         if "distance" in p:
             # The distance in megaparsec
             distance = p["distance"]
@@ -566,13 +562,15 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             )
 
             eval_times = torch.linspace(
-                -p['before'] / mass_factor, p['after'] / mass_factor, int((p['after']+p['before'])*p['sample rate']),
-                device=self.device
+                -p["before"] / mass_factor,
+                p["after"] / mass_factor,
+                int((p["after"] + p["before"]) * p["sample rate"]),
+                device=self.device,
             )
 
         else:
             eval_times = (times - p["gpstime"]) / mass_factor
-            
+
         if "ra" in p.keys():
             ra, dec, psi, gpstime = (
                 p["ra"],
@@ -592,10 +590,10 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
                 psi
             ) + polarisations["cross"].data * response.cross * torch.sin(psi)
 
-            shift = int(torch.round(dt / torch.diff(times-times[0])[0]))
-            
-            pre_pad = int(torch.round(p['pad before'] / torch.diff(times)[0]))
-            post_pad = int(torch.round(p['pad after'] / torch.diff(times)[0]))
+            shift = int(torch.round(dt / torch.diff(times - times[0])[0]))
+
+            pre_pad = int(torch.round(p["pad before"] / torch.diff(times)[0]))
+            post_pad = int(torch.round(p["pad after"] / torch.diff(times)[0]))
             waveform_mean = torch.nn.functional.pad(waveform_mean, (pre_pad, post_pad))
             waveform_mean = torch.roll(waveform_mean, shift)
             waveform_mean = waveform_mean[pre_pad:-post_pad]
@@ -606,7 +604,9 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             ].variance * response.cross**2 * torch.sin(
                 psi
             )
-            waveform_variance = torch.nn.functional.pad(waveform_variance, (pre_pad, post_pad))
+            waveform_variance = torch.nn.functional.pad(
+                waveform_variance, (pre_pad, post_pad)
+            )
             waveform_variance = torch.roll(waveform_variance, shift)
             waveform_variance = waveform_variance[pre_pad:-post_pad]
 
@@ -618,10 +618,20 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
                 psi
             )
 
+            inclination_factor = torch.cos(p["theta_jn"])
+
             waveform = Timeseries(
-                data=mass_factor * waveform_mean / distance,
-                variance=(mass_factor**2) * waveform_variance / distance**2,
-                covariance=(mass_factor**2) * waveform_covariance / distance**2,
+                data=inclination_factor * mass_factor * waveform_mean / distance,
+
+                variance=inclination_factor
+                * (mass_factor**2)
+                * waveform_variance
+                / distance**2,
+
+                covariance=inclination_factor
+                * (mass_factor**2)
+                * waveform_covariance
+                / distance**2,
                 times=times,
                 detector=p["detector"],
             )
