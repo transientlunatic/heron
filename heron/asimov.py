@@ -21,7 +21,7 @@ class MetaPipeline(asimov.pipeline.Pipeline):
         ini = self.production.event.repository.find_prods(name, self.category)[0]
         description = {
             "executable": f"{os.path.join(config.get('pipelines', 'environment'), 'bin', self._pipeline_command)}",
-            "arguments": f"--settings {ini}",
+            "arguments": f"{self._pipeline_arguments[0]} --settings {ini}",
             "output": f"{name.replace(' ', '_')}.out",
             "error": f"{name.replace(' ', '_')}.err",
             "log": f"{name.replace(' ', '_')}.log",
@@ -55,7 +55,8 @@ class MetaPipeline(asimov.pipeline.Pipeline):
 class InjectionPipeline(MetaPipeline):
     name = "heron injection"
     config_template = importlib.resources.files("heron") / "heron_template.yml"
-    _pipeline_command = "heron injection"
+    _pipeline_command = "heron"
+    _pipeline_arguments = ["injection"]
 
 class Pipeline(MetaPipeline):
     """
@@ -65,7 +66,8 @@ class Pipeline(MetaPipeline):
     name = "heron"
     config_template = importlib.resources.files("heron") / "heron_template.yml"
 
-    _pipeline_command = "heron inference"
+    _pipeline_command = "heron"
+    _pipeline_arguments = ["inference"]
 
     def detect_completion(self):
 
