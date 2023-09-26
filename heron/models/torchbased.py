@@ -618,7 +618,7 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
                 psi
             )
 
-            inclination_factor = torch.cos(p["theta_jn"])
+            inclination_factor = torch.cos(torch.tensor(p["theta_jn"]))
 
             waveform = Timeseries(
                 data=inclination_factor * mass_factor * waveform_mean / distance,
