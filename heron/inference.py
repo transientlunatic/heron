@@ -62,8 +62,8 @@ def inference(settings):
         psd = np.genfromtxt(settings['psds'][ifo])
         psds[ifo] = PSD(data=psd[:,1], frequencies=psd[:,0])
 
-    srate = settings["data"]["sample rate"]
-    duration = settings["data"]["duration"]
+    srate = settings["likelihood"]["sample rate"]
+    duration = settings["data"]["segment length"]
 
     times = {"duration": duration,
              "sample rate": srate,
