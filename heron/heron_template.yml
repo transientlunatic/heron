@@ -33,6 +33,7 @@ priors:
    dec: Cosine(name='dec')
    ra: Uniform(name='ra', minimum=0, maximum=2 * np.pi, boundary='periodic')
    psi: Uniform(name='psi', minimum=0, maximum=np.pi, boundary='periodic')
+   phase angle: Uniform(name='phase angle', minimum=0, maximum=np.pi, boundary='periodic')
 
 waveform: {{ production.meta['waveform'] }}
 
