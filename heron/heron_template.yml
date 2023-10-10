@@ -9,6 +9,9 @@ injection model: {{ production.meta['injection model'] }}
 
 interferometers: {{ production.meta['interferometers'] }}
 
+likelihood:
+  sample rate: {{ production.meta['likelihood']['sample rate'] }}
+
 {% if "noise model" in production.meta %}
 noise model: {{ production.meta['noise model'] }}
 {% endif %}

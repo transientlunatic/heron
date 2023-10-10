@@ -138,8 +138,8 @@ def injection(settings):
         navbar = bt.Navbar("Heron", background="navbar-dark bg-primary")
         report + navbar
 
-    srate = settings["data"]["sample rate"]
-    duration = settings["data"]["duration"]
+    srate = settings["likelihood"]["sample rate"]
+    duration = settings["data"]["segment length"]
 
     times = {
         "duration": duration,
