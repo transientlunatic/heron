@@ -528,7 +528,13 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
         """
         Return the timedomain waveform.
         """
-        defaults = {"before": 0.05, "after": 0.01, "pad before": 0.2, "pad after": 0.05, "theta_jn": 0}
+        defaults = {
+            "before": 0.05,
+            "after": 0.01,
+            "pad before": 0.2,
+            "pad after": 0.05,
+            "theta_jn": 0,
+        }
         evals = defaults.copy()
         evals.update(p)
         p = evals
@@ -586,9 +592,19 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
                 detector.location, ra, dec, LIGOTimeGPS(gpstime)
             )
             polarisations = self.mean(eval_times, p)
-            waveform_mean = polarisations["plus"].data * response.plus * torch.cos(
-                psi
-            ) + polarisations["cross"].data * response.cross * torch.sin(psi)
+
+            iota = torch.tensor(p["theta_jn"])
+            phi0 = torch.tensor(p["phase angle"])
+
+            waveform_mean = (
+                polarisations["plus"].data * torch.cos(phi0)
+                - polarisations["cross"].data * torch.sin(phi0)
+            ) * (1 + torch.cos(iota) ** 2) * response.plus + (
+                polarisations["cross"].data * torch.cos(phi0)
+                + polarisations["plus"].data * torch.sin(phi0)
+            ) * torch.cos(
+                iota
+            ) * response.cross
 
             shift = int(torch.round(dt / torch.diff(times - times[0])[0]))
 
@@ -597,39 +613,34 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             waveform_mean = torch.nn.functional.pad(waveform_mean, (pre_pad, post_pad))
             waveform_mean = torch.roll(waveform_mean, shift)
             waveform_mean = waveform_mean[pre_pad:-post_pad]
-            waveform_variance = polarisations["plus"].variance * torch.cos(
-                psi
-            ) * response.plus**2 + polarisations[
-                "cross"
-            ].variance * response.cross**2 * torch.sin(
-                psi
-            )
+            waveform_variance = (
+                (polarisations["plus"].variance * (1+torch.cos(iota)**2)**2 * torch.cos(phi0)**2 +
+                 polarisations["cross"].variance * (1+torch.cos(iota)**2)**2 * torch.sin(phi0)**2) * response.plus**2
+                +
+                (polarisations["cross"].variance * torch.cos(iota)**2 * torch.cos(phi0)**2 +
+                 polarisations["plus"].variance * torch.cos(iota)**2 * torch.sin(phi0)**2) * response.cross**2
+                )
+
             waveform_variance = torch.nn.functional.pad(
                 waveform_variance, (pre_pad, post_pad)
             )
             waveform_variance = torch.roll(waveform_variance, shift)
             waveform_variance = waveform_variance[pre_pad:-post_pad]
 
-            waveform_covariance = polarisations[
-                "plus"
-            ].covariance * response.plus**2 * torch.cos(psi) + polarisations[
-                "cross"
-            ].covariance * response.cross**2 * torch.sin(
-                psi
-            )
-
-            inclination_factor = torch.cos(torch.tensor(p["theta_jn"]))
+            waveform_covariance = (
+                (polarisations["plus"].covariance * (1+torch.cos(iota)**2)**2 * torch.cos(phi0)**2 +
+                 polarisations["cross"].covariance * (1+torch.cos(iota)**2)**2 * torch.sin(phi0)**2) * response.plus**2
+                +
+                (polarisations["cross"].covariance * torch.cos(iota)**2 * torch.cos(phi0)**2 +
+                 polarisations["plus"].covariance * torch.cos(iota)**2 * torch.sin(phi0)**2) * response.cross**2
+                )
 
             waveform = Timeseries(
-                data=inclination_factor * mass_factor * waveform_mean / distance,
-
-                variance=inclination_factor
-                * (mass_factor**2)
+                data=mass_factor * waveform_mean / distance,
+                variance=(mass_factor**2)
                 * waveform_variance
                 / distance**2,
-
-                covariance=inclination_factor
-                * (mass_factor**2)
+                covariance=(mass_factor**2)
                 * waveform_covariance
                 / distance**2,
                 times=times,
