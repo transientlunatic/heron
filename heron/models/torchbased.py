@@ -534,6 +534,7 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             "pad before": 0.2,
             "pad after": 0.05,
             "theta_jn": 0,
+            "phase angle": 0
         }
         evals = defaults.copy()
         evals.update(p)
