@@ -534,7 +534,7 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             "pad before": 0.2,
             "pad after": 0.05,
             "theta_jn": 0,
-            "phase angle": 0
+            "phase angle": 0,
         }
         evals = defaults.copy()
         evals.update(p)
@@ -597,15 +597,29 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             iota = torch.tensor(p["theta_jn"])
             phi0 = torch.tensor(p["phase angle"])
 
+            plus_prefactor = (
+                torch.cos(phi0) * (1 + torch.cos(iota) ** 2) * response.plus
+                + torch.sin(phi0) * torch.cos(iota) * response.cross
+            )
+            cross_prefactor = (
+                torch.cos(phi0) * torch.cos(iota) * response.cross
+                - torch.sin(phi0) * (1 + torch.cos(iota) ** 2) * response.plus
+            )
+
+            # waveform_mean = (
+            #     polarisations["plus"].data * torch.cos(phi0)
+            #     - polarisations["cross"].data * torch.sin(phi0)
+            # ) * (1 + torch.cos(iota) ** 2) * response.plus + (
+            #     polarisations["cross"].data * torch.cos(phi0)
+            #     + polarisations["plus"].data * torch.sin(phi0)
+            # ) * torch.cos(
+            #     iota
+            # ) * response.cross
+
             waveform_mean = (
-                polarisations["plus"].data * torch.cos(phi0)
-                - polarisations["cross"].data * torch.sin(phi0)
-            ) * (1 + torch.cos(iota) ** 2) * response.plus + (
-                polarisations["cross"].data * torch.cos(phi0)
-                + polarisations["plus"].data * torch.sin(phi0)
-            ) * torch.cos(
-                iota
-            ) * response.cross
+                polarisations["plus"] * plus_prefactor
+                + polarisations["cross"] * cross_prefactor
+            )
 
             shift = int(torch.round(dt / torch.diff(times - times[0])[0]))
 
@@ -615,12 +629,9 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             waveform_mean = torch.roll(waveform_mean, shift)
             waveform_mean = waveform_mean[pre_pad:-post_pad]
             waveform_variance = (
-                (polarisations["plus"].variance * (1+torch.cos(iota)**2)**2 * torch.cos(phi0)**2 +
-                 polarisations["cross"].variance * (1+torch.cos(iota)**2)**2 * torch.sin(phi0)**2) * response.plus**2
-                +
-                (polarisations["cross"].variance * torch.cos(iota)**2 * torch.cos(phi0)**2 +
-                 polarisations["plus"].variance * torch.cos(iota)**2 * torch.sin(phi0)**2) * response.cross**2
-                )
+                polarisations["plus"].variance * plus_prefactor**2 +
+                polarisations["cross"].variance * cross_prefactor**2
+            )
 
             waveform_variance = torch.nn.functional.pad(
                 waveform_variance, (pre_pad, post_pad)
@@ -629,21 +640,14 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             waveform_variance = waveform_variance[pre_pad:-post_pad]
 
             waveform_covariance = (
-                (polarisations["plus"].covariance * (1+torch.cos(iota)**2)**2 * torch.cos(phi0)**2 +
-                 polarisations["cross"].covariance * (1+torch.cos(iota)**2)**2 * torch.sin(phi0)**2) * response.plus**2
-                +
-                (polarisations["cross"].covariance * torch.cos(iota)**2 * torch.cos(phi0)**2 +
-                 polarisations["plus"].covariance * torch.cos(iota)**2 * torch.sin(phi0)**2) * response.cross**2
-                )
+                polarisations["plus"].covariance * plus_prefactor**2 +
+                polarisations["cross"].covariance * cross_prefactor**2
+            )
 
             waveform = Timeseries(
                 data=mass_factor * waveform_mean / distance,
-                variance=(mass_factor**2)
-                * waveform_variance
-                / distance**2,
-                covariance=(mass_factor**2)
-                * waveform_covariance
-                / distance**2,
+                variance=(mass_factor**2) * waveform_variance / distance**2,
+                covariance=(mass_factor**2) * waveform_covariance / distance**2,
                 times=times,
                 detector=p["detector"],
             )
