@@ -6,19 +6,14 @@ from copy import copy
 import torch
 import elk
 import elk.waveform
-from .utils import diag_cuda, Complex
 
 import scipy.linalg
 import scipy.signal
 
-from lal import (
-    antenna,
-    cached_detector_by_prefix,
-    TimeDelayFromEarthCenter,
-    LIGOTimeGPS,
-)
+from lal import cached_detector_by_prefix
 
 import warnings
+import logging
 
 # TODO Change this so that disabling CUDA is handled more sensibly.
 DISABLE_CUDA = False
@@ -27,6 +22,50 @@ if not DISABLE_CUDA and torch.cuda.is_available():
     device = torch.device("cuda")
 else:
     device = torch.device("cpu")
+
+logger = logging.getLogger("heron.likelihood")
+
+def determine_overlap(timeseries_a, timeseries_b):
+    def is_in(time, timeseries):
+        diff = torch.min(torch.abs(timeseries - time))
+        if diff < (timeseries[1] - timeseries[0]):
+            return True, diff
+        else:
+            return False, diff
+
+    overlap = None
+    if (
+        is_in(timeseries_a.times[-1], timeseries_b.times)[0]
+        and is_in(timeseries_b.times[0], timeseries_a.times)[0]
+    ):
+        overlap = timeseries_b.times[0], timeseries_a.times[-1]
+    elif (
+        is_in(timeseries_a.times[0], timeseries_b.times)[0]
+        and is_in(timeseries_b.times[-1], timeseries_a.times)[0]
+    ):
+        overlap = timeseries_a.times[0], timeseries_b.times[-1]
+    elif (
+        is_in(timeseries_b.times[0], timeseries_a.times)[0]
+        and is_in(timeseries_b.times[-1], timeseries_a.times)[0]
+        and not is_in(timeseries_a.times[-1], timeseries_b.times)[0]
+    ):
+        overlap = timeseries_b.times[0], timeseries_b.times[-1]
+    elif (
+        is_in(timeseries_a.times[0], timeseries_b.times)[0]
+        and is_in(timeseries_a.times[-1], timeseries_b.times)[0]
+        and not is_in(timeseries_b.times[-1], timeseries_a.times)[0]
+    ):
+        overlap = timeseries_a.times[0], timeseries_a.times[-1]
+    else:
+        overlap = None
+        return None
+
+    start_a = torch.argmin(torch.abs(timeseries_a.times - overlap[0]))
+    finish_a = torch.argmin(torch.abs(timeseries_a.times - overlap[-1]))
+
+    start_b = torch.argmin(torch.abs(timeseries_b.times - overlap[0]))
+    finish_b = torch.argmin(torch.abs(timeseries_b.times - overlap[-1]))
+    return (start_a, finish_a), (start_b, finish_b)
 
 
 class Overlap:
@@ -265,6 +304,7 @@ class Likelihood:
            The log-likelihood of the data at point ``p`` in the waveform
            parameter space.
         """
+        logger.debug(f"Likelihood: {self._log_likelihood(p, model_var)}")
         return self._log_likelihood(p, model_var)
 
 
@@ -331,12 +371,13 @@ class CUDATimedomainLikelihood(Likelihood):
         self.psd = psd
 
         self.gen_args = generator_args
-        if not data.detector:
-            self.gen_args["detector"] = self._detector_prefix
-        else:
-            self.gen_args["detector"] = data.detector
+        # if not data.detector:
+        #     self.gen_args["detector"] = self._detector_prefix
+        # else:
+        #     self.gen_args["detector"] = data.detector
 
         if isinstance(data, elk.waveform.Timeseries):
+            self.timeseries = data
             self.data = data.data.clone()
             self.times = data.times.clone()
             self.duration = self.times[-1] - self.times[0]
@@ -346,6 +387,7 @@ class CUDATimedomainLikelihood(Likelihood):
             pass
 
         # Convert PSD into the noise matrix
+        
         self.C = (
             torch.fft.irfft(
                 torch.tensor(psd.data, device=self.device, dtype=torch.double),
@@ -356,15 +398,20 @@ class CUDATimedomainLikelihood(Likelihood):
         )
         self.C = torch.tensor(scipy.linalg.toeplitz(self.C.cpu()), device=self.device)
 
-    def _call_model(self, p):
+        logger.info(f"Heron likelihood initialised for {self._detector_prefix}")
+
+    def _call_model(self, p, times):
         args = copy(self.gen_args)
         args.update(p)
         p = args
-
         if self._cache_location == p:
+            logger.debug(f"Evaluating [cached] at {p}")
+            #print(f"Evaluating [cached] at {p}")
             waveform = self._cache
         else:
-            waveform = self.model.time_domain_waveform(p=p)
+            logger.debug(f"Evaluating at {p}")
+            #print(f"Evaluating at {p}")
+            waveform = self.model.time_domain_waveform(p=p, times=times)
             sos = scipy.signal.butter(
                 10,
                 self.lower_frequency,
@@ -394,9 +441,15 @@ class CUDATimedomainLikelihood(Likelihood):
 
         return data[zero_bin:zero_bin+len(draw.data)]
 
+    def determine_overlap(self, A, B):
+        return determine_overlap(A, B)
+
     def _residual(self, draw):
-        aligned_data = self._align_time_axis(self.times, self.data, draw)
-        residual = (aligned_data - draw.data).to(dtype=torch.double)
+        indices = self.determine_overlap(self.timeseries, draw)
+        residual = (
+            self.data#[indices[0][0] : indices[0][1]]
+            - draw.data#[indices[1][0] : indices[1][1]]
+        ).to(dtype=torch.double)
         return residual
 
     def snr(self, p, model_var=True):
@@ -408,7 +461,12 @@ class CUDATimedomainLikelihood(Likelihood):
 
         if model_var:
             aligned_C = self._align_time_axis(self.times, self.C, draw)
-            snr = self._weighted_residual_power(residual, aligned_C + draw.covariance)
+            aligned_covariance = self._align_time_axis(
+                self.times, draw.covariance, draw
+            )
+            snr = self._weighted_residual_power(
+                residual, aligned_C + aligned_covariance
+            )
             # snr = residual @ torch.inverse(self.C+draw.covariance) @ residual
         else:
             noise = torch.ones(self.C.shape[0]) * 1e-40
@@ -431,31 +489,42 @@ class CUDATimedomainLikelihood(Likelihood):
         """
         Calculate the overall log-likelihood.
         """
-        draw = self._call_model(p)
-        aligned_C = self._align_time_axis(self.times, self.C, draw)
+        p['detector'] = self._detector_prefix
+        times = self.times
+        draw = self._call_model(p, times)
+        aligned_C = self.C
+
         residual = self._residual(draw)
         if model_var:
             noise = torch.ones(aligned_C.shape[0], dtype=torch.float64) * noise
             noise = scipy.linalg.toeplitz(noise.numpy())
             noise = torch.tensor(noise, device=self.device)
             like = -0.5 * self._weighted_residual_power(
-                residual, aligned_C + draw.covariance + noise
+                residual,
+                aligned_C
+                + draw.covariance
+                + noise,
             )
-            like += 0.5 * self._normalisation(self.C + draw.covariance)
+            like += 0.5 * self._normalisation(
+                aligned_C
+                + draw.covariance
+            )
         else:
-            aligned_C = self._align_time_axis(self.times, self.C, draw)
-            noise = 1E-200 #aligned_C.mean()/1e60
-            noise = torch.randn(aligned_C.shape[0], dtype=torch.float64, device=self.device) * noise
-            noise = torch.diag(noise)#scipy.linalg.toeplitz(noise.cpu().numpy())
-            # noise = 0
+            noise = 1e-200
+            noise = (
+                torch.randn(aligned_C.shape[0], dtype=torch.float64, device=self.device)
+                * noise
+            )
+            noise = torch.diag(noise)
             # for the psd inverse f transform of the inverse of the PSD
             # did we get rid of the low-frequency zeros
             # what happens if we use a "flat" PSD without adding noise
             # could rescale the matrix before inverting and then rescaling again
 
-            like = -0.5 * self._weighted_residual_power(residual, aligned_C+noise)
+            like = -0.5 * self._weighted_residual_power(
+                residual[: aligned_C.shape[0]], aligned_C + noise
+            )
             like += 0.5 * self._normalisation(self.C)
-            print("LIKE", like, p)
         return like
 
 
@@ -538,7 +607,7 @@ class CUDALikelihood(Likelihood):
         self._cache = None
         self._weights_cache = None
         self.model = model
-        self.window = window  # (len(data.data), device=device) #torch.tensor(window(int(1+len(data.data)/2)), device=device)
+        self.window = window
 
         self.device = device
 
@@ -546,11 +615,10 @@ class CUDALikelihood(Likelihood):
         self.f_max = f_max
         self.gen_args = generator_args
         self.gen_args["detector"] = self._detector_prefix
-
         if isinstance(data, elk.waveform.Timeseries):
             self.data = data.to_frequencyseries(
                 window=self.window
-            ).data  # torch.fft.rfft(self.window*data.data)
+            ).data
             self.times = data.times.clone()
             self.duration = self.times[-1] - self.times[0]
 
@@ -565,17 +633,14 @@ class CUDALikelihood(Likelihood):
 
         self.start = start
 
-        # self.data *= self.model.strain_input_factor
-
         if not isinstance(psd, type(None)):
-            self.psd = psd  # * self.model.strain_input_factor**2
+            self.psd = psd
         else:
             if not isinstance(asd, type(None)):
                 self.asd = asd
-                # self.asd.tensor = self.asd.tensor.clone()
             else:
                 self.asd = torch.ones(len(self.data), 2)
-            self.psd = self.asd * self.asd  # * self.model.strain_input_factor**2
+            self.psd = self.asd * self.asd
         self.psd = self.psd.to(torch.complex128)
         self.data = self.data.to(torch.complex128)
 
@@ -583,7 +648,6 @@ class CUDALikelihood(Likelihood):
         args = copy(self.gen_args)
         args.update(p)
         p = args
-
         if self._cache_location == p:
             waveform = self._cache
         else:
@@ -616,18 +680,6 @@ class CUDALikelihood(Likelihood):
             waveform_mean = polarisations["plus"].data
             waveform_variance = polarisations["plus"].variance.abs()
 
-        # if not waveform_variance:
-
-        # if hasattr(polarisations['plus'], "covariance"):
-        #    waveform_variance = polarisations['plus'].variance
-
-        # if not isinstance(polarisations['plus'].covariance, type(None)):
-        #     inner_product = InnerProduct(self.psd.clone(),
-        #                                  signal_cov=waveform_variance,
-        #                                  duration=self.duration,
-        #                                  f_min=self.f_min,
-        #                                  f_max=self.f_max)
-        #     factor = torch.logdet(inner_product.metric.abs()[1:-1, 1:-1])
         if model_var:
             inner_product = InnerProduct(
                 self.psd.clone(),

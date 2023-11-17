@@ -104,10 +104,10 @@ logger = setup_logger(output=output, label=output, log_level='WARNING')
 
 priors = {
     "mass ratio": [0.1, 1.0],
-    "distance": [10, 200],
-    #"psi": [0, 2*np.pi],
+    "distance": [90, 110],
+    "psi": [0, 2*np.pi],
     "total mass": [20, 100],
-    #"gpstime": [1126259461.9, 1126259462.1],
+    "gpstime": [1126259461.9, 1126259462.1],
 }
 
 device = heron_likelihood.device
