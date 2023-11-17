@@ -617,8 +617,8 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             # ) * response.cross
 
             waveform_mean = (
-                polarisations["plus"] * plus_prefactor
-                + polarisations["cross"] * cross_prefactor
+                polarisations["plus"].data * plus_prefactor
+                + polarisations["cross"].data * cross_prefactor
             )
 
             shift = int(torch.round(dt / torch.diff(times - times[0])[0]))
