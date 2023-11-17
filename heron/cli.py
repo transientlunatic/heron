@@ -1,7 +1,7 @@
 import click
 
 from heron import inference
-
+from heron import injection
 
 @click.group()
 def heron():
@@ -12,3 +12,4 @@ def heron():
 
 
 heron.add_command(inference.inference)
+heron.add_command(injection.injection)
