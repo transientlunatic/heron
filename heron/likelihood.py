@@ -12,8 +12,7 @@ import scipy.signal
 
 from lal import cached_detector_by_prefix
 
-import warnings
-import logging
+import warnings import logging
 
 # TODO Change this so that disabling CUDA is handled more sensibly.
 DISABLE_CUDA = False
@@ -485,7 +484,7 @@ class CUDATimedomainLikelihood(Likelihood):
     def _normalisation(self, weight):
         return torch.logdet(2 * torch.pi * weight)
 
-    def _log_likelihood(self, p, model_var=True, noise=1e-40):
+    def _log_likelihood(self, p, model_var=True, noise=1e-60):
         """
         Calculate the overall log-likelihood.
         """
@@ -496,9 +495,9 @@ class CUDATimedomainLikelihood(Likelihood):
 
         residual = self._residual(draw)
         if model_var:
-            noise = torch.ones(aligned_C.shape[0], dtype=torch.float64) * noise
-            noise = scipy.linalg.toeplitz(noise.numpy())
-            noise = torch.tensor(noise, device=self.device)
+            #noise = torch.ones(aligned_C.shape[0], dtype=torch.float64) * noise
+            #noise = scipy.linalg.toeplitz(noise.numpy())
+            noise = torch.diag(noise, device=self.device)
             like = -0.5 * self._weighted_residual_power(
                 residual,
                 aligned_C
