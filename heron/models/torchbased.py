@@ -606,19 +606,9 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
                 - torch.sin(phi0) * (1 + torch.cos(iota) ** 2) * response.plus
             )
 
-            # waveform_mean = (
-            #     polarisations["plus"].data * torch.cos(phi0)
-            #     - polarisations["cross"].data * torch.sin(phi0)
-            # ) * (1 + torch.cos(iota) ** 2) * response.plus + (
-            #     polarisations["cross"].data * torch.cos(phi0)
-            #     + polarisations["plus"].data * torch.sin(phi0)
-            # ) * torch.cos(
-            #     iota
-            # ) * response.cross
-
             waveform_mean = (
-                polarisations["plus"] * plus_prefactor
-                + polarisations["cross"] * cross_prefactor
+                polarisations["plus"].data * plus_prefactor
+                + polarisations["cross"].data * cross_prefactor
             )
 
             shift = int(torch.round(dt / torch.diff(times - times[0])[0]))
@@ -628,10 +618,16 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             waveform_mean = torch.nn.functional.pad(waveform_mean, (pre_pad, post_pad))
             waveform_mean = torch.roll(waveform_mean, shift)
             waveform_mean = waveform_mean[pre_pad:-post_pad]
+
+            # We assume here that there is no cross-correlation between the plus
+            # and the cross polarisations.
+            # Given that we generate them with independent processes this is
+            # an assumption effectively made earlier
             waveform_variance = (
                 polarisations["plus"].variance * plus_prefactor**2 +
                 polarisations["cross"].variance * cross_prefactor**2
             )
+            
 
             waveform_variance = torch.nn.functional.pad(
                 waveform_variance, (pre_pad, post_pad)
@@ -643,6 +639,8 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
                 polarisations["plus"].covariance * plus_prefactor**2 +
                 polarisations["cross"].covariance * cross_prefactor**2
             )
+
+            self.logger.debug(f"waveform covariance: {waveform_covariance[10]}")
 
             waveform = Timeseries(
                 data=mass_factor * waveform_mean / distance,
