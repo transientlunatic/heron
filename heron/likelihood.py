@@ -12,7 +12,8 @@ import scipy.signal
 
 from lal import cached_detector_by_prefix
 
-import warnings import logging
+import warnings
+import logging
 
 # TODO Change this so that disabling CUDA is handled more sensibly.
 DISABLE_CUDA = False
