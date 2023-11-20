@@ -34,7 +34,7 @@ LOGGER_LEVEL = logging.DEBUG
 # try:
 #     PRINT_LEVEL = logger_levels[config.get("logging", "print level")]
 # except configparser.NoOptionError:
-PRINT_LEVEL = logging.DEBUG
+PRINT_LEVEL = logging.WARNING
 
 ch = logging.StreamHandler()
 print_formatter = logging.Formatter("[%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
