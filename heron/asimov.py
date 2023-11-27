@@ -58,6 +58,18 @@ class InjectionPipeline(MetaPipeline):
     _pipeline_command = "heron"
     _pipeline_arguments = ["injection"]
 
+    def detect_completion(self):
+
+        self.logger.info("Checking for completion.")
+        assets = self.collect_assets()
+        if "frames" in assets:
+            posterior = assets["frames"]
+            self.logger.info("Frames detected, job complete.")
+            return True
+        else:
+            self.logger.info("Frame generation job completion was not detected.")
+            return False
+
 class Pipeline(MetaPipeline):
     """
     An asimov pipeline for heron.
@@ -80,6 +92,27 @@ class Pipeline(MetaPipeline):
         else:
             self.logger.info("Datafind job completion was not detected.")
             return False
+
+    def collect_assets(self):
+        """
+        Collect the assets for this job.
+        """
+
+        outputs = {}
+        if os.path.exists(os.path.join(self.production.rundir, "frames")):
+            results_dir = glob.glob(os.path.join(self.production.rundir, "frames", "*"))
+            frames = {}
+
+            for frame in results_dir:
+                ifo = frame.split("/")[-1].split("-")[0]
+                frames[ifo] = frame
+
+            outputs["frames"] = frames
+
+            self.production.event.meta['data']['data files'] = frames
+
+        self.production.event.update_data()
+        return outputs
 
     def after_completion(self):
         posterior = self.collect_assets()["posterior"]
