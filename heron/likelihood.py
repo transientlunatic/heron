@@ -495,7 +495,7 @@ class CUDATimedomainLikelihood(Likelihood):
         aligned_C = self.C
 
         residual = self._residual(draw)
-        #noise = 1e-200
+
         noise = (
             torch.randn(aligned_C.shape[0], dtype=torch.float64, device=self.device)
             * noise
@@ -509,17 +509,17 @@ class CUDATimedomainLikelihood(Likelihood):
                 + draw.covariance
                 + noise,
             )
-            like += 0.5 * self._normalisation(
+            norm = 0.5 * self._normalisation(
                 aligned_C
                 + draw.covariance
                 + noise
             )
+            like += norm
         else:
             # for the psd inverse f transform of the inverse of the PSD
             # did we get rid of the low-frequency zeros
             # what happens if we use a "flat" PSD without adding noise
             # could rescale the matrix before inverting and then rescaling again
-
             like = -0.5 * self._weighted_residual_power(
                 residual[: aligned_C.shape[0]], aligned_C + noise
             )
