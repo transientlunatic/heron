@@ -360,7 +360,7 @@ class CUDATimedomainLikelihood(Likelihood):
         """Produces a likelihood object given a model and some data."""
         self._detector_prefix = detector_prefix
         self.detector = cached_detector_by_prefix[detector_prefix]
-        self._casche_location = None
+        self._cache_location = None
         self._cache = None
         self._weights_cache = None
         self.model = model
