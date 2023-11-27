@@ -537,7 +537,7 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             "after": 0.01,
             "pad before": 0.2,
             "pad after": 0.05,
-            "theta_jn": 0,
+            "theta jn": 0,
             "phase angle": 0,
         }
         evals = defaults.copy()
@@ -598,7 +598,7 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             )
             polarisations = self.mean(eval_times, p)
 
-            iota = torch.tensor(p["theta_jn"])
+            iota = torch.tensor(p["theta jn"])
             phi0 = torch.tensor(p["phase angle"])
 
             plus_prefactor = (
