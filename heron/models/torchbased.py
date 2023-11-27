@@ -8,6 +8,7 @@ import operator
 import pkg_resources
 
 import os
+import shutil
 
 import torch
 import gpytorch
@@ -287,7 +288,10 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
         # Load the training data
         if not os.path.exists(self.datafile):
             if os.path.exists(os.path.join(DATA_PATH, self.datafile)):
-                self.datafile = os.path.join(DATA_PATH, self.datafile)
+                #self.datafile = os.path.join(DATA_PATH, self.datafile)
+                # Copy the file to the working directory
+                # Note this is a bit of a hack and should be cleaned up
+                shutil.copyfile(os.path.join(DATA_PATH, self.datafile), self.datafile)
             else:
                 raise FileNotFoundError
         self.logger.info(f"Data file: {self.datafile}")

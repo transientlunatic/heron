@@ -360,7 +360,7 @@ class CUDATimedomainLikelihood(Likelihood):
         """Produces a likelihood object given a model and some data."""
         self._detector_prefix = detector_prefix
         self.detector = cached_detector_by_prefix[detector_prefix]
-        self._cache_location = None
+        self._casche_location = None
         self._cache = None
         self._weights_cache = None
         self.model = model
@@ -371,10 +371,6 @@ class CUDATimedomainLikelihood(Likelihood):
         self.psd = psd
 
         self.gen_args = generator_args
-        # if not data.detector:
-        #     self.gen_args["detector"] = self._detector_prefix
-        # else:
-        #     self.gen_args["detector"] = data.detector
 
         if isinstance(data, elk.waveform.Timeseries):
             self.timeseries = data
