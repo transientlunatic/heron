@@ -70,6 +70,10 @@ class InjectionPipeline(MetaPipeline):
             self.logger.info("Frame generation job completion was not detected.")
             return False
 
+    def after_completion(self):
+        self.production.status = "uploaded"
+        self.production.event.update_data()
+        
     def collect_assets(self):
         """
         Collect the assets for this job.
