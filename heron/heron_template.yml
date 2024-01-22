@@ -19,6 +19,11 @@ noise model: {{ production.meta['noise model'] }}
 
 data: {{ production.meta['data'] }}
 
+psds:
+  {%- for ifo in ifos %}
+  {{ ifo }}: {{production.psds[ifo]}}
+  {%- endfor %}
+
 {%- assign priors = production.meta['priors'] %}
 priors:
 {%- if priors.keys() contains "geocentric time" %}{%- assign p = priors['geocentric time'] %}
