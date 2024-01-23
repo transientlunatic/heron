@@ -227,8 +227,8 @@ def injection(settings):
             report += f"SNR: {snr}"
         injection[ifo] = detection
 
-        gwpy_ts = gwpyTimeSeries(data=detection.data.cpu(),
-                                 times=detection.times.cpu(),
+        gwpy_ts = gwpyTimeSeries(data=detection.data.cpu().numpy(),
+                                 times=np.linspace(detection.times.cpu()[0], detection.times.cpu()[-1], len(detection.times.cpu())), #detection.times.cpu().numpy(),
                                  channel=f"{ifo}:Injection",
                                  name=f"{ifo}:Injection",
                                  dtype=np.float64)

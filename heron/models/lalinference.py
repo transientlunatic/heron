@@ -68,29 +68,34 @@ class IMRPhenomPv2(Model):
         # hx = self.interpolate(waveform[0], waveform[2], times)
         m1 = p["total mass"] / (1 + p["mass ratio"]) * lal.MSUN_SI
         m2 = p["total mass"] / (1 + 1 / p["mass ratio"]) * lal.MSUN_SI
-        params["distance"] = params["distance"] * 1e6 * lal.PC_SI
-        dt = float(times[1] - times[0])
-        approximant = lalsimulation.SimInspiralGetApproximantFromString("IMRPhenomPv2")
+        params["distance"] = 1E6 * params["distance"] * lal.PC_SI
+        dt = float(times[1] - times[0]) #float(1/(p["sample rate"]))
+        approximant = lalsimulation.GetApproximantFromString("IMRPhenomPv2")
+
+        args = {
+            "m1": m1,
+            "m2": m2,
+            "S1x": 0.,
+            "S1y": 0.,
+            "S1z": 0.,
+            "S2x": 0.,
+            "S2y": 0.,
+            "S2z": 0.,
+            "distance": p["distance"],
+            "inclination": float(p["inclination"]),
+            "phi ref": 0.,
+            "longAscNodes": 0.,
+            "eccentricity": 0.,
+            "meanPerAno": 0.,
+            "delta T": dt,
+            "f_min": 50.0,
+            "f_ref": 50.0,
+            "params": lal.CreateDict(),
+            "approximant": approximant,
+        }
+
         hp, hx = lalsimulation.SimInspiralChooseTDWaveform(
-            m1,
-            m2,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            p["distance"],
-            p["inclination"],
-            0,
-            0,
-            0,
-            0,
-            dt,
-            20.0,
-            5.0,
-            {},
-            approximant,
+            *list(args.values())
         )
         sample_times = (
             hp.epoch.gpsNanoSeconds * 1e-9
@@ -102,6 +107,7 @@ class IMRPhenomPv2(Model):
                 dtype=torch.float64,
             )
         )
+
         idx = (sample_times >= float(times[0])) & (
             sample_times <= float(times[-1]) + dt / 2
         )
@@ -129,9 +135,16 @@ class IMRPhenomPv2(Model):
                 psi
             ) + hx_data * response.cross * torch.sin(psi)
 
+        times = torch.linspace(
+            -p["before"],
+            p["after"],
+            int(p["sample rate"] * (p["before"] + p["after"])),
+            device=self.device
+        ) + p["gpstime"]
+            
         detection = Timeseries(
             data=torch.tensor(waveform_mean, device=self.device),
-            times=torch.tensor(times, device=self.device, dtype=torch.float64),
+            times=times,
             detector=p["detector"],
         )
         detection.variance = torch.zeros(len(detection.times), device=self.device)
