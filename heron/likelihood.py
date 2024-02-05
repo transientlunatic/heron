@@ -25,6 +25,7 @@ else:
 
 logger = logging.getLogger("heron.likelihood")
 
+
 def determine_overlap(timeseries_a, timeseries_b):
     def is_in(time, timeseries):
         diff = torch.min(torch.abs(timeseries - time))
@@ -208,78 +209,51 @@ class InnerProduct:
     """
 
     def __init__(
-        self, psd, duration, signal_psd=None, signal_cov=None, f_min=None, f_max=None
+            self,
+            duration,
+            metric=None,
+            f_min=None,
+            f_max=None,
     ):
-        if not (isinstance(psd, type(None))):
-            self.noise = psd.to(torch.complex128)
-        else:
-            self.noise = psd
-        if not isinstance(signal_psd, type(None)):
-            self.noise2 = signal_psd.to(torch.complex128)
-        else:
-            self.noise2 = None
-        self.signal_cov = signal_cov
-        # if not isinstance(self.noise2, type(None)):
-        #    reweight = torch.sum(self.noise.modulus / self.noise2.modulus)
-        #    self.noise2 = self.noise2 / reweight
         self.duration = duration
-        # if not isinstance(self.signal_cov, type(None)):
-        # self.metric = self.signal_cov
-        # self.metric += self.duration*self.noise
-        # self.metric = torch.inverse(self.metric)
-        # self.metric = self.metric.to(device=self.noise.device, dtype=torch.complex128)
-        if not isinstance(self.noise2, type(None)) and not (
-            isinstance(self.noise, type(None))
-        ):
-            self.metric = 1.0 / ((self.noise / self.duration) + self.noise2**2)
-            self.metric = self.metric.diag().to(
-                device=self.noise.device, dtype=torch.complex128
-            )
-        elif not (isinstance(self.noise, type(None))):
-            self.metric = 1.0 / (self.noise) / self.duration
-            self.metric = self.metric.diag().to(
-                device=self.noise.device, dtype=torch.complex128
-            )
-        else:
-            self.metric = 1.0 / (self.duration)
-            # self.metric = self.metric.diag().to(device=self.ndevice, dtype=torch.complex128)
 
-        if f_min or f_max:
-            warnings.warn(
-                """f_min and f_max are not yet implemented. The full frequency series will be used.""",
-                RuntimeWarning,
+        if metric is None:
+            self.metric = None
+        elif metric.ndim == 1:
+            self.metric = torch.tensor(scipy.linalg.toeplitz(metric.cpu())).to(
+                device=device, dtype=torch.complex128
             )
 
-        self.f_min = f_min if f_min else 1
-        self.f_max = f_max if f_max else -1
+        elif metric.ndim == 2:
+            self.metric = metric.to(
+                device=device, dtype=torch.complex128
+            )        
+
+        self.f_min = f_min if f_min else None
+        self.f_max = f_max if f_max else None
 
     def __call__(self, a, b):
-        return self.inner(a, b)  # , self.duration)
+        return self.inner(a, b)
 
     def inner(self, a, b):
         """
         Calculate the noise-weighted inner product of a and b.
         """
+        # NB linalg.solve(A, B) == linalg.inv(A) @ B
         a = a.to(dtype=torch.complex128)
         b = b.to(dtype=torch.complex128)
-        if isinstance(self.metric, float):
-            c = (b[self.f_min : self.f_max].conj() * self.metric) @ a[
-                self.f_min : self.f_max
-            ]
-        elif self.metric.dim() == 0:
-            c = (
-                b[self.f_min : self.f_max].conj()
-                @ self.metric[self.f_min : self.f_max].real.to(dtype=torch.complex128)
-            ) @ a[self.f_min : self.f_max]
+        if self.metric is None:
+            c = a[self.f_min: self.f_max].conj() * b[self.f_min: self.f_max]
+        elif isinstance(self.metric, float):
+            c = a[self.f_min: self.f_max].conj() * torch.linalg.solve(self.metric, b[self.f_min:self.f_max])
         else:
             c = (
-                a[self.f_min : self.f_max].conj()
-                @ self.metric[self.f_min : self.f_max, self.f_min : self.f_max].real.to(
+                a[self.f_min: self.f_max].conj()
+                @ torch.linalg.solve(self.metric[self.f_min: self.f_max, self.f_min: self.f_max].real.to(
                     dtype=torch.complex128
-                )
-                @ b[self.f_min : self.f_max]
+                ), b[self.f_min: self.f_max])
             )
-        return 4.0 * c.real  # *(1./self.duration)
+        return torch.sum(4.0 * c.real * (1./self.duration))
 
 
 class Likelihood:
@@ -383,7 +357,7 @@ class CUDATimedomainLikelihood(Likelihood):
             pass
 
         # Convert PSD into the noise matrix
-        
+
         self.C = (
             torch.fft.irfft(
                 torch.tensor(psd.data, device=self.device, dtype=torch.double),
@@ -402,11 +376,11 @@ class CUDATimedomainLikelihood(Likelihood):
         p = args
         if self._cache_location == p:
             logger.debug(f"Evaluating [cached] at {p}")
-            #print(f"Evaluating [cached] at {p}")
+            # print(f"Evaluating [cached] at {p}")
             waveform = self._cache
         else:
             logger.debug(f"Evaluating at {p}")
-            #print(f"Evaluating at {p}")
+            # print(f"Evaluating at {p}")
             waveform = self.model.time_domain_waveform(p=p, times=times)
             sos = scipy.signal.butter(
                 10,
@@ -429,13 +403,13 @@ class CUDATimedomainLikelihood(Likelihood):
         """
         epoch = torch.min(draw.times)
         times -= epoch
-        draw.times -= epoch # This probably isn't quite right
+        draw.times -= epoch  # This probably isn't quite right
         # Find the closest bin to the starts
         zero_bin = int(torch.argmin(torch.abs(times - draw.times)))
         # First roll the data so it aligns with the waveform
-        #data = torch.roll(data, -zero_bin)#, axis=0)
+        # data = torch.roll(data, -zero_bin)#, axis=0)
 
-        return data[zero_bin:zero_bin+len(draw.data)]
+        return data[zero_bin : zero_bin + len(draw.data)]
 
     def determine_overlap(self, A, B):
         return determine_overlap(A, B)
@@ -443,8 +417,8 @@ class CUDATimedomainLikelihood(Likelihood):
     def _residual(self, draw):
         indices = self.determine_overlap(self.timeseries, draw)
         residual = (
-            self.data#[indices[0][0] : indices[0][1]]
-            - draw.data#[indices[1][0] : indices[1][1]]
+            self.data  # [indices[0][0] : indices[0][1]]
+            - draw.data  # [indices[1][0] : indices[1][1]]
         ).to(dtype=torch.double)
         return residual
 
@@ -485,7 +459,7 @@ class CUDATimedomainLikelihood(Likelihood):
         """
         Calculate the overall log-likelihood.
         """
-        p['detector'] = self._detector_prefix
+        p["detector"] = self._detector_prefix
         times = self.times
         draw = self._call_model(p, times)
         aligned_C = self.C
@@ -501,15 +475,9 @@ class CUDATimedomainLikelihood(Likelihood):
         if model_var:
             like = -0.5 * self._weighted_residual_power(
                 residual,
-                aligned_C
-                + draw.covariance
-                + noise,
+                aligned_C + draw.covariance + noise,
             )
-            norm = 0.5 * self._normalisation(
-                aligned_C
-                + draw.covariance
-                + noise
-            )
+            norm = 0.5 * self._normalisation(aligned_C + draw.covariance + noise)
             like += norm
         else:
             # for the psd inverse f transform of the inverse of the PSD
@@ -611,9 +579,7 @@ class CUDALikelihood(Likelihood):
         self.gen_args = generator_args
         self.gen_args["detector"] = self._detector_prefix
         if isinstance(data, elk.waveform.Timeseries):
-            self.data = data.to_frequencyseries(
-                window=self.window
-            ).data
+            self.data = data.to_frequencyseries(window=self.window).data
             self.times = data.times.clone()
             self.duration = self.times[-1] - self.times[0]
 
@@ -639,6 +605,14 @@ class CUDALikelihood(Likelihood):
         self.psd = self.psd.to(torch.complex128)
         self.data = self.data.to(torch.complex128)
 
+        self.inner_product_data = InnerProduct(
+            metric=self.psd.clone(),
+            duration=self.duration,
+            f_min=self.f_min,
+            f_max=self.f_max,
+        )
+        self.data_inner_product = self.inner_product_data(d, d)
+        
     def _call_model(self, p):
         args = copy(self.gen_args)
         args.update(p)
@@ -671,26 +645,40 @@ class CUDALikelihood(Likelihood):
         if "ra" in p.keys():
             waveform_mean = polarisations.data
             waveform_variance = polarisations.variance.abs()
+            waveform_covariance = polarisations.covariance.abs()
         else:
             waveform_mean = polarisations["plus"].data
             waveform_variance = polarisations["plus"].variance.abs()
 
         if model_var:
-            inner_product = InnerProduct(
-                self.psd.clone(),
-                signal_psd=waveform_variance,
+            inner_product_main = InnerProduct(
+                metric=torch.inverse(self.psd.clone()) + torch.inverse(waveform_variance),
+                duration=self.duration,
+                f_min=self.f_min,
+                f_max=self.f_max,
+            )
+            inner_product_gpr = InnerProduct(
+                metric=waveform_variance,
                 duration=self.duration,
                 f_min=self.f_min,
                 f_max=self.f_max,
             )
         else:
-            inner_product = InnerProduct(
-                self.psd, duration=self.duration, f_min=self.f_min, f_max=self.f_max
+            inner_product_main = InnerProduct(
+                metric=self.psd,
+                duration=self.duration,
+                f_min=self.f_min,
+                f_max=self.f_max
             )
+
+        A = torch.transpose(self.data) * torch.inverse(
+            scipy.linalg.toeplitz(self.psd.clone())
+        ) - waveform_mean * torch.inverse(waveform_covariance)
+
         products = 0
-        products -= 0.5 * inner_product(self.data, self.data)
-        products -= 0.5 * inner_product(waveform_mean, waveform_mean)
-        products += inner_product(self.data, waveform_mean)
+        products += +0.5 * inner_product_main(A, A)
+        products += -0.5 * self.data_inner_product
+        products += -0.5 * inner_product_gpr(waveform_mean, waveform_mean)
 
         return products
 
