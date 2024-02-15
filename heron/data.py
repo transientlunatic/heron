@@ -180,29 +180,41 @@ class DataWrapper001:
             outputs[key] = value.cpu().numpy().astype(np.float64).tolist()
 
         if f"{name}/hyperparameters" in model_states:
-            model_states[f"{name}/hyperparameters"] = yaml.dump(outputs)
-        else:
-            model_states.create_dataset(
-                f"{name}/hyperparameters", data=yaml.dump(outputs)
-            )
-        model_states[f"{name}/datagroup"] = group
+            del(model_states[f"{name}/hyperparameters"])
+            #model_states[f"{name}/hyperparameters"] = yaml.dump(outputs)
+        #else:
+        model_states.create_dataset(
+            f"{name}/hyperparameters", data=yaml.dump(outputs)
+        )
+        if f"{name}/datagroup" not in model_states:
+            model_states[f"{name}/datagroup"] = group
 
     def get_states(self, name, device="cpu"):
         """
         Get the trained state for a given model.
 
         """
-        hypers = yaml.safe_load(
-            str(self.h5file["model states"][name]["hyperparameters"].asstr()[()])
-        )
 
-        out = {}
-        for key, value in hypers.items():
-            if isinstance(value, float):
-                value = np.array(value)
-            out[key] = torch.Tensor(value)  # , device=device)
+        if name in self.h5file["model states"]:
+        
+            hypers = yaml.safe_load(
+                str(self.h5file["model states"][name]["hyperparameters"].asstr()[()])
+            )
 
-        return {"hyperparameters": out}
+            out = {}
+            for key, value in hypers.items():
+                if isinstance(value, float):
+                    value = np.array(value)
+                out[key] = torch.Tensor(value)  # , device=device)
+
+            return {"hyperparameters": out}
+
+        else:
+            raise KeyError(
+                """
+                No model state is present for this training data.
+                Have you trained on it?
+                """)
 
     def add_data(
         self,
@@ -269,22 +281,24 @@ class DataWrapper001:
         )
 
         for i, parameter in enumerate(parameters):
+
+            if "group" not in training_data:
+                training_data.create_dataset(
+                    f"{group}/locations/{parameter}",
+                    (len(locations[:, i]),),
+                    data=locations[:, i],
+                    chunks=True,
+                    maxshape=(None,),
+                )
             training_data.create_dataset(
-                f"{group}/locations/{parameter}",
-                (len(locations[:, i]),),
-                data=locations[:, i],
-                chunks=True,
-                maxshape=(None,),
+                f"{group}/polarisation", data=polarisation, chunks=True, maxshape=(None)
             )
-        training_data.create_dataset(
-            f"{group}/polarisation", data=polarisation, chunks=True, maxshape=(None)
-        )
-        training_data.create_dataset(
-            f"{group}/source", data=source, chunks=True, maxshape=(None)
-        )
-        training_data.create_dataset(
-            f"{group}/data", data=data, chunks=True, maxshape=(None)
-        )
+            training_data.create_dataset(
+                f"{group}/source", data=source, chunks=True, maxshape=(None)
+            )
+            training_data.create_dataset(
+                f"{group}/data", data=data, chunks=True, maxshape=(None)
+            )
 
     def add_waveform(
         self,

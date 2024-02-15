@@ -30,6 +30,7 @@ class Test_InnerProduct(unittest.TestCase):
         ip = InnerProduct(duration=4)
         self.assertTrue(ip(data, data)==200)
 
+        
     def test_psd_case_dimensionality(self):
         """Test that the inner product of two vectors with data noise returns a scalar."""
         ip = InnerProduct(duration=1,
