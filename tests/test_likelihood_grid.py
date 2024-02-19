@@ -82,7 +82,7 @@ class TestLikelihoodTimeWindowing(unittest.TestCase):
             "psi": 1.47,
             "gpstime": 1000.,
             "detector": "L1",
-            "distance": 1000.,
+            "distance": 2000.,
             "after": 0.2,
             "before": 0.3,
         }
@@ -94,7 +94,7 @@ class TestLikelihoodTimeWindowing(unittest.TestCase):
         l = CUDATimedomainLikelihood(self.model, data=detection, detector_prefix="L1", psd=psd)
 
         likes = []
-        mass_differences = torch.linspace(-5, 5, 25)
+        mass_differences = torch.linspace(-5, 5, 11)
         for mass_difference in mass_differences:
             parameters_updated = parameters.copy()
             parameters_updated['total mass'] += float(mass_difference)
@@ -111,6 +111,46 @@ class TestLikelihoodTimeWindowing(unittest.TestCase):
         self.assertTrue(max(likes) > likes[-1])
 
         
+
+
+    def test_exploring_mass_space_novar(self):
+        p = {
+            "sample rate": 4096,
+            "mass ratio": 1.0,
+            "total mass": 40.0,
+            "ra": 1.79,
+            "dec": -1.22,
+            "psi": 1.47,
+            "gpstime": 1000.,
+            "detector": "L1",
+            "distance": 2000.,
+            "after": 0.2,
+            "before": 0.3,
+        }
+        signal = self.model.time_domain_waveform(p=p)
+        detection, psd = self.generate_injection()
+        self.assertNotEqual(detection.times[0] - signal.times[0], 0)
+        parameters = p.copy()
+        
+        l = CUDATimedomainLikelihood(self.model, data=detection, detector_prefix="L1", psd=psd)
+
+        likes = []
+        mass_differences = torch.linspace(-5, 5, 11)
+        for mass_difference in mass_differences:
+            parameters_updated = parameters.copy()
+            parameters_updated['total mass'] += float(mass_difference)
+            likes.append(l(parameters_updated, model_var=False).cpu())
+            self.assertTrue(likes[-1].isfinite())
+
+        print("Maximum likelihood", float(max(likes)),
+              "at",
+              "total mass",
+              parameters['total mass'] + float(mass_differences[torch.argmax(torch.tensor(likes))])) 
+
+        self.assertTrue(max(likes) > likes[0])
+        self.assertTrue(max(likes) > likes[-1])
+
+
     def test_exploring_mass_ratio_space(self):
         p = {
             "sample rate": 4096,
@@ -149,8 +189,7 @@ class TestLikelihoodTimeWindowing(unittest.TestCase):
         self.assertTrue(max(likes) > likes[0])
         self.assertTrue(max(likes) > likes[-1])
 
-
-    def test_exploring_distance_space(self):
+    def test_exploring_mass_ratio_space_novar(self):
         p = {
             "sample rate": 4096,
             "mass ratio": 0.7,
@@ -172,10 +211,50 @@ class TestLikelihoodTimeWindowing(unittest.TestCase):
         l = CUDATimedomainLikelihood(self.model, data=detection, detector_prefix="L1", psd=psd)
 
         likes = []
-        mass_differences = torch.linspace(10, 10000, 25)
+        mass_differences = torch.linspace(-0.1, 0.1, 25)
         for mass_difference in mass_differences:
             parameters_updated = parameters.copy()
-            parameters_updated['distance'] += float(mass_difference)
+            parameters_updated['mass ratio'] += float(mass_difference)
+            likes.append(l(parameters_updated, model_var=False).cpu())
+            #print(parameters_updated['mass ratio'], likes[-1])
+            self.assertTrue(likes[-1].isfinite())
+
+        print("Maximum likelihood", float(max(likes)),
+              "at",
+              "mass ratio",
+              parameters['mass ratio'] + float(mass_differences[torch.argmax(torch.tensor(likes))])) 
+            
+        self.assertTrue(max(likes) > likes[0])
+        self.assertTrue(max(likes) > likes[-1])
+
+        
+
+    def test_exploring_distance_space(self):
+        p = {
+            "sample rate": 4096,
+            "mass ratio": 1.0,
+            "total mass": 40.0,
+            "ra": 1.79,
+            "dec": -1.22,
+            "psi": 1.47,
+            "gpstime": 1000.,
+            "detector": "L1",
+            "distance": 1000.,
+            "after": 0.2,
+            "before": 0.3,
+        }
+        signal = self.model.time_domain_waveform(p=p)
+        detection, psd = self.generate_injection()
+        self.assertNotEqual(detection.times[0] - signal.times[0], 0)
+        parameters = p.copy()
+        
+        l = CUDATimedomainLikelihood(self.model, data=detection, detector_prefix="L1", psd=psd)
+
+        likes = []
+        mass_differences = torch.linspace(10, 10000, 50)
+        for mass_difference in mass_differences:
+            parameters_updated = parameters.copy()
+            parameters_updated['distance'] = float(mass_difference)
             likes.append(l(parameters_updated, model_var=True).cpu())
             #print(parameters_updated['mass ratio'], likes[-1])
             self.assertTrue(likes[-1].isfinite())
@@ -183,7 +262,7 @@ class TestLikelihoodTimeWindowing(unittest.TestCase):
         print("Maximum likelihood", float(max(likes)),
               "at",
               "distance",
-              parameters['distance'] + float(mass_differences[torch.argmax(torch.tensor(likes))])) 
+              float(mass_differences[torch.argmax(torch.tensor(likes))])) 
             
         self.assertTrue(max(likes) > likes[0])
         self.assertTrue(max(likes) > likes[-1])
