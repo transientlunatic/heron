@@ -368,6 +368,8 @@ class CUDATimedomainLikelihood(Likelihood):
         )
         self.C = torch.tensor(scipy.linalg.toeplitz(self.C.cpu()), device=self.device)
 
+        self.inverse_C = torch.inverse(self.C)
+
         logger.info(f"Heron likelihood initialised for {self._detector_prefix}")
 
     def _call_model(self, p, times):
@@ -377,10 +379,9 @@ class CUDATimedomainLikelihood(Likelihood):
         if self._cache_location == p:
             logger.debug(f"Evaluating [cached] at {p}")
             # print(f"Evaluating [cached] at {p}")
-            waveform = self._cache
+            waveform = self._cache   
         else:
             logger.debug(f"Evaluating at {p}")
-            # print(f"Evaluating at {p}")
             waveform = self.model.time_domain_waveform(p=p, times=times)
             sos = scipy.signal.butter(
                 10,
@@ -445,49 +446,67 @@ class CUDATimedomainLikelihood(Likelihood):
             aligned_C = self._align_time_axis(self.times, self.C, noise)
             snr = residual @ torch.inverse(aligned_C + noise) @ residual
         return torch.sqrt(snr)
+    
+    def _normalisation(self, K, S):
+        norm = - 1.5 * K.shape[0] * torch.log(torch.tensor(2)*torch.pi) \
+            - 0.5 * self._safe_logdet(K) \
+            + 0.5 * self._safe_logdet(self.C) \
+            - 0.5 * self._safe_logdet(torch.linalg.solve(K, self.C)+torch.eye(K.shape[0], device=device))
+        return norm
 
-    def _residual_power(self, residual):
-        return residual @ residual
+    def _safe_logdet(self, A):
+        """
+        Caclulate the log determinant of an awkward matrix.
+        """
+        X = torch.logdet(A*1e48) - A.shape[0] * 110.524084464
+        if torch.isnan(X) or torch.isinf(X):
+            X = torch.tensor(- A.shape[0] * 110.524084464)
+        return X
 
-    def _weighted_residual_power(self, residual, weight):
-        return torch.matmul(residual, torch.inverse(weight)) @ residual
+    def _weighted_data(self):
+        """Return the weighted data component"""
+        # TODO This can all be pre-computed
+        if not hasattr(self, "weighted_data_CACHE"):
+            dw = self.weighted_data_CACHE = -0.5 * self.data.T @ torch.linalg.solve(self.C, self.data)
+        else:
+            dw = self.weighted_data_CACHE
+        return dw
 
-    def _normalisation(self, weight):
-        return torch.logdet(2 * torch.pi * weight)
+    def _weighted_model(self, mu, K):
+        """Return the inner product of the GPR mean"""
+        return -0.5 * mu.T @ torch.linalg.solve(K, mu)
 
-    def _log_likelihood(self, p, model_var=True, noise=1e-60):
+    def _weighted_cross(self, mu, K):
+        a = (torch.linalg.solve(self.C, self.data) + torch.linalg.solve(K, mu))
+        b = (self.inverse_C + torch.inverse(K))
+        return 0.5 * a.T @ torch.linalg.solve(b, a)
+
+    def _log_likelihood(self, p, model_var=True, noise=None):
         """
         Calculate the overall log-likelihood.
         """
         p["detector"] = self._detector_prefix
-        times = self.times
-        draw = self._call_model(p, times)
-        aligned_C = self.C
-
-        residual = self._residual(draw)
-
-        noise = (
-            torch.randn(aligned_C.shape[0], dtype=torch.float64, device=self.device)
-            * noise
-        )
-        noise = torch.diag(noise)
+        times = self.times.clone()
+        waveform = self._call_model(p, times)
 
         if model_var:
-            like = -0.5 * self._weighted_residual_power(
-                residual,
-                aligned_C + draw.covariance + noise,
-            )
-            norm = 0.5 * self._normalisation(aligned_C + draw.covariance + noise)
+            # Calculate the form of the likelihood which includes contributions
+            # from all waveform draws.
+            like = self._weighted_cross(waveform.data, waveform.covariance)
+            #print("cross term", like)
+            A = self._weighted_data()
+            #print("data term", A)
+            B = self._weighted_model(waveform.data, waveform.covariance)
+            #print("model term", B)
+            like = like + A + B
+            norm = self._normalisation(waveform.covariance, self.C)
+            #print("normalisation", norm)
             like += norm
         else:
-            # for the psd inverse f transform of the inverse of the PSD
-            # did we get rid of the low-frequency zeros
-            # what happens if we use a "flat" PSD without adding noise
-            # could rescale the matrix before inverting and then rescaling again
-            like = -0.5 * self._weighted_residual_power(
-                residual[: aligned_C.shape[0]], aligned_C + noise
-            )
-            like += 0.5 * self._normalisation(self.C + noise)
+            residual = self.data - waveform.data
+            like = -0.5*residual.T@torch.linalg.solve(self.C, residual)
+            like -= (self.C.shape[0]/2) * torch.log(torch.tensor(2 * torch.pi)) + 0.5 * self._safe_logdet(self.C)
+
         return like
 
 
@@ -532,7 +551,7 @@ class CUDALikelihood(Likelihood):
     >>> from .utils import Complex
     >>> generator = HeronCUDAIMR()
     >>> window = torch.blackman_window(164)
-    >>> noise = torch.randn(164, device=device) * 1e-20
+    >>> noise = torch.rand(164, device=device) * 1e-20
     >>> asd = Complex((window*noise).rfft(1))
     >>> signal = generator.time_domain_waveform({'mass ratio': 0.9},
                               times=np.linspace(-0.01, 0.005, 164))

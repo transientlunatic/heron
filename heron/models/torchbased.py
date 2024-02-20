@@ -288,7 +288,6 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
         # Load the training data
         if not os.path.exists(self.datafile):
             if os.path.exists(os.path.join(DATA_PATH, self.datafile)):
-                #self.datafile = os.path.join(DATA_PATH, self.datafile)
                 # Copy the file to the working directory
                 # Note this is a bit of a hack and should be cleaned up
                 shutil.copyfile(os.path.join(DATA_PATH, self.datafile), self.datafile)
@@ -340,13 +339,8 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             self.logger.warning(
                 "This model needs to be trained as training states could not be found!"
             )
-            self.logger.exception(e)
+            #self.logger.exception(e)
         self.eval()
-
-    # def _process_inputs(self, times, p):
-    #     times *= self.time_factor
-    #     p = {k: self.other_input_factor*v for k, v in p.items()}
-    #     return times, p
 
     def build(self):
         """
@@ -358,11 +352,8 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
 
         likelihood = gpytorch.likelihoods.GaussianLikelihood()
         likelihood_cross = gpytorch.likelihoods.GaussianLikelihood()
-        # This needs to be changed when the model has more than one dimension, but I'm trying to
-        # get anything to work right now.
         time_kernel = RBFKernel(active_dims=self.c_ind[b"time"])
         mass_kernel = RBFKernel(active_dims=self.c_ind[b"mass ratio"])
-        # TODO: Add mass ratio support to the model
         # TODO: Add spin support to the model
 
         class ExactGPModel(gpytorch.models.ExactGP):
@@ -544,6 +535,8 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
         evals.update(p)
         p = evals
 
+        if times is not None:
+            times = times.clone()
         if "distance" in p:
             # The distance in megaparsec
             distance = p["distance"]
@@ -561,6 +554,7 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
         else:
             total_mass = 20
 
+        distance = float(distance)
         mass_factor = total_mass / self.reference_mass
         epoch = p["gpstime"]
         if isinstance(times, type(None)):
@@ -571,17 +565,14 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
                 device=self.device,
                 dtype=torch.float64,
             )
-
             eval_times = torch.linspace(
                 -p["before"] / mass_factor,
                 p["after"] / mass_factor,
                 int((p["after"] + p["before"]) * p["sample rate"]),
                 device=self.device,
             )
-
         else:
-            eval_times = (times - p["gpstime"]) / mass_factor
-
+            eval_times = (times.clone() - epoch) / mass_factor
         if "ra" in p.keys():
             ra, dec, psi, gpstime = (
                 p["ra"],
@@ -597,7 +588,6 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
                 detector.location, ra, dec, LIGOTimeGPS(gpstime)
             )
             polarisations = self.mean(eval_times, p)
-
             iota = torch.tensor(p["theta jn"])
             phi0 = torch.tensor(p["phase angle"])
 
@@ -609,14 +599,11 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
                 torch.cos(phi0) * torch.cos(iota) * response.cross
                 - torch.sin(phi0) * (1 + torch.cos(iota) ** 2) * response.plus
             )
-
             waveform_mean = (
                 polarisations["plus"].data * plus_prefactor
                 + polarisations["cross"].data * cross_prefactor
             )
-
             shift = int(torch.round(dt / torch.diff(times - times[0])[0]))
-
             pre_pad = int(torch.round(p["pad before"] / torch.diff(times)[0]))
             post_pad = int(torch.round(p["pad after"] / torch.diff(times)[0]))
             waveform_mean = torch.nn.functional.pad(waveform_mean, (pre_pad, post_pad))
@@ -632,7 +619,6 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
                 polarisations["cross"].variance * cross_prefactor**2
             )
             
-
             waveform_variance = torch.nn.functional.pad(
                 waveform_variance, (pre_pad, post_pad)
             )
@@ -645,12 +631,11 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             )
 
             self.logger.debug(f"waveform covariance: {waveform_covariance[10]}")
-
             waveform = Timeseries(
                 data=mass_factor * waveform_mean / distance,
                 variance=(mass_factor**2) * waveform_variance / distance**2,
                 covariance=(mass_factor**2) * waveform_covariance / distance**2,
-                times=times,
+                times=times.clone(),
                 detector=p["detector"],
             )
         else:
