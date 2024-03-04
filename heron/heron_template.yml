@@ -6,7 +6,7 @@ name: {{ production.name }}
 
 injection:
   parameters: {{ production.meta['injection'] }}
-  injection model: {{ production.meta['injection model'] }}
+  injection model: {{ production.meta['injection']['injection model'] }}
 
 interferometers: {{ production.meta['interferometers'] }}
 
@@ -20,8 +20,8 @@ noise model: {{ production.meta['noise model'] }}
 data: {{ production.meta['data'] }}
 
 psds:
-  {%- for ifo in ifos %}
-  {{ ifo }}: {{production.psds[ifo]}}
+  {%- for ifo in production.meta['interferometers']  %}
+  {{ ifo }}: {{ production.psds[ifo] }}
   {%- endfor %}
 
 {%- assign priors = production.meta['priors'] %}
