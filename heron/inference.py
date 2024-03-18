@@ -54,7 +54,7 @@ def inference(settings):
     for ifo in settings['interferometers']:
         frame_data = gwpyTimeSeries.read(settings['data']['data files'][ifo],
                                      settings['data']['channels'][ifo])
-        data[ifo] = Timeseries(data=torch.tensor(frame_data.data, device=device),
+        data[ifo] = Timeseries(data=torch.tensor(frame_data.data, device=device, dtype=torch.float64),
                                times=torch.tensor(frame_data.times, device=device))
 
     psds = {}
