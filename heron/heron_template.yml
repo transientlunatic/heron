@@ -31,6 +31,8 @@ priors:
 {% endif %}
 {%- if priors.keys() contains "total mass" %}{% assign p = priors['total mass'] %}{% else %}{% assign p = None %}{% endif %}
    total_mass: {{p['type'] | default: "Uniform" }}(name='total_mass', minimum={{p['minimum'] | default: 1}}, maximum={{p['maximum'] | default: 1000}})
+{%- if priors.keys() contains "chirp mass" %}{% assign p = priors['chirp mass'] %}{% else %}{% assign p = None %}{% endif %}
+   chirp_mass: {{p['type'] | default: "Uniform" }}(name='chirp_mass', minimum={{p['minimum'] | default: 1}}, maximum={{p['maximum'] | default: 1000}})
 {%- if priors.keys() contains "mass ratio" %}{% assign p = priors['mass ratio'] %}{% else %}{% assign p = None %}{% endif %}
    mass_ratio: {{p['type'] | default: "bilby.gw.prior.UniformInComponentsMassRatio" }}(name='mass_ratio', minimum={{p['minimum']}}, maximum={{p['maximum']}})
 {%- if priors.keys() contains "luminosity distance" %}{%- assign p = priors['luminosity distance'] %}
