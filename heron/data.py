@@ -48,13 +48,24 @@ class DataWrapper001:
         """
         self.specification = ""
         self.training_data = {}
-
-        if write:
-            mode = "a"
-        else:
-            mode = "r"
+        self.filename = filename
+        self.writeable = write
+        mode = "a" if self.writeable else "r"
 
         self.h5file = h5py.File(filename, mode)
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        h5file = state['h5file']
+        h5file.close()
+        del state['h5file']
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        mode = "a" if self.writeable else "r"
+
+        self.h5file = h5py.File(self.filename, mode)
 
     def __getitem__(self, item):
         return self.h5file["training data"][item]
