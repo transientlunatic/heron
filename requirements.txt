@@ -13,3 +13,4 @@ gpytorch
 torch
 lalsuite
 h5py
+click
