@@ -43,10 +43,10 @@ class IMRPhenomPv2(Model):
         interpolator = interp.interp1d(x_old, y_old)
         return interpolator(x_new)
 
-    def time_domain_waveform(self, p):
+    def time_domain_waveform(self, p, times=None):
         params = {
-            "total mass": 20,
-            "mass ratio": 1.0,
+            "total_mass": 20,
+            "mass_ratio": 1.0,
             "inclination": 0,
             "distance": 1000,
         }
@@ -59,15 +59,8 @@ class IMRPhenomPv2(Model):
         )
         params.update(p)
         p = params
-        # waveform = generate_waveform(q=params['mass ratio'],
-        #                              M=params['total mass'],
-        #                              distance=params['distance'],
-        #                              apx="IMRPhenomPv2",
-        #                              times=times)
-        # hp = self.interpolate(waveform[0], waveform[1], times)
-        # hx = self.interpolate(waveform[0], waveform[2], times)
-        m1 = p["total mass"] / (1 + p["mass ratio"]) * lal.MSUN_SI
-        m2 = p["total mass"] / (1 + 1 / p["mass ratio"]) * lal.MSUN_SI
+        m1 = p["total_mass"] / (1 + p["mass_ratio"]) * lal.MSUN_SI
+        m2 = p["total_mass"] / (1 + 1 / p["mass_ratio"]) * lal.MSUN_SI
         params["distance"] = 1E6 * params["distance"] * lal.PC_SI
         dt = float(times[1] - times[0]) #float(1/(p["sample rate"]))
         approximant = lalsimulation.GetApproximantFromString("IMRPhenomPv2")
