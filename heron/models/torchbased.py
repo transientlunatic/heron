@@ -547,7 +547,7 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             "pad before": 0.2,
             "pad after": 0.05,
             "theta_jn": 0,
-            "phase_angle": 0,
+            "phase": 0,
         }
         evals = defaults.copy()
         evals.update(p)
@@ -562,17 +562,17 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             distance = 1
 
         if "total_mass" in p:
-            total_mass = p["total mass"]
+            total_mass = p["total_mass"]
         elif "chirp_mass" in p and "mass_ratio" in p:
             total_mass = (
                 p["chirp_mass"] * (1 + p["mass_ratio"]) ** 1.2 / p["mass_ratio"] ** 0.6
             )
-        elif "mass 1" in p and "mass 2" in p:
+        elif "mass_1" in p and "mass_2" in p:
             mass_1 = p["mass 1"]
             mass_2 = p["mass 2"]
             total_mass = mass_1 + mass_2
             mass_ratio = mass_2 / mass_1
-            p["mass ratio"] = mass_ratio
+            p["mass_ratio"] = mass_ratio
         else:
             total_mass = 20
 
