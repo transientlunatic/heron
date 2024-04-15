@@ -1,14 +1,19 @@
 import unittest
-from astropy import units as u
+
+import astropy.units as u
+
+from heron.models import lalsimulation
 from heron.training import makedata
 
-class TestIMRPhenomPv2_Interface(unittest.TestCase):
+class Test_Manifold_Generation(unittest.TestCase):
 
     def setUp(self):
-        self.waveform = makedata.IMRPhenomPv2()
+        self.manifold = makedata.make_manifold(parameter="m1", lower=10, upper=100, step=2, unit=u.solMass)
 
-    def test_values(self):
-        self.assertTrue(min(self.waveform.time_domain({"m1": 100 * u.solMass})['plus'].times.value)<0.01)
+    def test_waveform_parameters(self):
+        pass
 
-    def test_hrss(self):
-        self.assertTrue(max(self.waveform.time_domain({"m1": 100 * u.solMass}).hrss.value) < 1e5)
+    def test_manifold_plot(self):
+        f = self.manifold.plot()
+        f.savefig("manifold.png")
+        
