@@ -30,19 +30,21 @@ priors:
    gpstime: {{p['type'] | default: 'Uniform' }}(name="gpstime", minimum={{p['minimum']}}, maximum={{p['maximum']}}, boundary={{p['boundary'] | default: None}})
 {% endif %}
 {%- if priors.keys() contains "total mass" %}{% assign p = priors['total mass'] %}{% else %}{% assign p = None %}{% endif %}
-   total mass: {{p['type'] | default: "Uniform" }}(name='total mass', minimum={{p['minimum'] | default: 1}}, maximum={{p['maximum'] | default: 1000}})
+   total_mass: {{p['type'] | default: "Uniform" }}(name='total_mass', minimum={{p['minimum'] | default: 1}}, maximum={{p['maximum'] | default: 1000}})
+{%- if priors.keys() contains "chirp mass" %}{% assign p = priors['chirp mass'] %}{% else %}{% assign p = None %}{% endif %}
+   chirp_mass: {{p['type'] | default: "Uniform" }}(name='chirp_mass', minimum={{p['minimum'] | default: 1}}, maximum={{p['maximum'] | default: 1000}})
 {%- if priors.keys() contains "mass ratio" %}{% assign p = priors['mass ratio'] %}{% else %}{% assign p = None %}{% endif %}
-   mass ratio: {{p['type'] | default: "bilby.gw.prior.UniformInComponentsMassRatio" }}(name='mass ratio', minimum={{p['minimum']}}, maximum={{p['maximum']}})
+   mass_ratio: {{p['type'] | default: "bilby.gw.prior.UniformInComponentsMassRatio" }}(name='mass_ratio', minimum={{p['minimum']}}, maximum={{p['maximum']}})
 {%- if priors.keys() contains "luminosity distance" %}{%- assign p = priors['luminosity distance'] %}
-   distance: {{ p['type'] | default: "PowerLaw"}}(name='distance', {% for key in p.keys() %}{% if key != "type" %}{{key | replace: " ", "_"}}={{p[key]}},{% endif %} {% endfor %} unit='Mpc')
+   luminosity_distance: {{ p['type'] | default: "PowerLaw"}}(name='luminosity_distance', {% for key in p.keys() %}{% if key != "type" %}{{key | replace: " ", "_"}}={{p[key]}},{% endif %} {% endfor %} unit='Mpc')
 {% endif %}
 {%- if priors.keys() contains "theta jn" %}{% assign p = priors['theta jn'] %}{% else %}{% assign p = None %}
    theta_jn: {{p['type'] | default: "Sine" }}(name='theta_jn', minimum={{p['minimum']}}, maximum={{p['maximum']}})
 {% endif %}
-   dec: Cosine(name='dec')
-   ra: Uniform(name='ra', minimum=0, maximum=2 * np.pi, boundary='periodic')
+   azimuth: Uniform(name='azimuth', minimum=0, maximum=2 * np.pi, boundary='periodic')
+   zenith: Sine(name='zenith')
    psi: Uniform(name='psi', minimum=0, maximum=np.pi, boundary='periodic')
-   phase angle: Uniform(name='phase angle', minimum=0, maximum=np.pi, boundary='periodic')
+   phase: Uniform(name='phase', minimum=0, maximum=np.pi, boundary='periodic')
 
 waveform: {{ production.meta['waveform'] }}
 

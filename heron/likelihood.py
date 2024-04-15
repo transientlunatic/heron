@@ -630,7 +630,7 @@ class CUDALikelihood(Likelihood):
             f_min=self.f_min,
             f_max=self.f_max,
         )
-        self.data_inner_product = self.inner_product_data(d, d)
+        self.data_inner_product = self.inner_product_data(self.data, self.data)
         
     def _call_model(self, p):
         args = copy(self.gen_args)

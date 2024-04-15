@@ -14,7 +14,7 @@ import torch
 import gpytorch
 from gpytorch.kernels import RBFKernel
 from lal import cached_detector_by_prefix, TimeDelayFromEarthCenter, LIGOTimeGPS
-
+from lalinference import DetFrameToEquatorial
 from elk.waveform import Timeseries, FrequencySeries
 
 from . import Model
@@ -339,7 +339,7 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             self.logger.warning(
                 "This model needs to be trained as training states could not be found!"
             )
-            #self.logger.exception(e)
+            # self.logger.exception(e)
         self.eval()
 
     def build(self):
@@ -429,9 +429,6 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             likelihood_cross = likelihood_cross.cuda()
             # Annoyingly this can't be passed-in as a device keyword
 
-        # Right now we're not returning a different model for the cross-polarisation
-        # that's clearly not the correct way to do things
-        # TODO: Add the cross polarisation correctly.
         return [model, model_cross], [likelihood, likelihood_cross]
 
     def distribution(self, times, p, samples=100):
@@ -474,6 +471,9 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
            The polarisation to return. Default is `None` in which case all available polarisations are returned.
         """
 
+        defaults = {"reference_frame": ["L1", "H1"]}
+        p = defaults.update(p)
+
         window = window if window else torch.hamming_window
 
         timeseries = self.time_domain_waveform(times=times.clone(), p=p)
@@ -482,9 +482,27 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
         }
 
         polarisations = frequencyseries
-        if "ra" in p.keys():
+
+        if (
+            "azimuth" in p.keys()
+            and "zenith" in p.keys()
+            and "reference_frame" in p.keys()
+        ):
+            det1 = cached_detector_by_prefix[p["reference_frame"][0]]
+            det2 = cached_detector_by_prefix[p["reference_frame"][1]]
+            ra, dec, dt = DetFrameToEquatorial(
+                det1, det2, p["gpstime"], p["azimuth"], p["zenith"]
+            )
+
+        elif "ra" in p.keys() and "dec" in p.keys():
             ra, dec, psi, gpstime = p["ra"], p["dec"], p["psi"], p["gpstime"]
             detector = cached_detector_by_prefix[p["detector"]]
+
+        if (
+            "azimuth" in p.keys()
+            and "zenith" in p.keys()
+            and "reference_frame" in p.keys()
+        ) or ("ra" in p.keys() and "dec" in p.keys()):
             response = self._get_antenna_response(detector, ra, dec, psi, gpstime)
             dt = TimeDelayFromEarthCenter(
                 detector.location, ra, dec, LIGOTimeGPS(gpstime)
@@ -528,8 +546,8 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             "after": 0.01,
             "pad before": 0.2,
             "pad after": 0.05,
-            "theta jn": 0,
-            "phase angle": 0,
+            "theta_jn": 0,
+            "phase": 0,
         }
         evals = defaults.copy()
         evals.update(p)
@@ -537,20 +555,24 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
 
         if times is not None:
             times = times.clone()
-        if "distance" in p:
+        if "luminosity_distance" in p:
             # The distance in megaparsec
-            distance = p["distance"]
+            distance = p["luminosity_distance"]
         else:
             distance = 1
 
-        if "total mass" in p:
-            total_mass = p["total mass"]
-        elif "mass 1" in p:
+        if "total_mass" in p:
+            total_mass = p["total_mass"]
+        elif "chirp_mass" in p and "mass_ratio" in p:
+            total_mass = (
+                p["chirp_mass"] * (1 + p["mass_ratio"]) ** 1.2 / p["mass_ratio"] ** 0.6
+            )
+        elif "mass_1" in p and "mass_2" in p:
             mass_1 = p["mass 1"]
             mass_2 = p["mass 2"]
             total_mass = mass_1 + mass_2
             mass_ratio = mass_2 / mass_1
-            p["mass ratio"] = mass_ratio
+            p["mass_ratio"] = mass_ratio
         else:
             total_mass = 20
 
@@ -588,8 +610,8 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
                 detector.location, ra, dec, LIGOTimeGPS(gpstime)
             )
             polarisations = self.mean(eval_times, p)
-            iota = torch.tensor(p["theta jn"])
-            phi0 = torch.tensor(p["phase angle"])
+            iota = torch.tensor(p["theta_jn"])
+            phi0 = torch.tensor(p["phase"])
 
             plus_prefactor = (
                 torch.cos(phi0) * (1 + torch.cos(iota) ** 2) * response.plus
@@ -615,10 +637,10 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             # Given that we generate them with independent processes this is
             # an assumption effectively made earlier
             waveform_variance = (
-                polarisations["plus"].variance * plus_prefactor**2 +
-                polarisations["cross"].variance * cross_prefactor**2
+                polarisations["plus"].variance * plus_prefactor**2
+                + polarisations["cross"].variance * cross_prefactor**2
             )
-            
+
             waveform_variance = torch.nn.functional.pad(
                 waveform_variance, (pre_pad, post_pad)
             )
@@ -626,8 +648,8 @@ class HeronCUDA(CUDAModel, BBHSurrogate, HofTSurrogate):
             waveform_variance = waveform_variance[pre_pad:-post_pad]
 
             waveform_covariance = (
-                polarisations["plus"].covariance * plus_prefactor**2 +
-                polarisations["cross"].covariance * cross_prefactor**2
+                polarisations["plus"].covariance * plus_prefactor**2
+                + polarisations["cross"].covariance * cross_prefactor**2
             )
 
             self.logger.debug(f"waveform covariance: {waveform_covariance[10]}")

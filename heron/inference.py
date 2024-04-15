@@ -27,8 +27,6 @@ from nessai.flowsampler import FlowSampler
 import logging
 logger = logging.getLogger("heron.inference")
 
-
-
 @click.command
 @click.option("--settings")
 def inference(settings):
@@ -96,13 +94,17 @@ def inference(settings):
 
     fp = FlowSampler(
         nessai_model,
-        nlive=2000,
-        maximum_uninformed=4000,
+        nlive=1000,
+        maximum_uninformed=2000,
         output=settings["name"],
-        resume=False,
+        resume=True,
+        checkpointing=True,
+        checkpoint_interval=30*60,
+        logging_interval=10,
+        log_on_iteration=True,
         seed=1234,
-        flow_class="FlowProposal",
-        signal_handling=False,
+        flow_class="GWFlowProposal",
+        signal_handling=True,
     )
 
     fp.run()
