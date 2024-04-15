@@ -15,3 +15,4 @@ lalsuite
 h5py
 click
 asimov
+pesummary
