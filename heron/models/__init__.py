@@ -15,3 +15,9 @@ class WaveformSurrogate(WaveformModel):
     This class handles a waveform surrogate model.
     """
     pass
+
+class PSDModel:
+    pass
+
+class PSDApproximant(PSDModel):
+    pass

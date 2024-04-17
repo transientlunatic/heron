@@ -2,15 +2,14 @@ from itertools import cycle
 
 # GWPy to help with timeseries
 from gwpy.timeseries import TimeSeries
+from gwpy.frequencyseries import FrequencySeries
 
 import numpy as array_library
 import matplotlib.pyplot as plt
 
-class PSD:
-    def __init__(self, data, frequencies):
-        self.data = data
-        self.frequencies = frequencies
-        self.df = frequencies[1] - frequencies[0]
+class PSD(FrequencySeries):
+    def __init__(self, data, frequencies, *args, **kwargs):
+        super(PSD).__init__(*args, **kwargs)
 
 class Waveform(TimeSeries):
     def __init__(self, covariance, *args, **kwargs):
