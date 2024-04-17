@@ -10,3 +10,8 @@ class WaveformApproximant(WaveformModel):
     """
     pass
 
+class WaveformSurrogate(WaveformModel):
+    """
+    This class handles a waveform surrogate model.
+    """
+    pass

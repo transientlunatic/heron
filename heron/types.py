@@ -13,6 +13,9 @@ class PSD:
         self.df = frequencies[1] - frequencies[0]
 
 class Waveform(TimeSeries):
+    def __init__(self, covariance, *args, **kwargs):
+        self.covariance = covariance
+        super(Waveform).__init__(*args, **kwargs)
     pass
         
 class WaveformDict:
@@ -46,9 +49,18 @@ class WaveformManifold:
         self.locations.append(waveforms.parameters)
         self.data.append(waveforms)
 
-    def plot(self, component="plus"):
+    def array(self, component="plus", parameter="m1"):
+        all_data = []
+        for wn in range(len(self.locations)):
+            data = array_library.array(list(zip(cycle([self.locations[wn][parameter]]),
+                                                self.data[wn][component].times.value,
+                                                self.data[wn][component].value)))
+            all_data.append(data)
+        return array_library.vstack(all_data)
+        
+    def plot(self, component="plus", parameter="m1"):
         f, ax = plt.subplots(1, 1)
         for wn in range(len(self.locations)):
-            data = array_library.array(list(zip(cycle([self.locations[wn]["m1"]]), self.data[wn][component].times.value)))
+            data = array_library.array(list(zip(cycle([self.locations[wn][parameter]]), self.data[wn][component].times.value)))
             plt.scatter(data[:,1], data[:,0], c=self.data[wn][component], marker='.')
         return f
