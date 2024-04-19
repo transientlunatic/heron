@@ -1,20 +1,40 @@
 from itertools import cycle
 
 # GWPy to help with timeseries
-from gwpy.timeseries import TimeSeries
+from gwpy.timeseries import TimeSeriesBase, TimeSeries
 from gwpy.frequencyseries import FrequencySeries
 
 import numpy as array_library
 import matplotlib.pyplot as plt
 
+class TimeSeries(TimeSeries):
+    """
+    Overload the GWPy timeseries so that additional methods can be defined upon it.
+    """
+    pass
+
 class PSD(FrequencySeries):
     def __init__(self, data, frequencies, *args, **kwargs):
         super(PSD).__init__(*args, **kwargs)
 
-class Waveform(TimeSeries):
-    def __init__(self, covariance, *args, **kwargs):
+class WaveformBase(TimeSeries):
+    def __init__(self, *args, **kwargs):
+        super(WaveformBase).__init__()
+        
+class Waveform(WaveformBase):
+    def __init__(self, covariance=None, *args, **kwargs):
+        # if "covariance" in kwargs:
+        #     self.covariance = kwargs.pop("covariance")
         self.covariance = covariance
-        super(Waveform).__init__(*args, **kwargs)
+        super(Waveform, self).__init__(*args, **kwargs)
+
+    def __new__(self, covariance=None, *args, **kwargs):
+        # if "covariance" in kwargs:
+        #     self.covariance = kwargs.pop("covariance")
+        self.covariance = covariance
+
+        return super(Waveform, self).__new__(TimeSeriesBase, *args, **kwargs)
+        
     pass
         
 class WaveformDict:
