@@ -28,7 +28,7 @@ class TestPSDGeneration(unittest.TestCase):
     def test_timeseries_creation(self):
         """Check that a timeseries can be produced."""
         times = np.linspace(10, 11, 4096)
-        data = self.psd_model.time_domain(times)
+        data = self.psd_model.time_series(times)
         #f = data.plot()
         #f.savefig("noise.png")
         
@@ -47,5 +47,6 @@ class TestInjection(unittest.TestCase):
     def test_multiple_inject(self):
         make_injection(waveform=IMRPhenomPv2,
                        detectors={AdvancedLIGOHanford: AdvancedLIGO,
-                                  AdvancedLIGOLivingston: AdvancedLIGO}
+                                  AdvancedLIGOLivingston: AdvancedLIGO},
+                       framefile="test",
                        )

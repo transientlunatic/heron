@@ -10,30 +10,34 @@ from heron.models.lalnoise import AdvancedLIGO
 
 
 def make_injection(waveform=IMRPhenomPv2,
-                   injection_parameters={"mass ratio": 1.0,
-                                         "ra": 1,
-                                         "dec": 1,
-                                         "psi": 1,
-                                         "theta_jn": 0,
-                                         "phase": 0,
-                                         "total mass": 30 * u.solMass,
-                                         "distance": 500 * u.Mpc},
+                   injection_parameters={},
+                   times=None,
                    detectors=None,
                    framefile=None):
 
+    parameters = {"mass ratio": 1.0,
+                            "ra": 1,
+                            "dec": 1,
+                            "psi": 1,
+                            "theta_jn": 0,
+                            "phase": 0,
+                            "total mass": 30 * u.solMass,
+                            "distance": 500 * u.Mpc}
+    parameters.update(injection_parameters)
+    
     waveform = waveform()
 
-    
-    times = np.linspace(-0.5, 0.05, int(0.555*4096))
+    if times is None:
+        times = np.linspace(-0.5, 0.05, int(0.555*4096))
     waveform = waveform.time_domain(
-        injection_parameters,
+        parameters,
         times=times,
     )
 
     injections = {}
     for detector, psd_model in detectors.items():
         psd_model = psd_model()
-        data = psd_model.time_domain(times)
+        data = psd_model.time_series(times)
         injection = data + waveform.project(detector())
         injections[detector.abbreviation] = injection
 

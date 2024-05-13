@@ -22,18 +22,21 @@ class WaveformBase(TimeSeries):
         super(WaveformBase).__init__()
         
 class Waveform(WaveformBase):
-    def __init__(self, covariance=None, *args, **kwargs):
+    def __init__(self, variance=None, covariance=None, *args, **kwargs):
         # if "covariance" in kwargs:
         #     self.covariance = kwargs.pop("covariance")
         self.covariance = covariance
+        self.variance = variance
         super(Waveform, self).__init__(*args, **kwargs)
 
-    def __new__(self, covariance=None, *args, **kwargs):
+    def __new__(self, variance=None, covariance=None, *args, **kwargs):
         # if "covariance" in kwargs:
         #     self.covariance = kwargs.pop("covariance")
-        self.covariance = covariance
+        waveform = super(Waveform, self).__new__(TimeSeriesBase, *args, **kwargs)
+        waveform.covariance = covariance
+        waveform.variance = variance
 
-        return super(Waveform, self).__new__(TimeSeriesBase, *args, **kwargs)
+        return waveform
         
     pass
         
@@ -53,6 +56,92 @@ class WaveformDict:
     def hrss(self):
         if "plus" in self.waveforms and "cross" in self.waveforms:
             return array_library.sqrt(self.waveforms["plus"]**2 + self.waveforms["cross"]**2)
+        else:
+            raise NotImplementedError
+
+    def project(self, detector, ra=None, dec=None, psi=None, time=None, iota=None, phi_0=None, **kwargs):
+        """
+        Project this waveform onto a detector.
+
+        Parameters
+        ----------
+        detector : `heron.detectors.Detector`
+          The detector onto which the waveform should be projected.
+        ra : float, optional
+          The roght ascension of the signal source
+        dec : float, optional
+          The declination of the signal source.
+        """
+        if ((ra is None) and (dec is None)) and (("ra" in self._parameters) and ("dec" in self._parameters)):
+            ra = self._parameters["ra"]
+            dec = self._parameters["dec"]
+        elif ((ra is None) and (dec is None)):
+            raise ValueError("Right ascension and declination must both be specified.")
+
+        
+        if "plus" in self.waveforms and "cross" in self.waveforms:
+        
+            if not time:
+                time = self.waveforms["plus"].epoch.value
+
+            dt = detector.geocentre_delay(ra=ra, dec=dec, times=time)
+
+            if not iota and "theta_jn" in self._parameters:
+                iota = self._parameters['theta_jn']
+            elif isinstance(iota, type(None)):
+                raise ValueError("Theta_jn must be specified!")
+
+            if not phi_0 and "phase" in self._parameters:
+                phi_0 = self._parameters['phase']
+            elif isinstance(phi_0, type(None)):
+                raise ValueError("Initial phase must be specified!")
+
+            if not psi and "psi" in self._parameters:
+                psi = self._parameters['psi']
+            elif isinstance(psi, type(None)):
+                raise ValueError("Polarisation must be specified!")
+
+            response = detector.antenna_response(ra, dec, psi, time=time)
+
+            plus_prefactor = (
+                array_library.cos(phi_0) * (1 + array_library.cos(iota) ** 2) * response.plus
+                + array_library.sin(phi_0) * array_library.cos(iota) * response.cross
+            )
+            cross_prefactor = (
+                array_library.cos(phi_0) * array_library.cos(iota) * response.cross
+                - array_library.sin(phi_0) * (1 + array_library.cos(iota) ** 2) * response.plus
+            )
+
+            projected_data = (self.waveforms["plus"].data * plus_prefactor
+                 + self.waveforms["cross"].data * cross_prefactor)
+
+            if self.waveforms["plus"].variance is not None:
+                projected_variance = (
+                    self.waveforms["plus"].variance * plus_prefactor**2
+                    + self.waveforms["cross"].variance * cross_prefactor**2
+                )
+            else:
+                projected_variance = None
+
+            if self.waveforms["plus"].covariance is not None:
+                projected_covariance = (
+                    self.waveforms["plus"].covariance * plus_prefactor**2
+                    + self.waveforms["cross"].covariance * cross_prefactor**2
+                )
+            else:
+                projected_covariance = None
+            
+            projected_waveform = Waveform(
+                data=projected_data,
+                variance=projected_variance,
+                covariance=projected_covariance,
+                times=self.waveforms["plus"].times)
+            
+            projected_waveform.shift(dt)
+
+            
+            return projected_waveform
+
         else:
             raise NotImplementedError
 

@@ -2,6 +2,7 @@
 Noise models from lalsimulation.
 """
 import torch
+import scipy
 import numpy as np
 
 import lal
@@ -23,13 +24,9 @@ class LALSimulationPSD(PSDApproximant):
                          lower_frequency=20,
                          upper_frequency=1024,
                          mask_below=20):
-        if frequencies is not None:
-            upper_frequency = float(frequencies[-1])
-            lower_frequency = float(frequencies[0])
-            df = float(frequencies[1] - frequencies[0])
-            
-        N = int(1 + ((upper_frequency - lower_frequency)/df))
-        
+
+        N = int(len(frequencies))
+        df = float(frequencies[1] - frequencies[0])
         psd_data = lal.CreateREAL8FrequencySeries(None,
                                                   lal.LIGOTimeGPS(0),
                                                   lower_frequency,
@@ -37,13 +34,30 @@ class LALSimulationPSD(PSDApproximant):
                                                   lal.HertzUnit,
                                                   N)
         self.psd_function(psd_data, flow=lower_frequency)
-        frequencies = torch.arange(lower_frequency, upper_frequency+df, df)
+        if frequencies is None:
+            frequencies = torch.arange(lower_frequency, upper_frequency+df, df)
         psd_data = psd_data.data.data
         psd_data[frequencies < mask_below] = psd_data[frequencies > mask_below][0]
         psd = PSD(psd_data, frequencies=frequencies)
         return psd
 
+    def covariance_matrix(self, times):
+        """
+        Return a time-domain representation of this power spectral density.
+        """
+        dt = times[1] - times[0]
+        N = len(times)
+        T = times[-1] - times[0]
+        df = 1/T
+        frequencies = torch.arange(len(times)//2+1) * df.value
+        psd = self.frequency_domain(df=df, frequencies=frequencies)
+        ts = np.fft.irfft(psd, n=(N))  #* (N*N/dt/dt/2), n=(N))
+        return scipy.linalg.toeplitz(ts)
+
     def time_domain(self, times):
+        return self.covariance_matrix(times)
+    
+    def time_series(self, times):
         """Create a timeseries filled with noise from a specific PSD.
         Parameters
         ----------
@@ -54,19 +68,24 @@ class LALSimulationPSD(PSDApproximant):
            The time axis of the timeseries.
         device : str or torch.device
            The device which the noise series should be stored in.
+
+        Notes
+        -----
+        In order to follow with the conventions in lalsuite this has been
+        adapted from the code in lalnoise.
         """
 
         dt = times[1] - times[0]
         N = len(times)
-        
-        frequencies = torch.arange(0, int((len(times) + 1) // 2))# / (dt * len(times)))
+        T = times[-1] - times[0]
+        df = 1/T
+        frequencies = torch.arange(len(times)//2 + 1) * df
         reals = np.random.randn(len(frequencies))
         imags = np.random.randn(len(frequencies))
 
-        T = 1 / (frequencies[1] - frequencies[0])
         psd = self.frequency_domain(frequencies=frequencies)
         
-        S = np.sqrt(N * N / 4 / (T) * psd.value)
+        S = 0.5 * np.sqrt(psd.value * T) #np.sqrt(N * N / 4 / (T) * psd.value)
 
         noise_r = S * (reals)
         noise_i = S * (imags)
