@@ -5,7 +5,7 @@ Utilities for generating waveform training data from conventional waveform sourc
 import scipy.signal
 
 import astropy.units as u
-import numpy as array_library
+import numpy as np
 
 from ..types import Waveform, WaveformDict, WaveformManifold
 from ..models.lalsimulation import IMRPhenomPv2
@@ -24,7 +24,7 @@ def make_manifold(approximant=IMRPhenomPv2, fixed={}, varied={}):
     approximant = approximant()
     approximant._args.update(fixed)
     for parameter, kwargs in varied.items():
-        xaxis = array_library.arange(kwargs["lower"], kwargs["upper"], kwargs["step"])
+        xaxis = np.arange(kwargs["lower"], kwargs["upper"], kwargs["step"])
         # Update with the fixed parameters
         manifold = WaveformManifold()
         for x in xaxis:
@@ -47,12 +47,16 @@ def make_optimal_manifold(approximant=IMRPhenomPv2, fixed={}, varied={}):
     approximant = approximant()
     approximant._args.update(fixed)
     for parameter, kwargs in varied.items():
-        xaxis = array_library.arange(kwargs["lower"], kwargs["upper"], kwargs["step"])
+        xaxis = np.arange(kwargs["lower"], kwargs["upper"], kwargs["step"])
         # Update with the fixed parameters
         manifold = WaveformManifold()
         for x in xaxis:
             waveform = approximant.time_domain({parameter: x * kwargs.get("unit", 1)})
             peaks, _ = scipy.signal.find_peaks(waveform["plus"].value ** 2)
+            peaks_interp = np.interp(
+                np.arange(len(peaks)),
+                np.arange(2*len(peaks)),
+                peaks)
             new_waveform = Waveform(
                 data=waveform["plus"][peaks], times=waveform["plus"].times[peaks]
             )

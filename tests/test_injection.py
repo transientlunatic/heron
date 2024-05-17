@@ -21,7 +21,9 @@ class TestPSDGeneration(unittest.TestCase):
 
     def test_psd_creation(self):
         """Check that anything is produced when requesting a PSD"""
-        psd = self.psd_model.frequency_domain(upper_frequency=1024, lower_frequency=20, df=1)
+        psd = self.psd_model.frequency_domain(upper_frequency=1024,
+                                              lower_frequency=20,
+                                              df=1)
         #f = psd.plot()
         #f.savefig("psd.png")
 
@@ -40,13 +42,13 @@ class TestInjection(unittest.TestCase):
 
     def test_simple_inject(self):
         make_injection(waveform=IMRPhenomPv2,
-                       detectors={AdvancedLIGOHanford: AdvancedLIGO}
+                       detectors={"AdvancedLIGOHanford": "AdvancedLIGO"}
                        )
 
 
     def test_multiple_inject(self):
         make_injection(waveform=IMRPhenomPv2,
-                       detectors={AdvancedLIGOHanford: AdvancedLIGO,
-                                  AdvancedLIGOLivingston: AdvancedLIGO},
+                       detectors={"AdvancedLIGOHanford": "AdvancedLIGO",
+                                  "AdvancedLIGOLivingston": "AdvancedLIGO"},
                        framefile="test",
                        )

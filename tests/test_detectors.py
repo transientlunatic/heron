@@ -32,9 +32,9 @@ class test_detector_operations(unittest.TestCase):
     def test_projection(self):
         times = np.linspace(4000, 4001, 4096)
         waveform_eval = self.waveform.time_domain(
-            {"mass ratio": 1.0,
-             "total mass": 30 * u.solMass,
-             "distance": 500 * u.Mpc},
+            {"mass_ratio": 1.0,
+             "total_mass": 30 * u.solMass,
+             "luminosity_distance": 500 * u.Mpc},
             times=times,
         )
         projected_waveform = waveform_eval.project(detector=self.H1, ra=1.0, dec=1.0, psi=1.0, iota=0, phi_0=0)
@@ -44,14 +44,14 @@ class test_detector_operations(unittest.TestCase):
     def test_projection_in_dict(self):
         times = np.linspace(4000, 4001, 4096)
         waveform_eval = self.waveform.time_domain(
-            {"mass ratio": 1.0,
-             "total mass": 30 * u.solMass,
+            {"mass_ratio": 1.0,
+             "total_mass": 30 * u.solMass,
              "ra": 1.0,
              "dec": 1.0,
              "psi": 1.0,
              "theta_jn": 0,
              "phase": 0,
-             "distance": 500 * u.Mpc},
+             "luminosity_distance": 500 * u.Mpc},
             times=times,
         )
         waveform_eval.project(detector=self.H1)

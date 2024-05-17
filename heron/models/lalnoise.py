@@ -28,6 +28,8 @@ class LALSimulationPSD(PSDApproximant):
         upper_frequency=1024,
         mask_below=20,
     ):
+        if frequencies is None:
+            frequencies = torch.arange(lower_frequency, upper_frequency + df, df)
 
         N = int(len(frequencies))
         df = float(frequencies[1] - frequencies[0])
@@ -35,8 +37,6 @@ class LALSimulationPSD(PSDApproximant):
             None, lal.LIGOTimeGPS(0), lower_frequency, df, lal.HertzUnit, N
         )
         self.psd_function(psd_data, flow=lower_frequency)
-        if frequencies is None:
-            frequencies = torch.arange(lower_frequency, upper_frequency + df, df)
         psd_data = psd_data.data.data
         psd_data[frequencies < mask_below] = psd_data[frequencies > mask_below][0]
         psd = PSD(psd_data, frequencies=frequencies)
