@@ -4,6 +4,17 @@ using the waveform models it supports.
 """
 
 import numpy as np
+import torch
+
+import logging
+logger = logging.getLogger("heron.likelihood")
+
+
+disable_cuda = False
+if not disable_cuda and torch.cuda.is_available():
+    device = torch.device("cuda")
+else:
+    device = torch.device("cpu")
 
 class LikelihoodBase:
     pass
@@ -31,7 +42,7 @@ class Likelihood(LikelihoodBase):
 
 class TimeDomainLikelihood(Likelihood):
     
-    def __init__(self, data, psd, waveform=None, detector=None):
+    def __init__(self, data, psd, waveform=None, detector=None, fixed_parameters={}):
         self.psd = psd
         
         self.data = np.array(data.data)
@@ -49,6 +60,10 @@ class TimeDomainLikelihood(Likelihood):
         if detector is not None:
             self.detector = detector
 
+        self.fixed_parameters = fixed_parameters
+
+        self.logger = logger = logging.getLogger("heron.likelihood.TimeDomainLikelihood")
+
     def snr(self, waveform):
         """
         Calculate the signal to noise ratio for a given waveform.
@@ -57,14 +72,6 @@ class TimeDomainLikelihood(Likelihood):
         N = len(self.times)
         h_h = (np.array(waveform.data).T @ self.solve(self.C, np.array(waveform.data))) * (dt*dt / N / 4 ) / 4
         return  np.sqrt(np.abs(h_h))
-
-    # def snr_f(self, waveform):
-    #     dt = (self.data.times[1] - self.data.times[0]).value
-    #     T = (self.data.times[-1] - self.data.times[0]).value
-    #     wf = np.fft.rfft(waveform.data * dt)
-    #     S = self.psd.frequency_domain(frequencies=np.arange(0, 0.5/dt, 1/T))
-    #     A = (4 *  (wf.conj()*wf)[:-1] / S.value[:-1] / T)
-    #     return np.sqrt(np.real( np.sum(A)))
     
     def log_likelihood(self, waveform):
         residual = np.array(self.data.data) - np.array(waveform.data)
@@ -73,7 +80,15 @@ class TimeDomainLikelihood(Likelihood):
         return -0.5 * weighted_residual + 0.5 * normalisation
 
     def __call__(self, parameters):
-
+        self.logger.info(parameters)
+        
+        keys = set(parameters.keys())
+        extrinsic = {"phase", "psi", "ra", "dec", "theta_jn"}
+        conversions = {"mass_ratio", "total_mass", "luminosity_distance"}
+        bad_keys =  keys - set(self.waveform._args.keys()) - extrinsic - conversions
+        if len(bad_keys) > 0:
+            print("The following keys were not recognised",  bad_keys)
+        parameters.update(self.fixed_parameters)
         test_waveform = self.waveform.time_domain(parameters=parameters, times=self.times)
         projected_waveform = test_waveform.project(self.detector)
         return self.log_likelihood(projected_waveform)
@@ -82,8 +97,6 @@ class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
 
     def __init__(self, data, psd, waveform=None, detector=None):
         super().__init__(data, psd, waveform, detector)
-
-        
 
     def _normalisation(self, K, S):
         norm = - 1.5 * K.shape[0] * self.log(2*self.pi) \
@@ -142,3 +155,61 @@ class MultiDetector():
             out += detector(parameters)
 
         return out
+
+
+
+class TimeDomainLikelihoodPyTorch(Likelihood):
+    
+    def __init__(self, data, psd, waveform=None, detector=None, fixed_parameters={}):
+        self.device = device
+        
+        self.psd = psd
+        
+        self.data = torch.tensor(data.data, device=self.device)
+        self.times = data.times
+        
+        self.C = self.psd.covariance_matrix(times=self.times)
+        self.C = torch.tensor(self.C, device=self.device)
+        self.inverse_C = torch.linalg.inv(self.C)
+
+        self.dt = (self.times[1] - self.times[0]).value
+        self.N = len(self.times)
+
+        if waveform is not None:
+            self.waveform = waveform
+
+        if detector is not None:
+            self.detector = detector
+
+        self.fixed_parameters = fixed_parameters
+
+        self.logger = logger = logging.getLogger("heron.likelihood.TimeDomainLikelihood")
+
+    def snr(self, waveform):
+        """
+        Calculate the signal to noise ratio for a given waveform.
+        """
+        dt = (self.times[1] - self.times[0]).value
+        N = len(self.times)
+        h_h = (torch.tensor(waveform.data, device=self.device).T @ self.solve(self.C, torch.tensor(waveform.data, device=self.device))) * (dt*dt / N / 4 ) / 4
+        return  np.sqrt(np.abs(h_h))
+    
+    def log_likelihood(self, waveform):
+        residual = torch.tensor(self.data.data, device=self.device) - torch.tensor(waveform.data, device=self.device)
+        weighted_residual = (residual) @ self.solve(self.C, residual) * (self.dt*self.dt  / 4 ) / 4
+        normalisation = self.logdet(2 * np.pi * self.C)
+        return -0.5 * weighted_residual + 0.5 * normalisation
+
+    def __call__(self, parameters):
+        self.logger.info(parameters)
+        
+        keys = set(parameters.keys())
+        extrinsic = {"phase", "psi", "ra", "dec", "theta_jn"}
+        conversions = {"mass_ratio", "total_mass", "luminosity_distance"}
+        bad_keys =  keys - set(self.waveform._args.keys()) - extrinsic - conversions
+        if len(bad_keys) > 0:
+            print("The following keys were not recognised",  bad_keys)
+        parameters.update(self.fixed_parameters)
+        test_waveform = self.waveform.time_domain(parameters=parameters, times=self.times)
+        projected_waveform = test_waveform.project(self.detector)
+        return self.log_likelihood(projected_waveform)    

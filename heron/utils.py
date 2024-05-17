@@ -3,10 +3,17 @@ Various utilities and non-GPR based stuff.
 """
 
 import torch
-import numpy as np
-from pesummary.io import read
-from pesummary.core.file.formats.base_read import SingleAnalysisRead
+import yaml
 
+import numpy as np
+# from pesummary.io import read
+# from pesummary.core.file.formats.base_read import SingleAnalysisRead
+
+def load_yaml(filename):
+    with open(filename, "r") as f:
+        data = yaml.safe_load(f)
+
+    return data
 
 def diag_cuda(a):
     """Make a vector into a diagonal matrix."""

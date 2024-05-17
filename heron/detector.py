@@ -95,3 +95,8 @@ class AdvancedLIGOLivingston(Detector):
 class AdvancedLIGOHanford(Detector):
     _lal_detector = cached_detector_by_prefix["H1"]
     abbreviation = "H1"
+
+
+KNOWN_IFOS = {"AdvancedLIGOHanford": AdvancedLIGOHanford,
+              "AdvancedLIGOLivingston": AdvancedLIGOLivingston,
+              "AdvancedVirgo": AdvancedVirgo}

@@ -102,3 +102,7 @@ class AdvancedLIGODesignSensitivity2018(LALSimulationPSD):
 class AdvancedLIGO(AdvancedLIGODesignSensitivity2018):
     pass
 
+
+KNOWN_PSDS = {
+    "AdvancedLIGO": AdvancedLIGO
+}
