@@ -1,3 +1,4 @@
+bilby
 numpy
 matplotlib
 scipy
