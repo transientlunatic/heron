@@ -186,32 +186,32 @@ def noise_psd(N, frequencies, psd=lambda f: 1):
     return np.fft.irfft(noise_f, n=(N))
 
 
-def make_metafile(datafile, outfile="metafile.dat"):
-    class CustomReadClass(SingleAnalysisRead):
-        """Class to read in our custom file
+# def make_metafile(datafile, outfile="metafile.dat"):
+#     class CustomReadClass(SingleAnalysisRead):
+#         """Class to read in our custom file
 
-        Parameters
-        ----------
-        path_to_results_file: str
-            path to the result file you wish to read in
-        """
+#         Parameters
+#         ----------
+#         path_to_results_file: str
+#             path to the result file you wish to read in
+#         """
 
-        def __init__(self, path_to_results_file, **kwargs):
-            super(CustomReadClass, self).__init__(path_to_results_file, **kwargs)
-            self.load(self.custom_load_function)
+#         def __init__(self, path_to_results_file, **kwargs):
+#             super(CustomReadClass, self).__init__(path_to_results_file, **kwargs)
+#             self.load(self.custom_load_function)
 
-        def custom_load_function(self, path, **kwargs):
-            """Function to load data from a custom hdf5 file"""
-            import h5py
+#         def custom_load_function(self, path, **kwargs):
+#             """Function to load data from a custom hdf5 file"""
+#             import h5py
 
-            with h5py.File(path, "r") as f:
-                parameters = list(f["posterior_samples"].dtype.names)
-                pars = [parameter.replace(" ", "_") for parameter in parameters]
-                samples = np.array(
-                    [f["posterior_samples"][param] for param in parameters]
-                ).T
-            # Return a dictionary of data
-            return {"parameters": pars, "samples": samples}
+#             with h5py.File(path, "r") as f:
+#                 parameters = list(f["posterior_samples"].dtype.names)
+#                 pars = [parameter.replace(" ", "_") for parameter in parameters]
+#                 samples = np.array(
+#                     [f["posterior_samples"][param] for param in parameters]
+#                 ).T
+#             # Return a dictionary of data
+#             return {"parameters": pars, "samples": samples}
 
-    data = read(datafile, package="gw", cls=CustomReadClass)
-    data.to_dat(filename=outfile)
+#     data = read(datafile, package="gw", cls=CustomReadClass)
+#     data.to_dat(filename=outfile)
