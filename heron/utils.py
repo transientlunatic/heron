@@ -6,14 +6,17 @@ import torch
 import yaml
 
 import numpy as np
+
 # from pesummary.io import read
 # from pesummary.core.file.formats.base_read import SingleAnalysisRead
+
 
 def load_yaml(filename):
     with open(filename, "r") as f:
         data = yaml.safe_load(f)
 
     return data
+
 
 def diag_cuda(a):
     """Make a vector into a diagonal matrix."""
@@ -192,26 +195,23 @@ def make_metafile(datafile, outfile="metafile.dat"):
         path_to_results_file: str
             path to the result file you wish to read in
         """
+
         def __init__(self, path_to_results_file, **kwargs):
             super(CustomReadClass, self).__init__(path_to_results_file, **kwargs)
             self.load(self.custom_load_function)
 
         def custom_load_function(self, path, **kwargs):
-            """Function to load data from a custom hdf5 file
-            """
+            """Function to load data from a custom hdf5 file"""
             import h5py
 
-            with h5py.File(path, 'r') as f:
-                parameters = list(f['posterior_samples'].dtype.names)
+            with h5py.File(path, "r") as f:
+                parameters = list(f["posterior_samples"].dtype.names)
                 pars = [parameter.replace(" ", "_") for parameter in parameters]
-                samples = np.array([
-                    f["posterior_samples"][param] for param in
-                    parameters
-                ]).T
+                samples = np.array(
+                    [f["posterior_samples"][param] for param in parameters]
+                ).T
             # Return a dictionary of data
-            return {
-                "parameters": pars, "samples": samples
-            }
+            return {"parameters": pars, "samples": samples}
 
-    data = read(datafile, package='gw', cls=CustomReadClass)
+    data = read(datafile, package="gw", cls=CustomReadClass)
     data.to_dat(filename=outfile)

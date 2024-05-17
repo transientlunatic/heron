@@ -1,6 +1,7 @@
 """
 Utilities for generating waveform training data from conventional waveform sources.
 """
+
 import scipy.signal
 
 import astropy.units as u
@@ -8,6 +9,7 @@ import numpy as array_library
 
 from ..types import Waveform, WaveformDict, WaveformManifold
 from ..models.lalsimulation import IMRPhenomPv2
+
 
 def make_manifold(approximant=IMRPhenomPv2, fixed={}, varied={}):
     """
@@ -26,8 +28,11 @@ def make_manifold(approximant=IMRPhenomPv2, fixed={}, varied={}):
         # Update with the fixed parameters
         manifold = WaveformManifold()
         for x in xaxis:
-            manifold.add_waveform(approximant.time_domain({parameter: x * kwargs.get("unit", 1)}))
+            manifold.add_waveform(
+                approximant.time_domain({parameter: x * kwargs.get("unit", 1)})
+            )
     return manifold
+
 
 def make_optimal_manifold(approximant=IMRPhenomPv2, fixed={}, varied={}):
     """
@@ -47,7 +52,11 @@ def make_optimal_manifold(approximant=IMRPhenomPv2, fixed={}, varied={}):
         manifold = WaveformManifold()
         for x in xaxis:
             waveform = approximant.time_domain({parameter: x * kwargs.get("unit", 1)})
-            peaks, _ = scipy.signal.find_peaks(waveform['plus'].value**2)
-            new_waveform = Waveform(data=waveform['plus'][peaks], times=waveform['plus'].times[peaks])
-            manifold.add_waveform(WaveformDict(plus=new_waveform, parameters=waveform.parameters))
+            peaks, _ = scipy.signal.find_peaks(waveform["plus"].value ** 2)
+            new_waveform = Waveform(
+                data=waveform["plus"][peaks], times=waveform["plus"].times[peaks]
+            )
+            manifold.add_waveform(
+                WaveformDict(plus=new_waveform, parameters=waveform.parameters)
+            )
     return manifold

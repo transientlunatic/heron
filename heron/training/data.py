@@ -56,9 +56,9 @@ class DataWrapper001:
 
     def __getstate__(self):
         state = self.__dict__.copy()
-        h5file = state['h5file']
+        h5file = state["h5file"]
         h5file.close()
-        del state['h5file']
+        del state["h5file"]
         return state
 
     def __setstate__(self, state):
@@ -191,12 +191,10 @@ class DataWrapper001:
             outputs[key] = value.cpu().numpy().astype(np.float64).tolist()
 
         if f"{name}/hyperparameters" in model_states:
-            del(model_states[f"{name}/hyperparameters"])
-            #model_states[f"{name}/hyperparameters"] = yaml.dump(outputs)
-        #else:
-        model_states.create_dataset(
-            f"{name}/hyperparameters", data=yaml.dump(outputs)
-        )
+            del model_states[f"{name}/hyperparameters"]
+            # model_states[f"{name}/hyperparameters"] = yaml.dump(outputs)
+        # else:
+        model_states.create_dataset(f"{name}/hyperparameters", data=yaml.dump(outputs))
         if f"{name}/datagroup" not in model_states:
             model_states[f"{name}/datagroup"] = group
 
@@ -207,7 +205,7 @@ class DataWrapper001:
         """
 
         if name in self.h5file["model states"]:
-        
+
             hypers = yaml.safe_load(
                 str(self.h5file["model states"][name]["hyperparameters"].asstr()[()])
             )
@@ -225,7 +223,8 @@ class DataWrapper001:
                 """
                 No model state is present for this training data.
                 Have you trained on it?
-                """)
+                """
+            )
 
     def add_data(
         self,
