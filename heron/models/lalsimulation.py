@@ -1,6 +1,7 @@
 import logging
 
 import numpy as array_library
+import torch
 from scipy.interpolate import CubicSpline
 
 # Astropy to handle units sanely
@@ -140,7 +141,7 @@ class SEOBNRv3(LALSimulationApproximant):
 class IMRPhenomPv2_FakeUncertainty(IMRPhenomPv2):
     def time_domain(self, parameters, times=None):
         waveform_dict = super().time_domain(parameters, times)
-        covariance = array_library.eye(len(waveform_dict["plus"].times)) * 1e-24
+        covariance = torch.eye(len(waveform_dict["plus"].times)) * 1e-24
         for wave in waveform_dict.waveforms.values():
             # Artificially add a covariance function to each of these
             wave.covariance = covariance

@@ -157,15 +157,39 @@ class MultiDetector():
         return out
 
 
+class LikelihoodPyTorch(Likelihood):
 
-class TimeDomainLikelihoodPyTorch(Likelihood):
+    
+    
+        def logdet(self, K):
+            return torch.slogdet(K).logabsdet
+
+        def inverse(self, A):
+            return torch.linalg.inv(A)
+
+        def solve(self, A, B):
+            return torch.linalg.solve(A, B)
+
+        def eye(self, N, *args, **kwargs):
+            return torch.eye(N, device=self.device, dtype=torch.double)
+
+        def log(self, A):
+            return torch.log(A)
+
+        @property
+        def pi(self):
+            return torch.tensor(torch.pi, device=self.device)
+
+
+class TimeDomainLikelihoodPyTorch(LikelihoodPyTorch):
     
     def __init__(self, data, psd, waveform=None, detector=None, fixed_parameters={}):
+        self.logger = logger = logging.getLogger("heron.likelihood.TimeDomainLikelihoodPyTorch")
         self.device = device
-        
+        self.logger.info(f"Using device {device}") 
         self.psd = psd
         
-        self.data = torch.tensor(data.data, device=self.device)
+        self.data = torch.tensor(data.data, device=self.device, dtype=torch.double)
         self.times = data.times
         
         self.C = self.psd.covariance_matrix(times=self.times)
@@ -183,19 +207,19 @@ class TimeDomainLikelihoodPyTorch(Likelihood):
 
         self.fixed_parameters = fixed_parameters
 
-        self.logger = logger = logging.getLogger("heron.likelihood.TimeDomainLikelihood")
-
     def snr(self, waveform):
         """
         Calculate the signal to noise ratio for a given waveform.
         """
         dt = (self.times[1] - self.times[0]).value
         N = len(self.times)
-        h_h = (torch.tensor(waveform.data, device=self.device).T @ self.solve(self.C, torch.tensor(waveform.data, device=self.device))) * (dt*dt / N / 4 ) / 4
-        return  np.sqrt(np.abs(h_h))
+        waveform_d = torch.tensor(waveform.data, device=self.device, dtype=torch.double)
+        h_h = (waveform_d.T @ self.solve(self.C, waveform_d)) * (dt*dt / N / 4 ) / 4
+        return  torch.sqrt(torch.abs(h_h))
     
     def log_likelihood(self, waveform):
-        residual = torch.tensor(self.data.data, device=self.device) - torch.tensor(waveform.data, device=self.device)
+        waveform_d = torch.tensor(waveform.data, device=self.device, dtype=torch.double)
+        residual = self.data - waveform_d
         weighted_residual = (residual) @ self.solve(self.C, residual) * (self.dt*self.dt  / 4 ) / 4
         normalisation = self.logdet(2 * np.pi * self.C)
         return -0.5 * weighted_residual + 0.5 * normalisation
@@ -213,3 +237,50 @@ class TimeDomainLikelihoodPyTorch(Likelihood):
         test_waveform = self.waveform.time_domain(parameters=parameters, times=self.times)
         projected_waveform = test_waveform.project(self.detector)
         return self.log_likelihood(projected_waveform)    
+
+class TimeDomainLikelihoodModelUncertaintyPyTorch(TimeDomainLikelihoodPyTorch):
+
+    def __init__(self, data, psd, waveform=None, detector=None):
+        super().__init__(data, psd, waveform, detector)
+
+    def _normalisation(self, K, S):
+        norm = - 1.5 * K.shape[0] * self.log(2*self.pi) \
+            - 0.5 * self.logdet(K) \
+            + 0.5 * self.logdet(self.C) \
+            - 0.5 * self.logdet(self.solve(K, self.C)+self.eye(K.shape[0]))
+        return norm
+
+    def _weighted_data(self):
+        """Return the weighted data component"""
+        # TODO This can all be pre-computed
+        if not hasattr(self, "weighted_data_CACHE"):
+            dw = self.weighted_data_CACHE = -0.5 * self.data.T @ self.solve(self.C, self.data) 
+        else:
+            dw = self.weighted_data_CACHE
+        return dw
+
+    def _weighted_model(self, mu, K):
+        """Return the inner product of the GPR mean"""
+        mu = torch.tensor(mu, device=self.device, dtype=torch.double)
+        return -0.5 * mu.T @ self.solve(K, mu) 
+
+    def _weighted_cross(self, mu, K):
+        a = (self.solve(self.C, self.data) + self.solve(K, mu))
+        b = (self.inverse_C + self.inverse(K))
+        return 0.5 * a.T @ self.solve(b, a) 
+    
+    def log_likelihood(self, waveform):
+        waveform_d = torch.tensor(waveform.data, device=self.device, dtype=torch.double)
+        waveform_c = torch.tensor(waveform.covariance, device=self.device, dtype=torch.double)
+        like = self._weighted_cross(waveform_d, waveform_c)
+        #print("cross term", like)
+        A = self._weighted_data()
+        #print("data term", A)
+        B = self._weighted_model(waveform_d, waveform_c)
+        #print("model term", B)
+        like = like + A + B
+        norm = self._normalisation(waveform_c, self.C)
+        #print("normalisation", norm)
+        like += norm
+        
+        return like

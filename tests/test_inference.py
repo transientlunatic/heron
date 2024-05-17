@@ -19,7 +19,7 @@ from heron.models.lalsimulation import SEOBNRv3, IMRPhenomPv2, IMRPhenomPv2_Fake
 from heron.models.lalnoise import AdvancedLIGO
 from heron.injection import make_injection
 from heron.detector import Detector, AdvancedLIGOHanford, AdvancedLIGOLivingston, AdvancedVirgo
-from heron.likelihood import MultiDetector, TimeDomainLikelihood, TimeDomainLikelihoodModelUncertainty, TimeDomainLikelihoodPyTorch
+from heron.likelihood import MultiDetector, TimeDomainLikelihood, TimeDomainLikelihoodModelUncertainty, TimeDomainLikelihoodPyTorch, TimeDomainLikelihoodModelUncertaintyPyTorch
 
 from heron.inference import heron_inference, parse_dict, load_yaml
 
@@ -200,3 +200,34 @@ class Test_PyTorch(unittest.TestCase):
                                                    phi_0=0, psi=0,
                                                    iota=0))
         self.assertTrue(snr > 30 and snr < 40)
+
+    def test_likelihood(self):
+        data = self.injections['H1']
+
+        likelihood = TimeDomainLikelihoodPyTorch(data, psd=self.psd_model)
+        
+        test_waveform = self.waveform.time_domain(parameters={"m1": 40*u.solMass,
+                                                              "m2": 50*u.solMass,
+                                                              "distance": 200 * u.megaparsec}, times=data.times)
+
+        projected_waveform = test_waveform.project(AdvancedLIGOHanford(),
+                                                              ra=0, dec=0,
+                                                              phi_0=0, psi=0,
+                                                              iota=0)
+        
+        log_like = likelihood.log_likelihood(projected_waveform)
+
+    def test_likelihood_with_uncertainty(self):
+        data = self.injections['H1']
+
+        likelihood = TimeDomainLikelihoodModelUncertaintyPyTorch(data, psd=self.psd_model)
+
+        waveform = IMRPhenomPv2_FakeUncertainty()
+        test_waveform = waveform.time_domain(parameters={"m1": 40*u.solMass,
+                                                              "m2": 50*u.solMass,
+                                                              "distance": 200 * u.megaparsec}, times=data.times)
+        projected_waveform = test_waveform.project(AdvancedLIGOHanford(),
+                                                              ra=0, dec=0,
+                                                              phi_0=0, psi=0,
+                                                              iota=0)
+        log_like = likelihood.log_likelihood(projected_waveform)
