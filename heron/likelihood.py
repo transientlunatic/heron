@@ -46,7 +46,7 @@ class Likelihood(LikelihoodBase):
 
 class TimeDomainLikelihood(Likelihood):
 
-    def __init__(self, data, psd, waveform=None, detector=None, fixed_parameters={}):
+    def __init__(self, data, psd, waveform=None, detector=None, fixed_parameters={}, timing_basis=None):
         self.psd = psd
 
         self.data = np.array(data.data)
@@ -65,6 +65,8 @@ class TimeDomainLikelihood(Likelihood):
             self.detector = detector
 
         self.fixed_parameters = fixed_parameters
+        if timing_basis is not None:
+            self.fixed_parameters['reference_frame'] = timing_basis
 
         self.logger = logger = logging.getLogger(
             "heron.likelihood.TimeDomainLikelihood"
@@ -200,7 +202,7 @@ class LikelihoodPyTorch(Likelihood):
 
 class TimeDomainLikelihoodPyTorch(LikelihoodPyTorch):
 
-    def __init__(self, data, psd, waveform=None, detector=None, fixed_parameters={}):
+    def __init__(self, data, psd, waveform=None, detector=None, fixed_parameters={}, timing_basis=None):
         self.logger = logger = logging.getLogger(
             "heron.likelihood.TimeDomainLikelihoodPyTorch"
         )
@@ -225,6 +227,8 @@ class TimeDomainLikelihoodPyTorch(LikelihoodPyTorch):
             self.detector = detector
 
         self.fixed_parameters = fixed_parameters
+        if timing_basis is not None:
+            self.fixed_parameters['reference_frame'] = timing_basis
 
     def snr(self, waveform):
         """

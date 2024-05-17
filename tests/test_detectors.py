@@ -55,3 +55,19 @@ class test_detector_operations(unittest.TestCase):
             times=times,
         )
         waveform_eval.project(detector=self.H1)
+
+    def test_projection_in_dict_horizontal(self):
+        times = np.linspace(4000, 4001, 4096)
+        waveform_eval = self.waveform.time_domain(
+            {"mass_ratio": 1.0,
+             "total_mass": 30 * u.solMass,
+             "zenith": 0,
+             "azimuth": 1,
+             "reference_frame": ["H1", "L1"],
+             "psi": 1.0,
+             "theta_jn": 0,
+             "phase": 0,
+             "luminosity_distance": 500 * u.Mpc},
+            times=times,
+        )
+        waveform_eval.project(detector=self.H1)

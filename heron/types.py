@@ -4,6 +4,9 @@ from itertools import cycle
 from gwpy.timeseries import TimeSeriesBase, TimeSeries
 from gwpy.frequencyseries import FrequencySeries
 
+from lal import cached_detector_by_prefix, TimeDelayFromEarthCenter, LIGOTimeGPS
+from lalinference import DetFrameToEquatorial
+
 import numpy as array_library
 import matplotlib.pyplot as plt
 
@@ -90,20 +93,36 @@ class WaveformDict:
         dec : float, optional
           The declination of the signal source.
         """
+
+        
+        if not time:
+            time = self.waveforms["plus"].epoch.value
+        
         if ((ra is None) and (dec is None)) and (
             ("ra" in self._parameters) and ("dec" in self._parameters)
         ):
             ra = self._parameters["ra"]
             dec = self._parameters["dec"]
+
+            dt = detector.geocentre_delay(ra=ra, dec=dec, times=time)
+
+        elif ("azimuth" in self._parameters.keys()) and ("zenith" in self._parameters.keys()) and ("reference_frame" in self._parameters.keys()):
+            # Use horizontal coordinates.
+            det1 = cached_detector_by_prefix[self._parameters["reference_frame"][0]]
+            det2 = cached_detector_by_prefix[self._parameters["reference_frame"][1]]
+            ra, dec, dt = DetFrameToEquatorial(
+                det1, det2, time, self._parameters["azimuth"], self._parameters["zenith"]
+            )
+
         elif (ra is None) and (dec is None):
             raise ValueError("Right ascension and declination must both be specified.")
 
+        else:
+            dt = detector.geocentre_delay(ra=ra, dec=dec, times=time)
+
         if "plus" in self.waveforms and "cross" in self.waveforms:
 
-            if not time:
-                time = self.waveforms["plus"].epoch.value
-
-            dt = detector.geocentre_delay(ra=ra, dec=dec, times=time)
+            
 
             if not iota and "theta_jn" in self._parameters:
                 iota = self._parameters["theta_jn"]
