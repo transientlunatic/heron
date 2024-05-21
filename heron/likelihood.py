@@ -184,7 +184,11 @@ class LikelihoodPyTorch(Likelihood):
         return torch.slogdet(K).logabsdet
 
     def inverse(self, A):
-        return torch.linalg.inv_ex(A)
+        out, info = torch.linalg.inv_ex(A)
+        if info == 0:
+            return out
+        else:
+            raise ValueError(f"Matrix could not be inverted: {info}")
 
     def solve(self, A, B):
         return torch.linalg.solve(A, B)
