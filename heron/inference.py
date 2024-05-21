@@ -76,7 +76,6 @@ def heron_inference(settings):
         )
 
     import matplotlib
-
     matplotlib.use("agg")
 
     data = {}

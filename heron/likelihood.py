@@ -184,7 +184,7 @@ class LikelihoodPyTorch(Likelihood):
         return torch.slogdet(K).logabsdet
 
     def inverse(self, A):
-        return torch.linalg.inv(A)
+        return torch.linalg.inv_ex(A)
 
     def solve(self, A, B):
         return torch.linalg.solve(A, B)

@@ -46,7 +46,15 @@ class Waveform(WaveformBase):
 
         return waveform
 
-    pass
+    # @property
+    # def dt(self):
+    #     return self.waveform.times[1] - self.waveform.times[0]
+
+    def align(self, waveform_b):
+        """
+        Align this waveform with another one by altering the phase.
+        """
+        pass
 
 
 class WaveformDict:
