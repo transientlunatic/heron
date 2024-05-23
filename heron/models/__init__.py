@@ -20,12 +20,17 @@ class WaveformModel:
 
     def _convert_mass_ratio_total_mass(self, args):
 
-        args["m1"] = (args["total_mass"] / (1 + args["mass_ratio"])).to_value(
-            u.kilogram
-        )
-        args["m2"] = (args["total_mass"] / (1 + 1 / args["mass_ratio"])).to_value(
-            u.kilogram
-        )
+        args["m1"] = (args["total_mass"] / (1 + args["mass_ratio"]))
+        if isinstance(args["m1"], u.Quantity):
+            args["m1"] = args["m1"].to(u.kilogram)
+        else:
+            args["m1"] = (args["m1"] * u.solMass).to(u.kilogram)
+        args["m2"] = (args["total_mass"] / (1 + 1 / args["mass_ratio"]))
+        if isinstance(args["m2"], u.Quantity):
+            args["m2"] = args["m2"].to(u.kilogram)
+        else:
+            args["m2"] = (args["m2"] * u.solMass).to(u.kilogram)
+        self.logger.info(f"Converted {args}")
         args.pop("total_mass")
         args.pop("mass_ratio")
 

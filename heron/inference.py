@@ -114,13 +114,14 @@ def heron_inference(settings):
 
     priors = heron.priors.PriorDict()
     priors.from_dictionary(settings["priors"])
-
+    
     if settings["sampler"]["sampler"] == "nessai":
         nessai_model = NessaiSampler(
             likelihood,
             priors,
             injection_parameters_add_units(other_settings["injection"]["parameters"]),
         )
+        x = injection_parameters_add_units(other_settings["injection"]["parameters"]).values()
 
         fp = FlowSampler(
             nessai_model,

@@ -65,7 +65,8 @@ class NessaiSampler(SamplerBase, nessai.model.Model):
     def log_prior(self, x):
         if isinstance(x, np.ndarray):
             x = x[0]
-        return self.priors.ln_prob(dict(zip(self.names, x)))
+        lnp = self.priors.ln_prob(dict(zip(self.names, x)))
+        return lnp
 
     def log_likelihood(self, x):
         # Convert everything into python scalars

@@ -118,20 +118,18 @@ class WaveformDict:
             # Use horizontal coordinates.
             det1 = cached_detector_by_prefix[self._parameters["reference_frame"][0]]
             det2 = cached_detector_by_prefix[self._parameters["reference_frame"][1]]
-            ra, dec, dt = DetFrameToEquatorial(
+            tg, ra, dec = DetFrameToEquatorial(
                 det1, det2, time, self._parameters["azimuth"], self._parameters["zenith"]
             )
-
+            print("pos", ra, dec, time, dt)
         elif (ra is None) and (dec is None):
             raise ValueError("Right ascension and declination must both be specified.")
 
         else:
             dt = detector.geocentre_delay(ra=ra, dec=dec, times=time)
-
+            print(ra, dec, time, dt)
         if "plus" in self.waveforms and "cross" in self.waveforms:
-
             
-
             if not iota and "theta_jn" in self._parameters:
                 iota = self._parameters["theta_jn"]
             elif isinstance(iota, type(None)):
@@ -183,8 +181,11 @@ class WaveformDict:
             else:
                 projected_covariance = None
 
+            bins = dt / (self.waveforms["plus"].dt)
+            print(dt, bins)
+                
             projected_waveform = Waveform(
-                data=projected_data,
+                data=array_library.roll(array_library.pad(projected_data, 100), int(bins))[100:-100],
                 variance=projected_variance,
                 covariance=projected_covariance,
                 times=self.waveforms["plus"].times,

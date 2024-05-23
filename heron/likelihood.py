@@ -3,6 +3,8 @@ This module contains likelihood functions for heron to allow it to perform param
 using the waveform models it supports.
 """
 
+from gwpy.timeseries import TimeSeries
+
 import numpy as np
 import torch
 
@@ -50,9 +52,16 @@ class TimeDomainLikelihood(Likelihood):
         self.psd = psd
 
         self.data = np.array(data.data)
+        self.data_ts = data
         self.times = data.times
+        
+        self.logger = logger = logging.getLogger(
+            "heron.likelihood.TimeDomainLikelihood"
+        )
 
         self.C = self.psd.covariance_matrix(times=self.times)
+        self.normalisation = self.logdet(2 * np.pi * self.C)
+        self.logger.info(f"Normalisation: {self.normalisation}")
         self.inverse_C = np.linalg.inv(self.C)
 
         self.dt = (self.times[1] - self.times[0]).value
@@ -68,9 +77,6 @@ class TimeDomainLikelihood(Likelihood):
         if timing_basis is not None:
             self.fixed_parameters['reference_frame'] = timing_basis
 
-        self.logger = logger = logging.getLogger(
-            "heron.likelihood.TimeDomainLikelihood"
-        )
 
     def snr(self, waveform):
         """
@@ -86,18 +92,23 @@ class TimeDomainLikelihood(Likelihood):
         return np.sqrt(np.abs(h_h))
 
     def log_likelihood(self, waveform):
-        residual = np.array(self.data.data) - np.array(waveform.data)
+
+        # waveform_in_data_space = TimeSeries(data=np.zeros(len(self.data)), times=self.times)
+        # waveform_in_data_space += waveform
+        
+        assert(np.all(self.times == waveform.times))
+        residual = self.data - np.array(waveform.data)
         weighted_residual = (
             (residual) @ self.solve(self.C, residual) * (self.dt * self.dt / 4) / 4
         )
-        normalisation = self.logdet(2 * np.pi * self.C)
-        return -0.5 * weighted_residual + 0.5 * normalisation
+        self.logger.info(f"residual: {residual}; chisq: {weighted_residual}")
+        return -0.5 * weighted_residual + 0.5 * self.normalisation
 
     def __call__(self, parameters):
         self.logger.info(parameters)
 
         keys = set(parameters.keys())
-        extrinsic = {"phase", "psi", "ra", "dec", "theta_jn"}
+        extrinsic = {"phase", "psi", "ra", "dec", "theta_jn", "zenith", "azimuth"}
         conversions = {"mass_ratio", "total_mass", "luminosity_distance"}
         bad_keys = keys - set(self.waveform._args.keys()) - extrinsic - conversions
         if len(bad_keys) > 0:
@@ -106,8 +117,11 @@ class TimeDomainLikelihood(Likelihood):
         test_waveform = self.waveform.time_domain(
             parameters=parameters, times=self.times
         )
+
         projected_waveform = test_waveform.project(self.detector)
-        return self.log_likelihood(projected_waveform)
+        llike = self.log_likelihood(projected_waveform)
+        self.logger.info(f"log likelihood: {llike}")
+        return llike
 
 
 class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
@@ -257,7 +271,7 @@ class TimeDomainLikelihoodPyTorch(LikelihoodPyTorch):
         self.logger.info(parameters)
 
         keys = set(parameters.keys())
-        extrinsic = {"phase", "psi", "ra", "dec", "theta_jn"}
+        extrinsic = {"phase", "psi", "ra", "dec", "theta_jn", "zenith", "azimuth"}
         conversions = {"mass_ratio", "total_mass", "luminosity_distance"}
         bad_keys = keys - set(self.waveform._args.keys()) - extrinsic - conversions
         if len(bad_keys) > 0:
