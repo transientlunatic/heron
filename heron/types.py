@@ -182,10 +182,10 @@ class WaveformDict:
                 projected_covariance = None
 
             bins = dt / (self.waveforms["plus"].dt)
-            print(dt, bins)
+            # print(dt, bins)
                 
             projected_waveform = Waveform(
-                data=array_library.roll(array_library.pad(projected_data, 100), int(bins))[100:-100],
+                data=array_library.roll(array_library.pad(projected_data, 100), int(bins.value))[100:-100],
                 variance=projected_variance,
                 covariance=projected_covariance,
                 times=self.waveforms["plus"].times,
