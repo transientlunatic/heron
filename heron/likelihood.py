@@ -185,12 +185,12 @@ class MultiDetector:
         for detector in args:
             if isinstance(detector, LikelihoodBase):
                 self._likelihoods.append(detector)
-
-    def __call__(self, parameters):
-        out = 0
         self.logger = logger = logging.getLogger(
             "heron.likelihood.MultiDetector"
         )
+
+    def __call__(self, parameters):
+        out = 0
         self.logger.info(f"Calling likelihood at {parameters}")
         for detector in self._likelihoods:
             out += detector(parameters)

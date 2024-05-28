@@ -42,16 +42,18 @@ class NessaiSampler(SamplerBase, nessai.model.Model):
 
     def _convert_units(self, p):
         # Only convert dictionaries
+        # Units
+        units = {"luminosity_distance": u.megaparsec}  #
         if isinstance(p, dict):
-            # Units
-            units = {"luminosity_distance": u.megaparsec}  #
-
             base_p = {}
             for name, base in p.items():
                 if name in units and isinstance(base, u.Quantity):
                     base_p[name] = base.to(units[name]).value
                 else:
                     base_p[name] = base
+        elif isinstance(p, np.ndarray) and hasattr(p, "names"):
+            if not (isinstance(p.luminosity_distance, u.Quantity)):
+                p.luminosity_distance = p.luminosity_distance * u.megaparsec
         else:
             base_p = p
         return base_p
@@ -66,6 +68,7 @@ class NessaiSampler(SamplerBase, nessai.model.Model):
         if isinstance(x, np.ndarray):
             x = x[0]
         lnp = self.priors.ln_prob(dict(zip(self.names, x)))
+        self.logger.info(f"Log prior: {lnp}")
         return lnp
 
     def log_likelihood(self, x):
