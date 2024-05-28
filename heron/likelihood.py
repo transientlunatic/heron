@@ -95,7 +95,9 @@ class TimeDomainLikelihood(Likelihood):
 
         # waveform_in_data_space = TimeSeries(data=np.zeros(len(self.data)), times=self.times)
         # waveform_in_data_space += waveform
-        
+
+        #print("times", self.times)
+        #print("waveform", waveform.times)
         assert(np.all(self.times == waveform.times))
         residual = self.data - np.array(waveform.data)
         weighted_residual = (
