@@ -76,6 +76,10 @@ def heron_inference(settings):
         logging.getLogger("heron.likelihood.TimeDomainLikelihood").setLevel(
             LOGGER_LEVELS[level]
         )
+        logging.getLogger("heron.likelihood.MultiDetector").setLevel(
+            LOGGER_LEVELS[level]
+        )
+        logging.getLogger("matplotlib").setLevel(logging.ERROR)
 
     import matplotlib
     matplotlib.use("agg")
