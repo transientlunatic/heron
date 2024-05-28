@@ -198,3 +198,7 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
             )
 
         return output
+
+class HeronDemonstrator(HeronNonSpinningApproximant):
+    def __init__(self, *args, **kwargs):
+        pass

@@ -188,6 +188,10 @@ class MultiDetector:
 
     def __call__(self, parameters):
         out = 0
+        self.logger = logger = logging.getLogger(
+            "heron.likelihood.MultiDetector"
+        )
+        self.logger.info(f"Calling likelihood at {parameters}")
         for detector in self._likelihoods:
             out += detector(parameters)
 
