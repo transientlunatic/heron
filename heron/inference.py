@@ -13,6 +13,7 @@ from nessai.flowsampler import FlowSampler
 
 from heron.detector import KNOWN_IFOS
 from heron.models.lalnoise import KNOWN_PSDS
+from heron.models.gpytorch import HeronNonSpinningApproximant
 from heron.likelihood import TimeDomainLikelihood, MultiDetector
 import heron.priors
 
@@ -33,6 +34,7 @@ KNOWN_LIKELIHOODS = {
 }
 KNOWN_WAVEFORMS = {
     "IMRPhenomPv2": IMRPhenomPv2,
+    "Heron": HeronNonSpinningApproximant,
 }
 
 
@@ -114,7 +116,7 @@ def heron_inference(settings):
 
     priors = heron.priors.PriorDict()
     priors.from_dictionary(settings["priors"])
-    
+
     if settings["sampler"]["sampler"] == "nessai":
         nessai_model = NessaiSampler(
             likelihood,

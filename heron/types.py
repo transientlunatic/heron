@@ -191,7 +191,7 @@ class WaveformDict:
                 times=self.waveforms["plus"].times,
             )
 
-            projected_waveform.shift(dt)
+            #projected_waveform.shift(dt)
 
             return projected_waveform
 
