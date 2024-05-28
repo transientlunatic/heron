@@ -30,6 +30,12 @@ class NessaiSampler(SamplerBase, nessai.model.Model):
     allow_vectorised = False
 
     def __init__(self, likelihood, priors, base_p):
+
+        self.logger = logger = logging.getLogger(
+            "heron.sampling.NessaiSampler"
+        )
+
+        
         # Names of parameters to sample
         self.priors = priors
         self.names = priors.names
