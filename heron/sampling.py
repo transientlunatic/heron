@@ -1,6 +1,7 @@
 """
 This module contains interfaces to heron to allow straight-forward sampling to be performed.
 """
+import logging
 
 from astropy import units as u
 
