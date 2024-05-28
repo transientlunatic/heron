@@ -56,11 +56,14 @@ class NessaiSampler(SamplerBase, nessai.model.Model):
             for name, base in p.items():
                 if name in units and isinstance(base, u.Quantity):
                     base_p[name] = base.to(units[name]).value
+                elif name in units and not isinstance(base, u.Quantity):
+                    base_p[name] = base * units[name]
                 else:
                     base_p[name] = base
-        elif isinstance(p, np.ndarray) and hasattr(p, "names"):
+        elif isinstance(p, (np.void, np.ndarray)) and hasattr(p, "names"):
+            base_p = p
             if not (isinstance(p.luminosity_distance, u.Quantity)):
-                p.luminosity_distance = p.luminosity_distance * u.megaparsec
+                base_p.luminosity_distance = p.luminosity_distance * u.megaparsec
         else:
             base_p = p
         return base_p
@@ -82,8 +85,9 @@ class NessaiSampler(SamplerBase, nessai.model.Model):
         # Convert everything into python scalars
         with torch.inference_mode():
             # Need to convert from numpy floats to python floats
-            x = self._convert_units(x)
             self.base_p.update({n: float(x[n]) for n in self.names})
+            self.base_p = self._convert_units(self.base_p)
+
             likelihood = self.likelihood(self.base_p)
 
             return likelihood
