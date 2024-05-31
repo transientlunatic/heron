@@ -26,6 +26,9 @@ class LikelihoodBase:
 
 class Likelihood(LikelihoodBase):
 
+    def abs(self, A):
+        return np.abs(A)
+    
     def logdet(self, K):
         return np.linalg.slogdet(K).logabsdet
 
@@ -64,7 +67,7 @@ class TimeDomainLikelihood(Likelihood):
         self.logger.info(f"Normalisation: {self.normalisation}")
         self.inverse_C = np.linalg.inv(self.C)
 
-        self.dt = (self.times[1] - self.times[0]).value
+        self.dt = self.abs((self.times[1] - self.times[0]).value)
         self.N = len(self.times)
 
         if waveform is not None:
@@ -92,12 +95,19 @@ class TimeDomainLikelihood(Likelihood):
         return np.sqrt(np.abs(h_h))
 
     def log_likelihood(self, waveform):
+        """
+        Calculate the log likelihood of a given waveform and the data.
 
-        # waveform_in_data_space = TimeSeries(data=np.zeros(len(self.data)), times=self.times)
-        # waveform_in_data_space += waveform
+        Parameters
+        ----------
+        waveform : `heron.types.Waveform`
+           The waveform to compare to the data.
 
-        #print("times", self.times)
-        #print("waveform", waveform.times)
+        Returns
+        -------
+        float
+           The log-likelihood for the waveform.
+        """
         assert(np.all(self.times == waveform.times))
         residual = self.data - np.array(waveform.data)
         weighted_residual = (
@@ -110,7 +120,7 @@ class TimeDomainLikelihood(Likelihood):
         self.logger.info(parameters)
 
         keys = set(parameters.keys())
-        extrinsic = {"phase", "psi", "ra", "dec", "theta_jn", "zenith", "azimuth"}
+        extrinsic = {"phase", "psi", "ra", "dec", "theta_jn", "zenith", "azimuth", "gpstime"}
         conversions = {"mass_ratio", "total_mass", "luminosity_distance"}
         bad_keys = keys - set(self.waveform._args.keys()) - extrinsic - conversions
         if len(bad_keys) > 0:
@@ -119,7 +129,6 @@ class TimeDomainLikelihood(Likelihood):
         test_waveform = self.waveform.time_domain(
             parameters=parameters, times=self.times
         )
-
         projected_waveform = test_waveform.project(self.detector)
         llike = self.log_likelihood(projected_waveform)
         self.logger.info(f"log likelihood: {llike}")
@@ -134,9 +143,10 @@ class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
     def _normalisation(self, K, S):
         norm = (
             -1.5 * K.shape[0] * self.log(2 * self.pi)
-            - 0.5 * self.logdet(K)
-            + 0.5 * self.logdet(self.C)
-            - 0.5 * self.logdet(self.solve(K, self.C) + self.eye(K.shape[0]))
+            - 0.5 * 1./self.logdet(2*self.pi*self.inverse(K))
+            - 0.5 * 1./self.logdet(2*self.pi*self.inverse_C)
+            - 0.5 * self.logdet(self.inverse_C)
+            - 0.5 * self.logdet(self.solve(self.C, K) + self.eye(K.shape[0]))
         )
         return norm
 
@@ -144,6 +154,8 @@ class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
         """Return the weighted data component"""
         # TODO This can all be pre-computed
         if not hasattr(self, "weighted_data_CACHE"):
+            self.logger.info(f"Data max/min: {np.min(self.data)}/{np.max(self.data)}")
+            self.logger.info(f"C max/min: {np.min(self.C)}/{np.max(self.C)}")
             dw = self.weighted_data_CACHE = (
                 -0.5 * self.data.T @ self.solve(self.C, self.data)
             )
@@ -156,22 +168,20 @@ class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
         return -0.5 * np.array(mu).T @ self.solve(K, mu)
 
     def _weighted_cross(self, mu, K):
-        a = self.solve(self.C, self.data) + self.solve(K, mu)
+        a = self.solve(self.C, self.data) - self.solve(K, mu)
         b = self.inverse_C + self.inverse(K)
         return 0.5 * a.T @ self.solve(b, a)
 
     def log_likelihood(self, waveform):
-        like = self._weighted_cross(waveform.data, waveform.covariance)
+        W = self._weighted_cross(waveform.data, waveform.covariance)
         # print("cross term", like)
         A = self._weighted_data()
         # print("data term", A)
         B = self._weighted_model(waveform.data, waveform.covariance)
         # print("model term", B)
-        like = like + A + B
-        norm = self._normalisation(waveform.covariance, self.C)
-        # print("normalisation", norm)
-        like += norm
-
+        N = self._normalisation(waveform.covariance, self.C)
+        like = N + W + A + B
+        self.logger.info(f"Likelihood components: {W}, {A}, {B}, {N}")
         return like
 
 
@@ -260,6 +270,7 @@ class TimeDomainLikelihoodPyTorch(LikelihoodPyTorch):
         """
         dt = (self.times[1] - self.times[0]).value
         N = len(self.times)
+        self.logger.info(f"Contains {N} points with dt {dt}.")
         waveform_d = torch.tensor(waveform.data, device=self.device, dtype=torch.double)
         h_h = (waveform_d.T @ self.solve(self.C, waveform_d)) * (dt * dt / N / 4) / 4
         return torch.sqrt(torch.abs(h_h))
