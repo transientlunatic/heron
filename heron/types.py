@@ -121,13 +121,12 @@ class WaveformDict:
             tg, ra, dec = DetFrameToEquatorial(
                 det1, det2, time, self._parameters["azimuth"], self._parameters["zenith"]
             )
-            print("pos", ra, dec, time, dt)
+            dt = time - tg
         elif (ra is None) and (dec is None):
             raise ValueError("Right ascension and declination must both be specified.")
 
         else:
             dt = detector.geocentre_delay(ra=ra, dec=dec, times=time)
-            print(ra, dec, time, dt)
         if "plus" in self.waveforms and "cross" in self.waveforms:
             
             if not iota and "theta_jn" in self._parameters:
@@ -182,16 +181,13 @@ class WaveformDict:
                 projected_covariance = None
 
             bins = dt / (self.waveforms["plus"].dt)
-            # print(dt, bins)
                 
             projected_waveform = Waveform(
-                data=array_library.roll(array_library.pad(projected_data, 100), int(bins.value))[100:-100],
+                data=array_library.roll(array_library.pad(projected_data, 5000), int(bins.value))[5000:-5000],
                 variance=projected_variance,
                 covariance=projected_covariance,
                 times=self.waveforms["plus"].times,
             )
-
-            #projected_waveform.shift(dt)
 
             return projected_waveform
 

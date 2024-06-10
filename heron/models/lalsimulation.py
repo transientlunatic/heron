@@ -3,6 +3,7 @@ import logging
 import numpy as array_library
 import torch
 from scipy.interpolate import CubicSpline
+import scipy
 
 # Astropy to handle units sanely
 from astropy import units as u
@@ -121,6 +122,8 @@ class LALSimulationApproximant(WaveformApproximant):
 
         if "gpstime" in parameters:
             epoch = parameters['gpstime']
+        else:
+            raise ValueError("gpstime not specified")
         
         if not (self.args == self._cache_key):
             self.logger.info(f"Generating new waveform at {self.args}")
@@ -135,6 +138,8 @@ class LALSimulationApproximant(WaveformApproximant):
                 times_wf = (
                     array_library.arange(len(hp.data.data)) * hp.deltaT + hp.epoch + epoch
                 )
+                self.logger.info("Interpolating to new times")
+                self.logger.info(f"{times_wf[0]}-{times_wf[-1]} to {times[0]}-{times[-1]}")
                 spl_hp = CubicSpline(times_wf, hp.data.data)
                 spl_hx = CubicSpline(times_wf, hx.data.data)
                 hp_data = spl_hp(times)
@@ -154,8 +159,8 @@ class LALSimulationApproximant(WaveformApproximant):
                 spl_hx = CubicSpline(times_wf, hx.data.data)
                 hp_data = spl_hp(times)
                 hx_data = spl_hx(times)
-                hp_ts = Waveform(data=hp_data, times=times)
-                hx_ts = Waveform(data=hx_data, times=times)
+                hp_ts = Waveform(data=hp_data, times=times+epoch)
+                hx_ts = Waveform(data=hx_data, times=times+epoch)
             else:
                 hp_data = hp.data.data
                 hx_data = hx.data.data
@@ -183,9 +188,15 @@ class SEOBNRv3(LALSimulationApproximant):
 
 
 class IMRPhenomPv2_FakeUncertainty(IMRPhenomPv2):
-    def time_domain(self, parameters, times=None):
+    def time_domain(self, parameters, times=None, var=1e-48):
         waveform_dict = super().time_domain(parameters, times)
-        covariance = torch.eye(len(waveform_dict["plus"].times)) * 1e-24
+        variance = array_library.zeros(len(waveform_dict['plus'].times))
+        variance[0] = var
+        variance[1] = var/10
+        variance[2] = var/100
+        covariance = torch.tensor(
+            scipy.linalg.toeplitz(variance)
+            )
         for wave in waveform_dict.waveforms.values():
             # Artificially add a covariance function to each of these
             wave.covariance = covariance

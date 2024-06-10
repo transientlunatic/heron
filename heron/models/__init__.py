@@ -1,14 +1,18 @@
+import logging
+
 import torch
 from lal import antenna
 from astropy import units as u
 
+logger = logging.getLogger("heron.models")
 
 class WaveformModel:
 
     def _convert(self, args):
-
         if "total_mass" in args and "mass_ratio" in args:
             args = self._convert_mass_ratio_total_mass(args)
+        elif "total_mass" in args or "mass_ratio" in args:
+            print("Need both total mass and the mass ratio")
         if "luminosity_distance" in args:
             args = self._convert_luminosity_distance(args)
 
@@ -19,8 +23,8 @@ class WaveformModel:
         return args
 
     def _convert_mass_ratio_total_mass(self, args):
-
-        args["m1"] = (args["total_mass"] / (1 + args["mass_ratio"]))
+        logger.info("Converting total mass and mass ratio to components")
+        m1 = args["m1"] = (args["total_mass"] / (1 + args["mass_ratio"]))
         if isinstance(args["m1"], u.Quantity):
             args["m1"] = args["m1"].to(u.kilogram)
         else:

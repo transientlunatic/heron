@@ -38,8 +38,9 @@ class test_detector_operations(unittest.TestCase):
             times=times,
         )
         projected_waveform = waveform_eval.project(detector=self.H1, ra=1.0, dec=1.0, psi=1.0, iota=0, phi_0=0)
-
-        self.assertFalse(projected_waveform.times[0] == waveform_eval['plus'].times[0])
+        
+        self.assertTrue(projected_waveform.times[0] == waveform_eval['plus'].times[0])
+        self.assertFalse(np.argmax(projected_waveform.data) == np.argmax(waveform_eval['plus'].data))
 
     def test_projection_in_dict(self):
         times = np.linspace(4000, 4001, 4096)

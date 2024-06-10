@@ -38,7 +38,7 @@ class LALSimulationPSD(PSDApproximant):
         )
         self.psd_function(psd_data, flow=lower_frequency)
         psd_data = psd_data.data.data
-        psd_data[frequencies < mask_below] = psd_data[frequencies > mask_below][0]
+        #psd_data[frequencies < mask_below] = psd_data[frequencies > mask_below][0]
         psd = PSD(psd_data, frequencies=frequencies)
         return psd
 
@@ -46,14 +46,25 @@ class LALSimulationPSD(PSDApproximant):
         """
         Return a time-domain representation of this power spectral density.
         """
+                
         dt = times[1] - times[0]
         N = len(times)
         T = times[-1] - times[0]
         df = 1 / T
         frequencies = torch.arange(len(times) // 2 + 1) * df.value
-        psd = self.frequency_domain(df=df, frequencies=frequencies)
-        ts = np.fft.irfft(psd, n=(N))  # * (N*N/dt/dt/2), n=(N))
-        return scipy.linalg.toeplitz(ts)
+        psd = np.array(self.frequency_domain(df=df, frequencies=frequencies).data)
+        psd[-1] = psd[-2]
+        # import matplotlib.pyplot as plt
+        # f, ax = plt.subplots(1,1)
+        # ax.plot(frequencies, psd)
+        # f.savefig("psd.png")
+        # Calculate the autocovariance from a one-sided PSD
+        acf = 0.5*np.real(np.fft.irfft(psd*df, n=(N)))*T
+        # The covariance is then the Toeplitz matrix formed from the acf
+        # f, ax = plt.subplots(1,1)
+        # ax.plot(acf)
+        # f.savefig("acf.png")
+        return scipy.linalg.toeplitz(acf)
 
     def time_domain(self, times):
         return self.covariance_matrix(times)

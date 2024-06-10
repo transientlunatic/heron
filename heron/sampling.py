@@ -84,8 +84,7 @@ class NessaiSampler(SamplerBase, nessai.model.Model):
     def log_likelihood(self, x):
         # Convert everything into python scalars
         with torch.inference_mode():
-            # Need to convert from numpy floats to python floats
-            self.base_p.update({n: float(x[n]) for n in self.names})
+            self.base_p.update(x)
             self.base_p = self._convert_units(self.base_p)
 
             likelihood = self.likelihood(self.base_p)

@@ -42,7 +42,8 @@ class TestInjection(unittest.TestCase):
 
     def test_simple_inject(self):
         make_injection(waveform=IMRPhenomPv2,
-                       detectors={"AdvancedLIGOHanford": "AdvancedLIGO"}
+                       detectors={"AdvancedLIGOHanford": "AdvancedLIGO"},
+                       injection_parameters={"total_mass": 60, "mass_ratio": 0.4},
                        )
 
 
@@ -51,4 +52,5 @@ class TestInjection(unittest.TestCase):
                        detectors={"AdvancedLIGOHanford": "AdvancedLIGO",
                                   "AdvancedLIGOLivingston": "AdvancedLIGO"},
                        framefile="test",
+                       injection_parameters={"total_mass": 60, "mass_ratio": 0.4},
                        )
