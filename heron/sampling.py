@@ -83,8 +83,13 @@ class NessaiSampler(SamplerBase, nessai.model.Model):
 
     def log_likelihood(self, x):
         # Convert everything into python scalars
+        print(type(x))
+        
+        if isinstance(x, np.ndarray):
+            x = x[0]
         with torch.inference_mode():
             self.base_p.update(dict(zip(self.names, x)))
+            print("base p", self.base_p, dict(zip(self.names, x)))
             self.base_p = self._convert_units(self.base_p)
 
             likelihood = self.likelihood(self.base_p)
