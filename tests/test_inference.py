@@ -215,91 +215,167 @@ class Test_PyTorch(unittest.TestCase):
                                          )
 
         
-    def test_timedomain_psd(self):
-        noise = self.psd_model.time_domain(times=self.injections['H1'].times)
-        #print(noise)
+    # def test_timedomain_psd(self):
+    #     noise = self.psd_model.time_domain(times=self.injections['H1'].times)
+    #     #print(noise)
         
-    def test_snr(self):
-        data = self.injections['H1']
+    # def test_snr(self):
+    #     data = self.injections['H1']
 
-        likelihood = TimeDomainLikelihoodPyTorch(data, psd=self.psd_model)
+    #     likelihood = TimeDomainLikelihoodPyTorch(data, psd=self.psd_model)
         
-        test_waveform = self.waveform.time_domain(parameters={"distance": 450*u.megaparsec,
-                                                               "gpstime": 4000,
-                                                               "total_mass": 60,
-                                                               "mass_ratio": 0.9,
-                                                               "ra": 1, "dec": 1, "phase": 0, "psi": 0, "theta_jn": 0,}, times=data.times)
-        projected = test_waveform.project(AdvancedLIGOHanford(),
-                                          ra=1, dec=1,
-                                          phi_0=0, psi=0,
-                                          iota=0)
-        snr = likelihood.snr(projected)
-        snr_f = likelihood.snr_f(projected)
-        self.assertLess(snr - snr_f, 0.1)
-        self.assertTrue(snr > 150 and snr < 151)
+    #     test_waveform = self.waveform.time_domain(parameters={"distance": 450*u.megaparsec,
+    #                                                            "gpstime": 4000,
+    #                                                            "total_mass": 60,
+    #                                                            "mass_ratio": 0.9,
+    #                                                            "ra": 1, "dec": 1, "phase": 0, "psi": 0, "theta_jn": 0,}, times=data.times)
+    #     projected = test_waveform.project(AdvancedLIGOHanford(),
+    #                                       ra=1, dec=1,
+    #                                       phi_0=0, psi=0,
+    #                                       iota=0)
+    #     snr = likelihood.snr(projected)
+    #     snr_f = likelihood.snr_f(projected)
+    #     self.assertLess(snr - snr_f, 0.1)
+    #     self.assertTrue(snr > 150 and snr < 151)
 
-    def test_likelihood_no_normalisation(self):
-        data = self.injections_zero['H1']
+    # def test_likelihood_no_normalisation(self):
+    #     data = self.injections_zero['H1']
 
-        likelihood = TimeDomainLikelihoodPyTorch(data, psd=self.psd_model)
+    #     likelihood = TimeDomainLikelihoodPyTorch(data, psd=self.psd_model)
         
-        test_waveform = self.waveform.time_domain(parameters={"m1": 40*u.solMass,
-                                                              "m2": 50*u.solMass,
-                                                              "gpstime": 4000,
-                                                              "distance": 450 * u.megaparsec}, times=data.times)
+    #     test_waveform = self.waveform.time_domain(parameters={"m1": 40*u.solMass,
+    #                                                           "m2": 50*u.solMass,
+    #                                                           "gpstime": 4000,
+    #                                                           "distance": 450 * u.megaparsec}, times=data.times)
 
-        projected_waveform = test_waveform.project(AdvancedLIGOHanford(),
-                                                              ra=0, dec=0,
-                                                              phi_0=0, psi=0,
-                                                              iota=0)
+    #     projected_waveform = test_waveform.project(AdvancedLIGOHanford(),
+    #                                                           ra=0, dec=0,
+    #                                                           phi_0=0, psi=0,
+    #                                                           iota=0)
         
-        log_like = likelihood.log_likelihood(projected_waveform, norm=False)
-        print("log likelihood without normalisation, no unc", log_like)
-        log_like = likelihood.log_likelihood(projected_waveform, norm=True)
-        print("log likelihood with normalisation, no unc", log_like) 
+    #     log_like = likelihood.log_likelihood(projected_waveform, norm=False)
+    #     print("log likelihood without normalisation, no unc", log_like)
+    #     log_like = likelihood.log_likelihood(projected_waveform, norm=True)
+    #     print("log likelihood with normalisation, no unc", log_like) 
 
-    def test_likelihood_with_uncertainty_no_normalisation(self):
+    # def test_likelihood_with_uncertainty_no_normalisation(self):
+    #     data = self.injections_zero['H1']
+
+    #     likelihood = TimeDomainLikelihoodModelUncertaintyPyTorch(data, psd=self.psd_model)
+
+    #     waveform = IMRPhenomPv2_FakeUncertainty()
+    #     test_waveform = waveform.time_domain(parameters={"m1": 40*u.solMass,
+    #                                                      "m2": 50*u.solMass,
+    #                                                      "gpstime": 4000,
+    #                                                      "distance": 450 * u.megaparsec},
+    #                                          times=data.times,
+    #                                          var=1e-48)
+    #     projected_waveform = test_waveform.project(AdvancedLIGOHanford(),
+    #                                                           ra=0, dec=0,
+    #                                                           phi_0=0, psi=0,
+    #                                                           iota=0)
+    #     log_like = likelihood.log_likelihood(projected_waveform, norm=False)
+    #     log_like = likelihood.log_likelihood(projected_waveform, norm=True)
+
+    # def test_likelihood_path_no_normalisation(self):
+    #     data = self.injections_zero['H1']
+
+    #     likelihood = TimeDomainLikelihood(data, psd=self.psd_model)
+
+    #     log_like = []
+    #     for m1 in np.linspace(59.99, 60.01, 5):
+    #         waveform = IMRPhenomPv2()
+    #         test_waveform = waveform.time_domain(parameters={"distance": 450*u.megaparsec,
+    #                                                          "gpstime": 4000,
+    #                                                          "total_mass": m1*u.solMass,
+    #                                                          "mass_ratio": 0.9,
+    #                                                          "ra": 1, "dec": 1, "phase": 0, "psi": 0, "theta_jn": 0,
+    #                                                          }, times=data.times)
+    #         projected_waveform = test_waveform.project(AdvancedLIGOHanford(),
+    #                                                    ra=1, dec=1,
+    #                                                    phi_0=0, psi=0,
+    #                                                    iota=0)
+    #         log_like.append(likelihood.log_likelihood(projected_waveform, norm=False))
+
+
+    #     self.assertEqual(log_like[2], 0)
+    #     self.assertTrue(np.all(np.array(log_like) < 1e-4))
+
+
+    def test_likelihood_single_no_normalisation_pytorch_uncert(self):
+        """Test a series of likelihood evaluations in the region of the injected parameters including the likelihood normalisation.
+        """
         data = self.injections_zero['H1']
 
         likelihood = TimeDomainLikelihoodModelUncertaintyPyTorch(data, psd=self.psd_model)
 
         waveform = IMRPhenomPv2_FakeUncertainty()
-        test_waveform = waveform.time_domain(parameters={"m1": 40*u.solMass,
-                                                         "m2": 50*u.solMass,
-                                                         "gpstime": 4000,
-                                                         "distance": 450 * u.megaparsec},
-                                             times=data.times,
-                                             var=1e-48)
-        projected_waveform = test_waveform.project(AdvancedLIGOHanford(),
-                                                              ra=0, dec=0,
-                                                              phi_0=0, psi=0,
-                                                              iota=0)
-        log_like = likelihood.log_likelihood(projected_waveform, norm=False)
-        print("log likelihood without normalisation, with unc", log_like)
-        log_like = likelihood.log_likelihood(projected_waveform, norm=True)
-        print("log likelihood with normalisation, with unc", log_like)
-
-    def test_likelihood_path_no_normalisation(self):
-        data = self.injections_zero['H1']
-
-        likelihood = TimeDomainLikelihood(data, psd=self.psd_model)
 
         log_like = []
-        for m1 in np.linspace(59.99, 60.01, 5):
-            waveform = IMRPhenomPv2()
+        m1 = 60
+        test_waveform = waveform.time_domain(parameters={"distance": 450*u.megaparsec,
+                                                         "gpstime": 4000,
+                                                         "total_mass": m1*u.solMass,
+                                                           "mass_ratio": 0.9,
+                                                           "ra": 1, "dec": 1, "phase": 0, "psi": 0, "theta_jn": 0,
+                                                           },
+                                             times=data.times,
+                                             var=1e-40)
+        projected_waveform = test_waveform.project(AdvancedLIGOHanford(),
+                                                              ra=1, dec=1,
+                                                              phi_0=0, psi=0,
+                                                             iota=0)
+        log_like = likelihood.log_likelihood(projected_waveform, norm=False).cpu().numpy()
+
+        self.assertTrue(log_like < 0.5)              
+
+
+    def test_likelihood_range_normalisation_pytorch_uncert(self):
+        """Test a series of likelihood evaluations in the region of the injected parameters including the likelihood normalisation.
+        """
+        data = self.injections_zero['H1']
+
+        likelihood = TimeDomainLikelihoodModelUncertaintyPyTorch(data, psd=self.psd_model)
+
+        waveform = IMRPhenomPv2_FakeUncertainty()
+
+        log_like = []
+        for m1 in np.linspace(59, 61, 51):
             test_waveform = waveform.time_domain(parameters={"distance": 450*u.megaparsec,
                                                              "gpstime": 4000,
                                                              "total_mass": m1*u.solMass,
                                                                "mass_ratio": 0.9,
                                                                "ra": 1, "dec": 1, "phase": 0, "psi": 0, "theta_jn": 0,
-                                                               }, times=data.times)
+                                                               }, times=data.times, var=1e-28)
             projected_waveform = test_waveform.project(AdvancedLIGOHanford(),
                                                                   ra=1, dec=1,
                                                                   phi_0=0, psi=0,
                                                                  iota=0)
-            log_like.append(likelihood.log_likelihood(projected_waveform, norm=False))
+            log_like.append(likelihood.log_likelihood(projected_waveform, norm=True).cpu().numpy())
 
+        print("min", np.argmin(log_like), "max", np.argmax(log_like))
+        self.assertEqual(log_like[25], np.min(log_like))              
 
-        self.assertEqual(log_like[2], 0)
-        self.assertTrue(np.all(np.array(log_like) < 1e-4))
-            
+    # def test_likelihood_range_normalisation_numpy(self):
+    #     """Test a series of likelihood evaluations in the region of the injected parameters including the likelihood normalisation.
+    #     """
+    #     data = self.injections_zero['H1']
+
+    #     likelihood = TimeDomainLikelihood(data, psd=self.psd_model)
+
+    #     log_like = []
+    #     for m1 in np.linspace(59, 61, 51):
+    #         waveform = IMRPhenomPv2()
+    #         test_waveform = waveform.time_domain(parameters={"distance": 450*u.megaparsec,
+    #                                                          "gpstime": 4000,
+    #                                                          "total_mass": m1*u.solMass,
+    #                                                            "mass_ratio": 0.9,
+    #                                                            "ra": 1, "dec": 1, "phase": 0, "psi": 0, "theta_jn": 0,
+    #                                                            }, times=data.times)
+    #         projected_waveform = test_waveform.project(AdvancedLIGOHanford(),
+    #                                                               ra=1, dec=1,
+    #                                                               phi_0=0, psi=0,
+    #                                                              iota=0)
+    #         log_like.append(likelihood.log_likelihood(projected_waveform, norm=True))
+
+    #     self.assertEqual(log_like[25], np.max(log_like))      

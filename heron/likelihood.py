@@ -64,8 +64,9 @@ class TimeDomainLikelihood(Likelihood):
         self.logger = logger = logging.getLogger(
             "heron.likelihood.TimeDomainLikelihood"
         )
+        self.N = len(self.times)
         self.C = self.psd.covariance_matrix(times=self.times)
-        self.normalisation = self.logdet(2 * np.pi * self.C)
+        self.normalisation = - (self.N/2) * self.log(2*self.pi) - 0.5 * self.logdet(self.C)
         self.logger.info(f"Normalisation: {self.normalisation}")
         self.inverse_C = np.linalg.inv(self.C)
 
@@ -126,7 +127,7 @@ class TimeDomainLikelihood(Likelihood):
         weighted_residual = self.einsum('i,ij,j', residual, self.inverse(self.C*factor**2), residual) * (self.dt * self.dt / 4) / 4
         # why is this negative using Toeplitz?
         self.logger.info(f"residual: {residual}; chisq: {weighted_residual}")
-        out = -0.5 * weighted_residual
+        out = - 0.5 * weighted_residual
         if norm:
             out += 0.5 * self.normalisation
         return out
@@ -158,8 +159,8 @@ class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
     def _normalisation(self, K, S):
         norm = (
             -1.5 * K.shape[0] * self.log(2 * self.pi)
-            - 0.5 * 1./self.logdet(2*self.pi*self.inverse(K))
-            - 0.5 * 1./self.logdet(2*self.pi*self.inverse_C)
+            - 0.5 * self.logdet(2*self.pi*self.inverse(K))
+            - 0.5 * self.logdet(2*self.pi*self.inverse_C)
             - 0.5 * self.logdet(self.inverse_C)
             - 0.5 * self.logdet(self.solve(self.C, K) + self.eye(K.shape[0]))
         )
@@ -185,7 +186,7 @@ class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
     def _weighted_cross(self, mu, K):
         a = self.solve(self.C, self.data) - self.solve(K, mu)
         b = self.inverse_C + self.inverse(K)
-        return 0.5 * a.T @ self.solve(b, a)
+        return - 0.5 * a.T @ self.solve(b, a)
 
     def log_likelihood(self, waveform, norm=True):
         W = self._weighted_cross(waveform.data, waveform.covariance)
@@ -340,32 +341,6 @@ class TimeDomainLikelihoodModelUncertaintyPyTorch(TimeDomainLikelihoodPyTorch):
 
     def __init__(self, data, psd, waveform=None, detector=None):
         super().__init__(data, psd, waveform, detector)
-        
-    def _normalisation(self, K, S):
-        # print(
-        #     - 0.5 * self.logdet(2 * self.pi * K),
-        #     - 0.5 * self.logdet(2 * self.pi * self.C),
-        #     # 2/N log(2pi)
-        #     + 0.5 * K.shape[0] * self.log(2 * self.pi),
-        #     # Half log Cinv
-        #     - 0.5 * self.logdet(self.inverse_C),
-        #     # Half log blah
-        #     # self.solve(self.C, K)
-        #     - 0.5 * self.logdet(self.solve(K, self.C) + self.eye(K.shape[0]))
-        # )
-        norm = (
-            # log(F)
-            - 0.5 * self.logdet(2 * self.pi * K)
-            - 0.5 * self.logdet(2 * self.pi * self.C)
-            # 2/N log(2pi)
-            + 0.5 * K.shape[0] * self.log(2 * self.pi)
-            # Half log Cinv
-            - 0.5 * self.logdet(self.inverse_C)
-            # Half log blah
-            # self.solve(self.C, K)
-            - 0.5 * self.logdet(self.solve(K, self.C) + self.eye(K.shape[0]))
-        )
-        return norm
 
     def _weighted_data(self):
         """Return the weighted data component"""
@@ -381,40 +356,28 @@ class TimeDomainLikelihoodModelUncertaintyPyTorch(TimeDomainLikelihoodPyTorch):
             dw = self.weighted_data_CACHE
         return dw
 
-    def _weighted_model(self, mu, K):
-        """Return the inner product of the GPR mean"""
-        factor_K = 1e46# 1./torch.max(K)
-        factor_mu = 1e23#torch.sqrt(factor_K)
-        mu = torch.tensor(mu*factor_mu, device=self.device, dtype=torch.double)
-        return -0.5 * mu @ self.solve(K*factor_K, mu) * (self.dt * self.dt / 4) / 4
-        #return -0.5 * self.einsum('i,ij,j', mu, self.inverse(K*factor_K), mu) * (self.dt * self.dt / 4) / 4
-
-    def _weighted_cross(self, mu, K):
-        factor = 1e23
-        factor_sq = factor**2
-        factor_K = 1./torch.max(K)
-        factor_mu = torch.sqrt(factor_K)
-
-        inverse_K = self.inverse(K)
-        data_like = self.einsum('i,ij', self.data*factor, self.inverse_C/factor_sq)
-        model_like = self.einsum('i,ij', mu*factor, inverse_K/factor_sq)
-
-        residual = (data_like - model_like)
-        weight = (self.inverse_C/factor_sq + inverse_K/factor_sq)
-        
-        return -0.5 * self.einsum('i,ij,j', residual, self.inverse(weight), residual) * (self.dt * self.dt / 4) / 4
-
     def log_likelihood(self, waveform, norm=True):
         waveform_d = torch.tensor(waveform.data, device=self.device, dtype=torch.double)
         waveform_c = torch.tensor(
             waveform.covariance, device=self.device, dtype=torch.double
         )
-        like = self._weighted_cross(waveform_d, waveform_c)
-        A = self._weighted_data()
-        B = self._weighted_model(waveform_d, waveform_c)
-        N = self._normalisation(waveform_c, self.C)
-        #print(like, A, B, N)
-        like = like + A + B
+        K = waveform_c
+        mu = waveform_d
+
+        factor = 1e23
+        factor_sq = factor**2
+        factor_K = 1./torch.max(K)
+        factor_mu = torch.sqrt(factor_K)
+
+        A = self.inverse(self.C + K)
+        sigma = self.C - self.einsum('ij,ij,ij', self.C, A, self.C)
+        B = - (self.solve(self.C*factor_sq, self.data*factor) + self.solve(K*factor_K, mu*factor_mu))
+        
+        N = - (self.N / 2) * self.log(2*self.pi) + 0.5 * self.logdet(sigma) - 0.5*self.logdet(self.C) - 0.5*self.logdet(K)
+        # print(W, A, B, N)
+        like = (self._weighted_data() 
+                - 0.5 * mu @ self.solve(K*factor_K, mu) * (self.dt * self.dt / 4) / 4
+                - 0.5 * self.einsum('i,ij,j', B, sigma, B) * (self.dt * self.dt / 4) / 4)
         if norm:
             like += N
 
