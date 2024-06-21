@@ -1,6 +1,7 @@
 import logging
 
 import numpy as array_library
+import numpy as np
 import torch
 from scipy.interpolate import CubicSpline
 import scipy
@@ -190,14 +191,16 @@ class SEOBNRv3(LALSimulationApproximant):
 class IMRPhenomPv2_FakeUncertainty(IMRPhenomPv2):
     def time_domain(self, parameters, times=None, var=1e-48):
         waveform_dict = super().time_domain(parameters, times)
-        variance = array_library.zeros(len(waveform_dict['plus'].times))
-        variance[0] = var
-        variance[1] = var/10
-        variance[2] = var/100
-        covariance = torch.tensor(
-            scipy.linalg.toeplitz(variance)
-            )
         for wave in waveform_dict.waveforms.values():
             # Artificially add a covariance function to each of these
+            #d = np.array(wave.times)[:,np.newaxis] @ np.array(wave.times)[:,np.newaxis].T
+            # cov = np.cov(np.array(wave.data))
+            variance = array_library.zeros(len(waveform_dict['plus'].times))
+            variance[0] = var
+            variance[1] = var/10
+            variance[2] = var/100
+            covariance = torch.tensor(
+                scipy.linalg.toeplitz(variance)
+            )
             wave.covariance = covariance
         return waveform_dict

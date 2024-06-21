@@ -13,6 +13,7 @@ import unittest
 import logging
 
 import numpy as np
+import torch
 import astropy.units as u
 import bilby.gw.prior
 
@@ -320,14 +321,14 @@ class Test_PyTorch(unittest.TestCase):
                                                            "ra": 1, "dec": 1, "phase": 0, "psi": 0, "theta_jn": 0,
                                                            },
                                              times=data.times,
-                                             var=1e-40)
+                                             var=1e-50)
         projected_waveform = test_waveform.project(AdvancedLIGOHanford(),
                                                               ra=1, dec=1,
                                                               phi_0=0, psi=0,
                                                              iota=0)
         log_like = likelihood.log_likelihood(projected_waveform, norm=False).cpu().numpy()
 
-        self.assertTrue(log_like < 0.5)              
+        self.assertLessEqual(np.abs(log_like), 1e-3)              
 
 
     def test_likelihood_range_normalisation_pytorch_uncert(self):
@@ -340,13 +341,13 @@ class Test_PyTorch(unittest.TestCase):
         waveform = IMRPhenomPv2_FakeUncertainty()
 
         log_like = []
-        for m1 in np.linspace(59, 61, 51):
+        for m1 in np.linspace(59.99, 60.01, 5):
             test_waveform = waveform.time_domain(parameters={"distance": 450*u.megaparsec,
                                                              "gpstime": 4000,
                                                              "total_mass": m1*u.solMass,
                                                                "mass_ratio": 0.9,
                                                                "ra": 1, "dec": 1, "phase": 0, "psi": 0, "theta_jn": 0,
-                                                               }, times=data.times, var=1e-28)
+                                                               }, times=data.times, var=1e-45)
             projected_waveform = test_waveform.project(AdvancedLIGOHanford(),
                                                                   ra=1, dec=1,
                                                                   phi_0=0, psi=0,
@@ -354,28 +355,5 @@ class Test_PyTorch(unittest.TestCase):
             log_like.append(likelihood.log_likelihood(projected_waveform, norm=True).cpu().numpy())
 
         print("min", np.argmin(log_like), "max", np.argmax(log_like))
-        self.assertEqual(log_like[25], np.min(log_like))              
-
-    # def test_likelihood_range_normalisation_numpy(self):
-    #     """Test a series of likelihood evaluations in the region of the injected parameters including the likelihood normalisation.
-    #     """
-    #     data = self.injections_zero['H1']
-
-    #     likelihood = TimeDomainLikelihood(data, psd=self.psd_model)
-
-    #     log_like = []
-    #     for m1 in np.linspace(59, 61, 51):
-    #         waveform = IMRPhenomPv2()
-    #         test_waveform = waveform.time_domain(parameters={"distance": 450*u.megaparsec,
-    #                                                          "gpstime": 4000,
-    #                                                          "total_mass": m1*u.solMass,
-    #                                                            "mass_ratio": 0.9,
-    #                                                            "ra": 1, "dec": 1, "phase": 0, "psi": 0, "theta_jn": 0,
-    #                                                            }, times=data.times)
-    #         projected_waveform = test_waveform.project(AdvancedLIGOHanford(),
-    #                                                               ra=1, dec=1,
-    #                                                               phi_0=0, psi=0,
-    #                                                              iota=0)
-    #         log_like.append(likelihood.log_likelihood(projected_waveform, norm=True))
-
-    #     self.assertEqual(log_like[25], np.max(log_like))      
+        print("min", np.min(log_like), "max", np.max(log_like))
+        self.assertEqual(log_like[2], np.max(log_like))

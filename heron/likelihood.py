@@ -345,12 +345,12 @@ class TimeDomainLikelihoodModelUncertaintyPyTorch(TimeDomainLikelihoodPyTorch):
     def _weighted_data(self):
         """Return the weighted data component"""
         # TODO This can all be pre-computed
-        factor = 1e23
-        factor_sq = factor**2
+        factor = 1#1e23
+        factor_sq = 1#factor**2
 
         if not hasattr(self, "weighted_data_CACHE"):
             dw = self.weighted_data_CACHE = (
-                -0.5 * self.data*factor @ self.solve(self.C*factor_sq, self.data*factor) * (self.dt * self.dt / 4) / 4
+                -0.5 * (self.data*factor) @ self.solve(self.C*factor_sq, self.data*factor) # * (self.dt * self.dt / 4) / 4
             )
         else:
             dw = self.weighted_data_CACHE
@@ -364,20 +364,30 @@ class TimeDomainLikelihoodModelUncertaintyPyTorch(TimeDomainLikelihoodPyTorch):
         K = waveform_c
         mu = waveform_d
 
-        factor = 1e23
-        factor_sq = factor**2
-        factor_K = 1./torch.max(K)
-        factor_mu = torch.sqrt(factor_K)
+        #print(torch.sum(mu.cpu()-self.data.cpu()))
 
-        A = self.inverse(self.C + K)
-        sigma = self.C - self.einsum('ij,ij,ij', self.C, A, self.C)
-        B = - (self.solve(self.C*factor_sq, self.data*factor) + self.solve(K*factor_K, mu*factor_mu))
-        
+        factor = 1/torch.max(K)
+        factor_sq = factor**2
+        factor_sqi = factor**-2
+
+        K = K*factor_sq
+        C = self.C * factor_sq
+        Ci = self.inverse(self.C * factor_sq)
+        Ki = self.inverse(K)
+        A = self.inverse(C + K)
+        mu = mu * factor
+        data = self.data*factor
+
+        sigma = self.inverse(Ki+Ci)*factor_sqi
+        B = (self.einsum("ij,i", Ki, mu) + (self.einsum("ij,i", Ci, data)))*factor
+
         N = - (self.N / 2) * self.log(2*self.pi) + 0.5 * self.logdet(sigma) - 0.5*self.logdet(self.C) - 0.5*self.logdet(K)
-        # print(W, A, B, N)
-        like = (self._weighted_data() 
-                - 0.5 * mu @ self.solve(K*factor_K, mu) * (self.dt * self.dt / 4) / 4
-                - 0.5 * self.einsum('i,ij,j', B, sigma, B) * (self.dt * self.dt / 4) / 4)
+
+        data_like = (self._weighted_data())
+        model_like = -0.5 * self.einsum("i,ij,j", mu, Ki, mu)
+        shift = + 0.5 * self.einsum('i,ij,j', B, sigma, B) #* ((self.dt) / 4)
+        like = data_like + model_like + shift
+
         if norm:
             like += N
 
