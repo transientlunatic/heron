@@ -66,7 +66,7 @@ class TimeDomainLikelihood(Likelihood):
         )
         self.N = len(self.times)
         self.C = self.psd.covariance_matrix(times=self.times)
-        self.normalisation = - (self.N/2) * self.log(2*self.pi) - 0.5 * self.logdet(self.C*1e30) - self.log(1e30)
+        self.normalisation = - (self.N/2) * (self.log(2*self.pi) + self.logdet(self.C*1e30) - self.log(1e30))
         self.logger.info(f"Normalisation: {self.normalisation}")
         self.inverse_C = np.linalg.inv(self.C)
 
