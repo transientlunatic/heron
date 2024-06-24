@@ -341,7 +341,7 @@ class Test_PyTorch(unittest.TestCase):
         waveform = IMRPhenomPv2_FakeUncertainty()
 
         log_like = []
-        for m1 in np.linspace(59.99, 60.01, 5):
+        for m1 in np.linspace(59.9, 60.1, 5):
             test_waveform = waveform.time_domain(parameters={"distance": 450*u.megaparsec,
                                                              "gpstime": 4000,
                                                              "total_mass": m1*u.solMass,
@@ -354,6 +354,4 @@ class Test_PyTorch(unittest.TestCase):
                                                                  iota=0)
             log_like.append(likelihood.log_likelihood(projected_waveform, norm=True).cpu().numpy())
 
-        print("min", np.argmin(log_like), "max", np.argmax(log_like))
-        print("min", np.min(log_like), "max", np.max(log_like))
         self.assertEqual(log_like[2], np.max(log_like))

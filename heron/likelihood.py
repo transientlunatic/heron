@@ -291,8 +291,7 @@ class TimeDomainLikelihoodPyTorch(LikelihoodPyTorch):
         Calculate the signal to noise ratio for a given waveform.
         """
         dt = (self.times[1] - self.times[0]).value
-        N = len(self.times)
-        self.logger.info(f"Contains {N} points with dt {dt}.")
+        self.logger.info(f"Contains {self.N} points with dt {dt}.")
         waveform_d = torch.tensor(waveform.data, device=self.device, dtype=torch.double)
         h_h = (waveform_d @ self.solve(self.C, waveform_d)) * (dt / 4)
         return 2*torch.sqrt(torch.abs(h_h))
@@ -313,7 +312,7 @@ class TimeDomainLikelihoodPyTorch(LikelihoodPyTorch):
         weighted_residual = (
             (residual) @ self.solve(self.C, residual) * (self.dt * self.dt / 4) / 4
         )
-        normalisation = self.logdet(2 * np.pi * self.C)
+        normalisation = self.logdet(2 * np.pi * self.C) * self.N
         #print("normalisation", normalisation)
         like = -0.5 * weighted_residual
         if norm:
