@@ -66,11 +66,14 @@ class TimeDomainLikelihood(Likelihood):
         )
         self.N = len(self.times)
         self.C = self.psd.covariance_matrix(times=self.times)
-        self.normalisation = - (self.N/2) * (self.log(2*self.pi) + self.logdet(self.C*1e30) - self.log(1e30))
+        
+        self.dt = self.abs((self.times[1] - self.times[0]).value)
+        
+        self.normalisation = - (self.N/2) * self.log(2*self.pi) + (self.logdet(self.C*1e30) - self.log(1e30)) *self.dt
+        #* (self.dt * self.dt / 4) / 4
         self.logger.info(f"Normalisation: {self.normalisation}")
         self.inverse_C = np.linalg.inv(self.C)
 
-        self.dt = self.abs((self.times[1] - self.times[0]).value)
         self.N = len(self.times)
 
         if waveform is not None:
@@ -88,19 +91,16 @@ class TimeDomainLikelihood(Likelihood):
         """
         Calculate the signal to noise ratio for a given waveform.
         """
-        dt = (self.times[1] - self.times[0]).value
         factor = 1e30
         N = len(self.times)
         h_h = (
-            (np.array(waveform.data).T*factor @ self.solve(self.C*factor**2, np.array(waveform.data)*factor))
-            * (dt * dt / 4)
-            / 4
+            (np.array(waveform.data).T*factor @ self.solve(self.C*factor**2, np.array(waveform.data)*factor)) * self.dt
         )
         return np.sqrt(np.abs(h_h))
 
     def snr_f(self, waveform):
-        dt = (self.data.times[1] - self.data.times[0]).value
-        T = (self.data.times[-1] - self.data.times[0]).value
+        dt = (self.times[1] - self.times[0]).value
+        T = (self.times[-1] - self.times[0]).value
         wf = np.fft.rfft(waveform.data * dt)
         S = self.psd.frequency_domain(frequencies=np.arange(0, 0.5/dt, 1/T))
         A = (4 *  (wf.conj()*wf)[:-1] / S.value[:-1] / T)
@@ -123,13 +123,12 @@ class TimeDomainLikelihood(Likelihood):
         factor = 1e30
         assert(np.all(self.times == waveform.times))
         residual = (self.data * factor) - (np.array(waveform.data) * factor)
-        #weighted_residual = (residual.T @ self.inverse(self.C) @ residual) * (self.dt * self.dt / 4) / 4
-        weighted_residual = self.einsum('i,ij,j', residual, self.inverse(self.C*factor**2), residual) * (self.dt * self.dt / 4) / 4
+        weighted_residual = (residual.T @ self.inverse(self.C*factor**2) @ residual) * (self.dt)
         # why is this negative using Toeplitz?
         self.logger.info(f"residual: {residual}; chisq: {weighted_residual}")
         out = - 0.5 * weighted_residual
         if norm:
-            out += 0.5 * self.normalisation
+            out += self.normalisation
         return out
 
     def __call__(self, parameters):
@@ -156,48 +155,51 @@ class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
     def __init__(self, data, psd, waveform=None, detector=None):
         super().__init__(data, psd, waveform, detector)
 
-    def _normalisation(self, K, S):
-        norm = (
-            -1.5 * K.shape[0] * self.log(2 * self.pi)
-            - 0.5 * self.logdet(2*self.pi*self.inverse(K))
-            - 0.5 * self.logdet(2*self.pi*self.inverse_C)
-            - 0.5 * self.logdet(self.inverse_C)
-            - 0.5 * self.logdet(self.solve(self.C, K) + self.eye(K.shape[0]))
-        )
-        return norm
-
     def _weighted_data(self):
         """Return the weighted data component"""
         # TODO This can all be pre-computed
+        factor = 1e23
+        factor_sq = factor**2
+
         if not hasattr(self, "weighted_data_CACHE"):
-            self.logger.info(f"Data max/min: {np.min(self.data)}/{np.max(self.data)}")
-            self.logger.info(f"C max/min: {np.min(self.C)}/{np.max(self.C)}")
             dw = self.weighted_data_CACHE = (
-                -0.5 * self.data.T @ self.solve(self.C, self.data)
+                -0.5 * (self.data*factor) @ self.solve(self.C*factor_sq, self.data*factor)
             )
         else:
             dw = self.weighted_data_CACHE
         return dw
 
-    def _weighted_model(self, mu, K):
-        """Return the inner product of the GPR mean"""
-        return -0.5 * np.array(mu).T @ self.solve(K, mu)
-
-    def _weighted_cross(self, mu, K):
-        a = self.solve(self.C, self.data) - self.solve(K, mu)
-        b = self.inverse_C + self.inverse(K)
-        return - 0.5 * a.T @ self.solve(b, a)
-
     def log_likelihood(self, waveform, norm=True):
-        W = self._weighted_cross(waveform.data, waveform.covariance)
-        A = self._weighted_data()
-        B = self._weighted_model(waveform.data, waveform.covariance)
-        N = self._normalisation(waveform.covariance, self.C)
-        like = W + A + B
+
+        waveform_d = np.array(waveform.data)
+        waveform_c = np.array(waveform.covariance)
+        K = waveform_c
+        mu = waveform_d
+        factor = 1/np.max(K)
+        factor_sq = factor**2
+        factor_sqi = factor**-2
+
+        K = K*factor_sq
+        C = self.C * factor_sq
+        Ci = self.inverse(self.C * factor_sq)
+        Ki = self.inverse(K)
+        A = self.inverse(C + K)
+        mu = mu * factor
+        data = self.data*factor
+
+        sigma = self.inverse(Ki+Ci)*factor_sqi
+        B = (self.einsum("ij,i", Ki, mu) + (self.einsum("ij,i", Ci, data)))*factor
+
+        N = - (self.N / 2) * self.log(2*self.pi) +  0.5 * (self.logdet(sigma) - self.logdet(self.C) - self.logdet(K) - 3 * self.log(factor_sq)) * self.dt
+
+        data_like = (self._weighted_data())
+        model_like = -0.5 * self.einsum("i,ij,j", mu, Ki, mu)
+        shift = + 0.5 * self.einsum('i,ij,j', B, sigma, B) #* ((self.dt) / 4)
+        like = data_like + model_like + shift
+
         if norm:
             like += N
-        self.logger.info(f"Likelihood components: {W}, {A}, {B}, {N}")
-        return like#, W, A, B, N
+        return like
 
 
 class MultiDetector:
@@ -379,9 +381,8 @@ class TimeDomainLikelihoodModelUncertaintyPyTorch(TimeDomainLikelihoodPyTorch):
 
         sigma = self.inverse(Ki+Ci)*factor_sqi
         B = (self.einsum("ij,i", Ki, mu) + (self.einsum("ij,i", Ci, data)))*factor
-
-        N = - (self.N / 2) * self.log(2*self.pi) + 0.5 * self.logdet(sigma) - 0.5*self.logdet(self.C) - 0.5*self.logdet(K)
-
+        N = - (self.N / 2) * self.log(2*self.pi) +  0.5 * (self.logdet(sigma) - self.logdet(self.C) - self.logdet(K) - 3 * self.log(factor_sq)) * self.dt
+        
         data_like = (self._weighted_data())
         model_like = -0.5 * self.einsum("i,ij,j", mu, Ki, mu)
         shift = + 0.5 * self.einsum('i,ij,j', B, sigma, B) #* ((self.dt) / 4)
