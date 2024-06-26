@@ -144,7 +144,7 @@ def heron_inference(settings):
             logging_interval=settings.get("sampler", {}).get("logging interval", 10),
             log_on_iteration=settings.get("sampler", {}).get("log on iteration", True),
             seed=settings.get("sampler", {}).get("seed", 1234),
-            flow_class="GWFlowProposal",
+            flow_class=settings.get("sampler", {}).get("flow class", "GWFlowProposal"),
             signal_handling=True,
         )
 

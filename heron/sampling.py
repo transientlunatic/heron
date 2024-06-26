@@ -82,9 +82,7 @@ class NessaiSampler(SamplerBase, nessai.model.Model):
         return lnp
 
     def log_likelihood(self, x):
-        # Convert everything into python scalars
-        print(type(x))
-        
+        # Convert everything into python scalars        
         if isinstance(x, np.ndarray):
             x = x[0]
         with torch.inference_mode():
