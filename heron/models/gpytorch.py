@@ -183,10 +183,10 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
             parameters.pop("time")
         else:
             times = times / mass_factor
-
+        N = len(times)
         points = torch.vstack(
             [
-                torch.ones(t["number"], dtype=torch.float32,
+                torch.ones(N, dtype=torch.float32,
                            ) * a,
                 times
             ]
