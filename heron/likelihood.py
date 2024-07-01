@@ -152,7 +152,7 @@ class TimeDomainLikelihood(Likelihood):
 
 class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
 
-    def __init__(self, data, psd, waveform=None, detector=None):
+    def __init__(self, data, psd, waveform=None, detector=None, fixed_parameters=None):
         super().__init__(data, psd, waveform, detector)
 
     def _weighted_data(self):
@@ -340,7 +340,7 @@ class TimeDomainLikelihoodPyTorch(LikelihoodPyTorch):
 
 class TimeDomainLikelihoodModelUncertaintyPyTorch(TimeDomainLikelihoodPyTorch):
 
-    def __init__(self, data, psd, waveform=None, detector=None):
+    def __init__(self, data, psd, waveform=None, detector=None, fixed_parameters=None):
         super().__init__(data, psd, waveform, detector)
 
     def _weighted_data(self):
