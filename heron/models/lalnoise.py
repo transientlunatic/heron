@@ -97,14 +97,14 @@ class LALSimulationPSD(PSDApproximant):
 
         psd = self.frequency_domain(frequencies=frequencies)
 
-        S = 0.5 * np.sqrt(psd.value * T)  # np.sqrt(N * N / 4 / (T) * psd.value)
+        S = 0.5 * np.sqrt(psd.value / df) #* T inside sqrt # np.sqrt(N * N / 4 / (T) * psd.value)
 
         noise_r = S * (reals)
         noise_i = S * (imags)
 
         noise_f = noise_r + 1j * noise_i
 
-        return TimeSeries(data=np.fft.irfft(noise_f, n=(N)), times=times)
+        return TimeSeries(data=np.fft.irfft(noise_f, n=(N))*df*N, times=times)
 
 
 class AdvancedLIGODesignSensitivity2018(LALSimulationPSD):
