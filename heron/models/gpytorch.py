@@ -117,6 +117,13 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
         for polarisation in ("plus", "cross"):
             self.models[polarisation].likelihood.cuda()
 
+        self._args = {"total_mass": None,
+                      "mass_ratio": None,
+                      "luminosity_distance": None,
+                      "inclination": None,
+                      }
+                      
+            
         self.train(training)
 
     def _make_evaluation_manifold(
