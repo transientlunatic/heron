@@ -14,7 +14,11 @@ from nessai.flowsampler import FlowSampler
 from heron.detector import KNOWN_IFOS
 from heron.models.lalnoise import KNOWN_PSDS
 from heron.models.gpytorch import HeronNonSpinningApproximant
-from heron.likelihood import TimeDomainLikelihood, MultiDetector
+from heron.likelihood import (TimeDomainLikelihood,
+                              MultiDetector,
+                              TimeDomainLikelihoodPyTorch,
+                              TimeDomainLikelihoodModelUncertaintyPyTorch,
+                              TimeDomainLikelihoodModelUncertainty)
 import heron.priors
 
 from heron.sampling import NessaiSampler
@@ -31,6 +35,9 @@ logger = logging.getLogger("heron.inference")
 
 KNOWN_LIKELIHOODS = {
     "TimeDomainLikelihood": TimeDomainLikelihood,
+    "TimeDomainLikelihoodPyTorch": TimeDomainLikelihoodPyTorch,
+    "TimeDomainLikelihoodModelUncertainty": TimeDomainLikelihoodModelUncertainty,
+    "TimedomainLikelihoodModelUncertaintyPyTorch": TimeDomainLikelihoodModelUncertaintyPyTorch
 }
 KNOWN_WAVEFORMS = {
     "IMRPhenomPv2": IMRPhenomPv2,
