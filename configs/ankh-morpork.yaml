@@ -1,0 +1,113 @@
+logging: 
+  level: debug
+
+injection:
+  parameters:
+    luminosity_distance: 1000
+    m1: 35
+    m2: 30
+  waveform: IMRPhenomPv2
+  interferometers:
+    H1: AdvancedLIGOHanford
+    L1: AdvancedLIGOLivingston
+  psds:
+    H1: AdvancedLIGO
+    L1: AdvancedLIGO
+  
+inference: 
+    name: ankh-morpork
+
+    data:
+      data files:
+        H1: H1_injection.gwf
+        L1: L1_injection.gwf
+      channels:
+        H1: H1:Injection
+        L1: L1:Injection
+      
+    
+    waveform:
+      model: IMRPhenomPv2
+    interferometers:
+      H1: AdvancedLIGOHanford
+      L1: AdvancedLIGOLivingston
+    psds:
+      H1: AdvancedLIGO
+      L1: AdvancedLIGO
+
+    fixed_parameters: {}
+      # ra: 1
+      # dec: 0
+      # psi: 0
+      # phase: 0
+      # theta_jn: 0
+        
+    priors:
+        gpstime:
+          name: gpstime
+          function: Uniform
+          minimum: 3999.9
+          maximum: 4000.1
+          boundary: null
+      
+        luminosity_distance:
+          function: UniformSourceFrame
+          name: luminosity_distance
+          minimum: !!float 1.0e2
+          maximum: !!float 2.0e3
+
+        mass_ratio:
+          function: UniformInComponentsMassRatio
+          name: mass_ratio
+          minimum: 0.125
+          maximum: 1
+
+        total_mass:
+          name: total_mass
+          function: Uniform
+          minimum: 50
+          maximum: 120
+
+        theta_jn:
+          name: theta_jn
+          function: Sine
+          minimum: 0
+          maximum: 3.141592653589793
+
+        ra:
+          name: ra
+          function: Uniform
+          minimum: 0
+          maximum: 6.283185307179586
+          boundary: periodic
+
+        dec:
+          name: dec
+          minimum: -1.5707963267948966 
+          maximum: 1.5707963267948966
+          function: Cosine
+
+        psi:
+          name: psi
+          function: Uniform
+          minimum: 0
+          maximum: 3.141592653589793
+          boundary: periodic
+
+        phase:
+          name: phase
+          function: Uniform
+          minimum: 0
+          maximum: 3.141592653589793
+          boundary: periodic
+
+
+    likelihood:
+        function: TimeDomainLikelihood
+        timing basis: [H1, L1]
+
+    sampler:
+      sampler: nessai
+      live points:  1000
+      maximum uninformed:  2000
+      flow class: FlowProposal
