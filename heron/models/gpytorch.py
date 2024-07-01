@@ -163,7 +163,7 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
 
         return outputs
 
-    def time_domain(self, parameters):
+    def time_domain(self, parameters, times=None):
         """
         Return a timedomain waveform.
         """
@@ -175,14 +175,19 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
         
         distance = parameters.get("luminosity_distance", self.distance_factor)
         distance_factor = distance / self.distance_factor
-        
+
+        if times is not None:
+            times = torch.linspace(
+                        t["lower"], t["upper"], t["number"], dtype=torch.float32,
+                    ) / mass_factor
+        else:
+            times = times / mass_factor
+
         points = torch.vstack(
             [
                 torch.ones(t["number"], dtype=torch.float32,
                            ) * a,
-                torch.linspace(
-                    t["lower"], t["upper"], t["number"], dtype=torch.float32,
-                ) / mass_factor,
+                times
             ]
         ).T.to(device=self.device)
         # Warp the time axis
