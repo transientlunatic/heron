@@ -73,7 +73,7 @@ def init_heron():
     return model
 
 KNOWN_WAVEFORMS = {
-    "IMRPhenomPv2": IMRPhenomPv2,
+    "IMRPhenomPv2": IMRPhenomPv2(),
     "Heron": init_heron,
 }
 
@@ -144,7 +144,7 @@ def heron_inference(settings):
     # Make Likelihood
     if len(settings["interferometers"]) > 1:
         likelihoods = []
-        waveform_model = KNOWN_WAVEFORMS[settings["waveform"]["model"]]()
+        waveform_model = KNOWN_WAVEFORMS[settings["waveform"]["model"]]
         for ifo in settings["interferometers"]:
             likelihoods.append(
                 KNOWN_LIKELIHOODS[settings.get("likelihood").get("function")](
