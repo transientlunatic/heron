@@ -168,6 +168,7 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
         Return a timedomain waveform.
         """
         a = parameters["mass_ratio"]
+        epoch = parameters["gpstime"]
 
         total_mass = parameters.get("total_mass", self.mass_factor)
         mass_factor = (total_mass / self.mass_factor).value
@@ -182,7 +183,7 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
                     ) / mass_factor
             parameters.pop("time")
         else:
-            times = times / mass_factor
+            times = torch.tensor(times.value / mass_factor)
         N = len(times)
         points = torch.vstack(
             [
@@ -205,7 +206,7 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
 
             output.waveforms[polarisation] = Waveform(
                 data=mean.cpu()/self.output_scale/distance_factor,
-                times=points[:, 1].cpu() * mass_factor,
+                times=epoch + (points[:, 1].cpu() * mass_factor),
                 covariance=observed_pred.covariance_matrix/self.output_scale/self.output_scale/distance_factor**2,
             )
 
