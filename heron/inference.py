@@ -49,6 +49,7 @@ def init_heron():
         warp_factor=3,
         varied={"mass_ratio": dict(lower=0.1, upper=1, step=0.05)},
         fixed={"total_mass": 60*u.solMass,
+               "gpstime": 0,
                "f_min": 10*u.Hertz,
                "delta T": 1/(1024*u.Hertz)})
 
