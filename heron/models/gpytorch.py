@@ -175,7 +175,7 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
         distance = parameters.get("luminosity_distance", self.distance_factor)
         distance_factor = distance / self.distance_factor
 
-        if times is not None:
+        if times is None:
             t = parameters["time"]
             times = torch.linspace(
                         t["lower"], t["upper"], t["number"], dtype=torch.float32,
