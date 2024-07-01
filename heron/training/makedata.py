@@ -52,7 +52,8 @@ def make_optimal_manifold(approximant=IMRPhenomPv2, fixed={}, varied={}, warp_fa
         manifold_plus = WaveformManifold()
         manifold_cross = WaveformManifold()
         for x in xaxis:
-            waveform = approximant.time_domain({parameter: x * kwargs.get("unit", 1)})
+            waveform = approximant.time_domain({parameter: x * kwargs.get("unit", 1),
+                                                "gpstime": 0})
             peaks, _ = scipy.signal.find_peaks(waveform["plus"].value ** 2)
             peaks_interp = np.interp(
                 np.arange(warp_factor*len(peaks)),
