@@ -69,7 +69,7 @@ def init_heron():
                                         total_mass=(60*u.solMass),
                                         distance=(1*u.Mpc).to(u.meter).value,
                                         warp_scale=2,
-                                        training=200,
+                                        training=1000,
                                         )
     return model
 
