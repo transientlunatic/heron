@@ -208,7 +208,7 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
             output.waveforms[polarisation] = Waveform(
                 data=mean.cpu()/self.output_scale/distance_factor,
                 times=times,
-                covariance=observed_pred.covariance_matrix/self.output_scale/self.output_scale/distance_factor**2,
+                covariance=observed_pred.covariance_matrix.cpu()/self.output_scale/self.output_scale/distance_factor**2,
             )
 
         return output
