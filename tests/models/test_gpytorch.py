@@ -69,6 +69,7 @@ class TestGPyTorchFundamentals(unittest.TestCase):
     def test_evaluation(self):
         wf = self.model.time_domain(parameters={
             "mass_ratio": 1.0,
+            "gpstime": 4000,
             "time": {"lower": -0.1, "upper": 0.05, "number": 350}
         })
         f = wf['plus'].plot()
@@ -83,27 +84,32 @@ class TestGPyTorchFundamentals(unittest.TestCase):
             parameters = {
                 "mass_ratio": mass_ratio,
                 "total_mass": 60*u.solMass,
+                "gpstime": 4000,
                 "time": {"lower": -0.1, "upper": 0.05, "number": 350}
                 }
-
-            wf_gp = self.model.time_domain(parameters=parameters.copy())["plus"]
-            wf_ap = IMRPhenomPv2().time_domain(parameters=parameters.copy())["plus"]
+            times = (4000 + torch.linspace(-0.1, 0.05, 350, dtype=torch.float64)) * u.second
+            wf_gp = self.model.time_domain(parameters=parameters.copy(), times=times)["plus"]
+            wf_ap = IMRPhenomPv2().time_domain(parameters=parameters.copy(), times=times)["plus"]
             overlaps[mass_ratio] = overlap(wf_gp, wf_ap)
+
         self.assertTrue(np.sum(np.array(list(overlaps.values())) > 0.8) > 10)
 
     def test_overlaps_aligo(self):
         """Test overlaps between the IMRPhenomPv2 model and the heron mode trained from it."""
         overlap = Overlap(psd=AdvancedLIGO())
         overlaps = {}
+        times = (torch.linspace(-0.1, 0.05, 350, dtype=torch.float64)) * u.second
         for mass_ratio in np.linspace(0.1, 1.0, 20):
             parameters = {
                 "mass_ratio": mass_ratio,
                 "total_mass": 60*u.solMass,
+                "gpstime": 4000,
                 "distance": 4*u.megaparsec,
                 "time": {"lower": -0.1, "upper": 0.05, "number": 350}
                 }
 
-            wf_gp = self.model.time_domain(parameters=parameters.copy())["plus"]
-            wf_ap = IMRPhenomPv2().time_domain(parameters=parameters.copy())["plus"]
+            wf_gp = self.model.time_domain(parameters=parameters.copy(), times=times)["plus"]
+            wf_ap = IMRPhenomPv2().time_domain(parameters=parameters.copy(), times=times)["plus"]
             overlaps[mass_ratio] = overlap(wf_gp, wf_ap)
+            print(list(overlaps.values()))
         self.assertTrue(np.all(np.array(list(overlaps.values())) > 0.99))

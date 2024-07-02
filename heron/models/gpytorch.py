@@ -169,7 +169,7 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
         """
         a = parameters["mass_ratio"]
         epoch = parameters["gpstime"]
-
+        
         total_mass = parameters.get("total_mass", self.mass_factor)
         mass_factor = (total_mass / self.mass_factor).value
         
@@ -181,15 +181,17 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
             times = torch.linspace(
                         t["lower"], t["upper"], t["number"], dtype=torch.float32,
                     ) / mass_factor
+            times_i = times
             parameters.pop("time")
         else:
-            times = torch.tensor(times.value / mass_factor)
+            times_i = (torch.tensor(times.value, dtype=torch.float32)/mass_factor)-epoch
+        
         N = len(times)
         points = torch.vstack(
             [
                 torch.ones(N, dtype=torch.float32,
                            ) * a,
-                times
+                times_i
             ]
         ).T.to(device=self.device)
         # Warp the time axis
@@ -202,11 +204,10 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
                 observed_pred = self.models[polarisation].likelihood(self.models[polarisation](points))
                 mean = observed_pred.mean
             # Perform the unwarping of the time axis
-            points[points[:, 1] < 0, 1] = points[points[:, 1] < 0, 1] * self.warp_scale
-
+            #points[points[:, 1] < 0, 1] = points[points[:, 1] < 0, 1] * self.warp_scale
             output.waveforms[polarisation] = Waveform(
                 data=mean.cpu()/self.output_scale/distance_factor,
-                times=epoch + (points[:, 1].cpu() * mass_factor),
+                times=times,
                 covariance=observed_pred.covariance_matrix/self.output_scale/self.output_scale/distance_factor**2,
             )
 
