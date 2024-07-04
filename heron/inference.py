@@ -75,7 +75,7 @@ def init_heron():
 
 KNOWN_WAVEFORMS = {
     "IMRPhenomPv2": IMRPhenomPv2(),
-    "Heron": init_heron(),
+    #"Heron": init_heron(),
 }
 
 
