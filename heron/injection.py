@@ -47,13 +47,14 @@ def make_injection(
         psd_model = KNOWN_PSDS[psd_model]()
         data = psd_model.time_series(times)
 
-        # import matplotlib
-        # matplotlib.use("agg")
-        # from gwpy.plot import Plot
-        # f = Plot(data, waveform.project(detector), data+waveform.project(detector), separate=False)
-        # f.savefig(f"{detector.abbreviation}_injected_waveform.png")
-
+        import matplotlib
+        matplotlib.use("agg")
+        from gwpy.plot import Plot
         injection = data + waveform.project(detector)
+        f = Plot(data, waveform.project(detector), injection, separate=True)
+        f.savefig(f"{detector.abbreviation}_injected_waveform.png")
+
+
         injection.channel = channel
         injections[detector.abbreviation] = injection
         likelihood = TimeDomainLikelihood(injection, psd=psd_model)

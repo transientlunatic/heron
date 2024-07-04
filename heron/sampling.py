@@ -90,6 +90,8 @@ class NessaiSampler(SamplerBase, nessai.model.Model):
             print("base p", self.base_p, dict(zip(self.names, x)))
             self.base_p = self._convert_units(self.base_p)
 
-            likelihood = self.likelihood(self.base_p).cpu().numpy()
+            likelihood = self.likelihood(self.base_p)
+            if isinstance (likelihood, torch.Tensor):
+                likelihood = likelihood.cpu().numpy()
 
             return likelihood
