@@ -137,7 +137,7 @@ class TimeDomainLikelihood(Likelihood):
 
         keys = set(parameters.keys())
         extrinsic = {"phase", "psi", "ra", "dec", "theta_jn", "zenith", "azimuth", "gpstime"}
-        conversions = {"mass_ratio", "total_mass", "luminosity_distance"}
+        conversions = {"geocent_time", "mass_ratio", "total_mass", "luminosity_distance"}
         bad_keys = keys - set(self.waveform._args.keys()) - extrinsic - conversions
         if len(bad_keys) > 0:
             print("The following keys were not recognised", bad_keys)

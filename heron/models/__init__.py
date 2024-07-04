@@ -16,6 +16,9 @@ class WaveformModel:
         if "luminosity_distance" in args:
             args = self._convert_luminosity_distance(args)
 
+        if "geocent_time" in args:
+            args['gpstime'] = args.pop("geocent_time")
+            
         return args
 
     def _convert_luminosity_distance(self, args):
