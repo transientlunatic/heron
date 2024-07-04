@@ -94,8 +94,8 @@ class LALSimulationPSD(PSDApproximant):
         frequencies = torch.arange(len(times) // 2 + 1) * df
         reals = np.random.randn(len(frequencies))
         imags = np.random.randn(len(frequencies))
-
-        psd = self.frequency_domain(frequencies=frequencies)
+        psd = np.array(self.frequency_domain(df=df, frequencies=frequencies).data)
+        psd[-1] = psd[-2]
 
         S = 0.5 * np.sqrt(psd.value / df) #* T inside sqrt # np.sqrt(N * N / 4 / (T) * psd.value)
 

@@ -117,6 +117,13 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
         for polarisation in ("plus", "cross"):
             self.models[polarisation].likelihood.cuda()
 
+        self._args = {"total_mass": None,
+                      "mass_ratio": None,
+                      "luminosity_distance": None,
+                      "inclination": None,
+                      }
+                      
+            
         self.train(training)
 
     def _make_evaluation_manifold(
@@ -156,45 +163,52 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
 
         return outputs
 
-    def time_domain(self, parameters):
+    def time_domain(self, parameters, times=None):
         """
         Return a timedomain waveform.
         """
         a = parameters["mass_ratio"]
-        t = parameters["time"]
-
+        epoch = parameters["gpstime"]
+        
         total_mass = parameters.get("total_mass", self.mass_factor)
         mass_factor = (total_mass / self.mass_factor).value
         
         distance = parameters.get("luminosity_distance", self.distance_factor)
         distance_factor = distance / self.distance_factor
+
+        if times is None:
+            t = parameters["time"]
+            times = torch.linspace(
+                        t["lower"], t["upper"], t["number"], dtype=torch.float32,
+                    ) / mass_factor
+            times_i = times
+            parameters.pop("time")
+        else:
+            times_i = (torch.tensor(times.value, dtype=torch.float32)/mass_factor)-epoch
         
+        N = len(times)
         points = torch.vstack(
             [
-                torch.ones(t["number"], dtype=torch.float32,
+                torch.ones(N, dtype=torch.float32,
                            ) * a,
-                torch.linspace(
-                    t["lower"], t["upper"], t["number"], dtype=torch.float32,
-                ) / mass_factor,
+                times_i
             ]
         ).T.to(device=self.device)
         # Warp the time axis
         points[points[:, 1] < 0, 1] = points[points[:, 1] < 0, 1] / self.warp_scale
         # Extract the waveform
 
-        parameters.pop("time")
         output = WaveformDict(parameters=parameters)
         for polarisation in ("plus", "cross"):
             with torch.no_grad(), gpytorch.settings.fast_pred_var():
                 observed_pred = self.models[polarisation].likelihood(self.models[polarisation](points))
                 mean = observed_pred.mean
             # Perform the unwarping of the time axis
-            points[points[:, 1] < 0, 1] = points[points[:, 1] < 0, 1] * self.warp_scale
-
+            #points[points[:, 1] < 0, 1] = points[points[:, 1] < 0, 1] * self.warp_scale
             output.waveforms[polarisation] = Waveform(
                 data=mean.cpu()/self.output_scale/distance_factor,
-                times=points[:, 1].cpu() * mass_factor,
-                covariance=observed_pred.covariance_matrix/self.output_scale/self.output_scale/distance_factor**2,
+                times=times,
+                covariance=observed_pred.covariance_matrix.cpu()/self.output_scale/self.output_scale/distance_factor**2,
             )
 
         return output

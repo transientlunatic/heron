@@ -29,7 +29,7 @@ def make_manifold(approximant=IMRPhenomPv2, fixed={}, varied={}):
         manifold = WaveformManifold()
         for x in xaxis:
             manifold.add_waveform(
-                approximant.time_domain({parameter: x * kwargs.get("unit", 1)})
+                approximant.time_domain({parameter: x * kwargs.get("unit", 1), "gpstime": 0})
             )
     return manifold
 
@@ -52,14 +52,17 @@ def make_optimal_manifold(approximant=IMRPhenomPv2, fixed={}, varied={}, warp_fa
         manifold_plus = WaveformManifold()
         manifold_cross = WaveformManifold()
         for x in xaxis:
-            waveform = approximant.time_domain({parameter: x * kwargs.get("unit", 1)})
+            waveform = approximant.time_domain({parameter: x * kwargs.get("unit", 1),
+                                                "gpstime": 0})
             peaks, _ = scipy.signal.find_peaks(waveform["plus"].value ** 2)
             peaks_interp = np.interp(
-                np.arange(warp_factor*len(peaks)),
+                np.arange(warp_factor*len(peaks))/warp_factor,
                 np.arange(len(peaks)),
                 peaks)
+            peaks_interp = np.unique(peaks_interp).astype(int)
+            # print("peaks", len(peaks), "new points", len(peaks_interp)) 
             new_waveform = Waveform(
-                data=waveform["plus"][peaks], times=waveform["plus"].times[peaks]
+                data=waveform["plus"][peaks_interp], times=waveform["plus"].times[peaks_interp]
             )
             manifold_plus.add_waveform(
                 WaveformDict(plus=new_waveform, parameters=waveform.parameters)
@@ -67,12 +70,12 @@ def make_optimal_manifold(approximant=IMRPhenomPv2, fixed={}, varied={}, warp_fa
 
             peaks, _ = scipy.signal.find_peaks(waveform["cross"].value ** 2)
             peaks_interp = np.interp(
-                np.arange(warp_factor*len(peaks)),
+                np.arange(warp_factor*len(peaks))/warp_factor,
                 np.arange(len(peaks)),
                 peaks)
-
+            peaks_interp = np.unique(peaks_interp).astype(int)
             new_waveform = Waveform(
-                data=waveform["cross"][peaks], times=waveform["cross"].times[peaks]
+                data=waveform["cross"][peaks_interp], times=waveform["cross"].times[peaks_interp]
             )
             manifold_cross.add_waveform(
                 WaveformDict(cross=new_waveform, parameters=waveform.parameters)

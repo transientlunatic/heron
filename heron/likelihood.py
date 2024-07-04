@@ -66,7 +66,8 @@ class TimeDomainLikelihood(Likelihood):
         )
         self.N = len(self.times)
         self.C = self.psd.covariance_matrix(times=self.times)
-        
+        factor = 1e30
+        self.inverse_C = self.inverse(self.C*factor**2)
         self.dt = self.abs((self.times[1] - self.times[0]).value)
         
         self.normalisation = - (self.N/2) * self.log(2*self.pi) + (self.logdet(self.C*1e30) - self.log(1e30)) *self.dt
@@ -123,7 +124,7 @@ class TimeDomainLikelihood(Likelihood):
         factor = 1e30
         assert(np.all(self.times == waveform.times))
         residual = (self.data * factor) - (np.array(waveform.data) * factor)
-        weighted_residual = (residual.T @ self.inverse(self.C*factor**2) @ residual) * (self.dt)
+        weighted_residual = (residual.T @ self.inverse_C @ residual) * (self.dt)
         # why is this negative using Toeplitz?
         self.logger.info(f"residual: {residual}; chisq: {weighted_residual}")
         out = - 0.5 * weighted_residual
@@ -152,8 +153,8 @@ class TimeDomainLikelihood(Likelihood):
 
 class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
 
-    def __init__(self, data, psd, waveform=None, detector=None):
-        super().__init__(data, psd, waveform, detector)
+    def __init__(self, data, psd, waveform=None, detector=None, fixed_parameters=None, timing_basis=None):
+        super().__init__(data, psd, waveform, detector, fixed_parameters, timing_basis)
 
     def _weighted_data(self):
         """Return the weighted data component"""
@@ -340,8 +341,8 @@ class TimeDomainLikelihoodPyTorch(LikelihoodPyTorch):
 
 class TimeDomainLikelihoodModelUncertaintyPyTorch(TimeDomainLikelihoodPyTorch):
 
-    def __init__(self, data, psd, waveform=None, detector=None):
-        super().__init__(data, psd, waveform, detector)
+    def __init__(self, data, psd, waveform=None, detector=None, fixed_parameters=None, timing_basis=None):
+        super().__init__(data, psd, waveform, detector, fixed_parameters, timing_basis)
 
     def _weighted_data(self):
         """Return the weighted data component"""

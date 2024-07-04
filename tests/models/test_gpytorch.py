@@ -19,13 +19,14 @@ matplotlib.use("agg")
 
 
 class TestGPyTorchFundamentals(unittest.TestCase):
-
+    warp_factor = 3
     train_data_plus, train_data_cross = make_optimal_manifold(
         approximant=IMRPhenomPv2,
-        warp_factor=3,
+        warp_factor=warp_factor,
         varied={"mass_ratio": dict(lower=0.1, upper=1, step=0.05)},
                                        fixed={"total_mass": 60*u.solMass,
-                                              "f_min": 10*u.Hertz,
+                                              "gpstime": 0,
+                                              "f_min": 20*u.Hertz,
                                               "delta T": 1/(1024*u.Hertz)})
 
     @classmethod
@@ -33,7 +34,7 @@ class TestGPyTorchFundamentals(unittest.TestCase):
         train_data_plus = torch.tensor(cls.train_data_plus.array(parameter="mass_ratio"), device="cuda", dtype=torch.float32)
         cls.train_x_plus = train_data_plus[:,[0,1]]
         cls.train_y_plus = train_data_plus[:,2]
-
+        
         train_data_cross = torch.tensor(cls.train_data_cross.array(parameter="mass_ratio", component="cross"), device="cuda", dtype=torch.float32)
         cls.train_x_cross = train_data_cross[:,[0,1]]
         cls.train_y_cross = train_data_cross[:,2]
@@ -46,7 +47,7 @@ class TestGPyTorchFundamentals(unittest.TestCase):
                                                 total_mass=(60*u.solMass),
                                                 distance=(1*u.Mpc).to(u.meter).value,
                                                 warp_scale=2,
-                                                training=200,
+                                                training=1000,
                                                 )
 
     def test_training(self):
@@ -69,6 +70,7 @@ class TestGPyTorchFundamentals(unittest.TestCase):
     def test_evaluation(self):
         wf = self.model.time_domain(parameters={
             "mass_ratio": 1.0,
+            "gpstime": 4000,
             "time": {"lower": -0.1, "upper": 0.05, "number": 350}
         })
         f = wf['plus'].plot()
@@ -83,27 +85,38 @@ class TestGPyTorchFundamentals(unittest.TestCase):
             parameters = {
                 "mass_ratio": mass_ratio,
                 "total_mass": 60*u.solMass,
-                "time": {"lower": -0.1, "upper": 0.05, "number": 350}
+                "gpstime": 4000,
+                #"time": {"lower": -0.1, "upper": 0.05, "number": 350}
                 }
-
-            wf_gp = self.model.time_domain(parameters=parameters.copy())["plus"]
-            wf_ap = IMRPhenomPv2().time_domain(parameters=parameters.copy())["plus"]
+            times = (4000 + torch.linspace(-0.1, 0.05, 350, dtype=torch.float64)) * u.second
+            wf_gp = self.model.time_domain(parameters=parameters.copy(), times=times)["plus"]
+            wf_ap = IMRPhenomPv2().time_domain(parameters=parameters.copy(), times=times)["plus"]
             overlaps[mass_ratio] = overlap(wf_gp, wf_ap)
+
         self.assertTrue(np.sum(np.array(list(overlaps.values())) > 0.8) > 10)
 
     def test_overlaps_aligo(self):
         """Test overlaps between the IMRPhenomPv2 model and the heron mode trained from it."""
         overlap = Overlap(psd=AdvancedLIGO())
         overlaps = {}
+        times = (4000+torch.linspace(-0.1, 0.05, 350, dtype=torch.float64)) * u.second
         for mass_ratio in np.linspace(0.1, 1.0, 20):
             parameters = {
                 "mass_ratio": mass_ratio,
                 "total_mass": 60*u.solMass,
-                "distance": 4*u.megaparsec,
-                "time": {"lower": -0.1, "upper": 0.05, "number": 350}
+                "gpstime": 4000,
+                #"luminosity_distance": 400*u.megaparsec,
+                #"time": {"lower": -0.1, "upper": 0.05, "number": 350}
                 }
 
-            wf_gp = self.model.time_domain(parameters=parameters.copy())["plus"]
-            wf_ap = IMRPhenomPv2().time_domain(parameters=parameters.copy())["plus"]
+            import matplotlib.pyplot as plt
+            f, ax = plt.subplots()
+            wf_gp = self.model.time_domain(parameters=parameters.copy(), times=times)["plus"]
+            ax.plot(np.array(wf_gp.times), np.array(wf_gp.data), label="gp")
+            wf_ap = IMRPhenomPv2().time_domain(parameters=parameters.copy(), times=times)["plus"]
+            ax.plot(np.array(wf_ap.times), np.array(wf_ap.data), label="ap")
+            ax.legend()
+            f.savefig(f"{mass_ratio}_waveforms.png")
             overlaps[mass_ratio] = overlap(wf_gp, wf_ap)
+        print(list(overlaps.values()))
         self.assertTrue(np.all(np.array(list(overlaps.values())) > 0.99))
