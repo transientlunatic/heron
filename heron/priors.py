@@ -25,6 +25,7 @@ import bilby
 KNOWN_PRIORS = {
     "UniformSourceFrame": bilby.gw.prior.UniformSourceFrame,
     "UniformInComponentsMassRatio": bilby.gw.prior.UniformInComponentsMassRatio,
+    "UniformInComponentsChirpMass": bilby.gw.prior.UniformInComponentsChirpMass,
     "Uniform": bilby.prior.Uniform,
     "PowerLaw": bilby.prior.PowerLaw,
     "Sine": bilby.prior.Sine,
