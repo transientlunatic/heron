@@ -119,6 +119,7 @@ class LALSimulationApproximant(WaveformApproximant):
         """
         Retrieve a time domain waveform for a given set of parameters.
         """
+        parameters = self._convert(parameters)
         self._args.update(parameters)
 
         if "gpstime" in parameters:
