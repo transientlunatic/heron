@@ -73,7 +73,6 @@ class TimeDomainLikelihood(Likelihood):
         self.normalisation = - (self.N/2) * self.log(2*self.pi) + (self.logdet(self.C*1e30) - self.log(1e30)) *self.dt
         #* (self.dt * self.dt / 4) / 4
         self.logger.info(f"Normalisation: {self.normalisation}")
-        self.inverse_C = np.linalg.inv(self.C)
 
         self.N = len(self.times)
 
