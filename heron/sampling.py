@@ -36,7 +36,6 @@ class NessaiSampler(SamplerBase, nessai.model.Model):
             "heron.sampling.NessaiSampler"
         )
 
-        
         # Names of parameters to sample
         self.priors = priors
         self.names = priors.names
@@ -73,6 +72,7 @@ class NessaiSampler(SamplerBase, nessai.model.Model):
             key: [self.priors[key].minimum, self.priors[key].maximum]
             for key in self.names
         }
+        self.logger.info(f"Bounds: {self.bounds}")
 
     def log_prior(self, x):
         if isinstance(x, np.ndarray):
