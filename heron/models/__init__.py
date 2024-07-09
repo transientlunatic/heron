@@ -11,11 +11,12 @@ class WaveformModel:
     def _convert(self, args):
         if "total_mass" in args and "mass_ratio" in args:
             args = self._convert_mass_ratio_total_mass(args)
+        if "mass_ratio" in args and "chirp_mass" in args:
+            args["total mass"] = args["chirp_mass"] * (1 + args["mass_ratio"]) ** 1.2 / args["mass_ratio"] ** 0.6
         elif "total_mass" in args or "mass_ratio" in args:
             print("Need both total mass and the mass ratio")
         if "luminosity_distance" in args:
             args = self._convert_luminosity_distance(args)
-
         if "geocent_time" in args:
             args['gpstime'] = args.pop("geocent_time")
             
