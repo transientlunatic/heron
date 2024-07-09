@@ -167,6 +167,7 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
         """
         Return a timedomain waveform.
         """
+        parameters = self._convert(parameters)
         a = parameters["mass_ratio"]
         epoch = parameters["gpstime"]
         
