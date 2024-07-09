@@ -37,7 +37,7 @@ KNOWN_LIKELIHOODS = {
     "TimeDomainLikelihood": TimeDomainLikelihood,
     "TimeDomainLikelihoodPyTorch": TimeDomainLikelihoodPyTorch,
     "TimeDomainLikelihoodModelUncertainty": TimeDomainLikelihoodModelUncertainty,
-    "TimedomainLikelihoodModelUncertaintyPyTorch": TimeDomainLikelihoodModelUncertaintyPyTorch
+    "TimeDomainLikelihoodModelUncertaintyPyTorch": TimeDomainLikelihoodModelUncertaintyPyTorch
 }
 
 def init_heron():
