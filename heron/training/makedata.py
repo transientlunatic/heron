@@ -23,13 +23,14 @@ def make_manifold(approximant=IMRPhenomPv2, fixed={}, varied={}):
     """
     approximant = approximant()
     approximant._args.update(fixed)
+    print("args", approximant._args)
     for parameter, kwargs in varied.items():
         xaxis = np.arange(kwargs["lower"], kwargs["upper"], kwargs["step"])
         # Update with the fixed parameters
         manifold = WaveformManifold()
         for x in xaxis:
             manifold.add_waveform(
-                approximant.time_domain({parameter: x * kwargs.get("unit", 1), "gpstime": 0})
+                approximant.time_domain({parameter: x * kwargs.get("unit", 1), "gpstime": 0, "total mass": 60})
             )
     return manifold
 
@@ -52,6 +53,7 @@ def make_optimal_manifold(approximant=IMRPhenomPv2, fixed={}, varied={}, warp_fa
         manifold_plus = WaveformManifold()
         manifold_cross = WaveformManifold()
         for x in xaxis:
+            approximant._args.update(fixed)
             waveform = approximant.time_domain({parameter: x * kwargs.get("unit", 1),
                                                 "gpstime": 0})
             peaks, _ = scipy.signal.find_peaks(waveform["plus"].value ** 2)

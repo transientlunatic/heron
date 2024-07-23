@@ -101,7 +101,6 @@ class LALSimulationApproximant(WaveformApproximant):
         """
         args = {}
         args.update(self._args)
-
         # Convert total mass and mass ratio to the component masses
         args = self._convert(args)
         args = self._convert_units(args)
@@ -119,8 +118,12 @@ class LALSimulationApproximant(WaveformApproximant):
         """
         Retrieve a time domain waveform for a given set of parameters.
         """
-        parameters = self._convert(parameters)
+
+        #self.logger.info("Got parameters", parameters.keys())
         self._args.update(parameters)
+        parameters.update(self._args)
+        #parameters = self._convert(parameters)
+
 
         if "gpstime" in parameters:
             epoch = parameters['gpstime']
@@ -128,9 +131,8 @@ class LALSimulationApproximant(WaveformApproximant):
             raise ValueError("gpstime not specified")
         
         if not (self.args == self._cache_key):
-            self.logger.info(f"Generating new waveform at {self.args}")
+            # self.logger.info(f"Generating new waveform at {self.args}")
             self._cache_key = self.args.copy()
-
             hp, hx = lalsimulation.SimInspiralChooseTDWaveform(
                 *list(self.args.values())
             )
@@ -142,8 +144,8 @@ class LALSimulationApproximant(WaveformApproximant):
                 times_wf = (
                     array_library.arange(len(hp.data.data)) * hp.deltaT + hp.epoch + epoch
                 )
-                self.logger.info("Interpolating to new times")
-                self.logger.info(f"{times_wf[0]}-{times_wf[-1]} to {times[0]}-{times[-1]}")
+                # self.logger.info("Interpolating to new times")
+                # self.logger.info(f"{times_wf[0]}-{times_wf[-1]} to {times[0]}-{times[-1]}")
                 spl_hp = CubicSpline(times_wf, hp.data.data)
                 spl_hx = CubicSpline(times_wf, hx.data.data)
                 hp_data = spl_hp(times)

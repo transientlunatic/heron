@@ -47,7 +47,7 @@ class TestGPyTorchFundamentals(unittest.TestCase):
                                                 total_mass=(60*u.solMass),
                                                 distance=(1*u.Mpc).to(u.meter).value,
                                                 warp_scale=2,
-                                                training=1000,
+                                                training=500,
                                                 )
 
     def test_training(self):
@@ -105,8 +105,8 @@ class TestGPyTorchFundamentals(unittest.TestCase):
                 "mass_ratio": mass_ratio,
                 "total_mass": 60*u.solMass,
                 "gpstime": 4000,
-                #"luminosity_distance": 400*u.megaparsec,
-                #"time": {"lower": -0.1, "upper": 0.05, "number": 350}
+                "luminosity_distance": 400*u.megaparsec,
+                "time": {"lower": -0.1, "upper": 0.05, "number": 350}
                 }
 
             import matplotlib.pyplot as plt

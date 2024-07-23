@@ -44,19 +44,22 @@ def init_heron():
     import torch
     import astropy.units as u
     from heron.training.makedata import make_manifold, make_optimal_manifold
+    
     train_data_plus, train_data_cross = make_optimal_manifold(
         approximant=IMRPhenomPv2,
         warp_factor=3,
         varied={"mass_ratio": dict(lower=0.1, upper=1, step=0.05)},
         fixed={"total_mass": 60*u.solMass,
                "gpstime": 0,
-               "f_min": 10*u.Hertz,
+               "f_min": 40*u.Hertz,
                "delta T": 1/(1024*u.Hertz)})
 
     train_data_plus = torch.tensor(train_data_plus.array(parameter="mass_ratio"), device="cuda", dtype=torch.float32)
     train_x_plus = train_data_plus[:,[0,1]]
     train_y_plus = train_data_plus[:,2]
 
+    print("training data size", train_data_plus.shape)
+    
     train_data_cross = torch.tensor(train_data_cross.array(parameter="mass_ratio", component="cross"), device="cuda", dtype=torch.float32)
     train_x_cross = train_data_cross[:,[0,1]]
     train_y_cross = train_data_cross[:,2]
@@ -69,7 +72,7 @@ def init_heron():
                                         total_mass=(60*u.solMass),
                                         distance=(1*u.Mpc).to(u.meter).value,
                                         warp_scale=2,
-                                        training=1000,
+                                        training=100,
                                         )
     return model
 
@@ -143,7 +146,11 @@ def heron_inference(settings):
         pass
 
     # Make Likelihood
+    logger.debug("Initialising waveform model")
     waveform_model = KNOWN_WAVEFORMS[settings["waveform"]["model"]]()
+
+
+    logger.debug("Creating likelihood")
     if len(settings["interferometers"]) > 1:
         likelihoods = []
         for ifo in settings["interferometers"]:

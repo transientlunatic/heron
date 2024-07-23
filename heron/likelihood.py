@@ -136,8 +136,8 @@ class TimeDomainLikelihood(Likelihood):
 
         keys = set(parameters.keys())
         extrinsic = {"phase", "psi", "ra", "dec", "theta_jn", "zenith", "azimuth", "gpstime"}
-        conversions = {"geocent_time", "mass_ratio", "total_mass", "luminosity_distance"}
-        bad_keys = keys - set(self.waveform._args.keys()) - extrinsic - conversions
+        conversions = {"geocent_time", "mass_ratio", "total_mass", "luminosity_distance", "chirp_mass"}
+        bad_keys = keys - set(self.waveform.allowed_parameters) - extrinsic - conversions
         if len(bad_keys) > 0:
             print("The following keys were not recognised", bad_keys)
         parameters.update(self.fixed_parameters)
@@ -273,7 +273,7 @@ class TimeDomainLikelihoodPyTorch(LikelihoodPyTorch):
 
         self.C = self.psd.covariance_matrix(times=self.times)
         self.C = torch.tensor(self.C, device=self.device)
-        self.inverse_C = torch.linalg.inv(self.C)
+        self.inverse_C = self.inverse(self.C)
 
         self.dt = (self.times[1] - self.times[0]).value
         self.N = len(self.times)
@@ -322,7 +322,7 @@ class TimeDomainLikelihoodPyTorch(LikelihoodPyTorch):
         return like
 
     def __call__(self, parameters):
-        self.logger.info(parameters)
+        self.logger.info("Called with", parameters)
 
         keys = set(parameters.keys())
         extrinsic = {"phase", "psi", "ra", "dec", "theta_jn", "zenith", "azimuth"}

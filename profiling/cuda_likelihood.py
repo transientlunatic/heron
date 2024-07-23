@@ -25,19 +25,19 @@ def profile_likelihood():
     likelihood = TimeDomainLikelihoodModelUncertaintyPyTorch(data, psd=psd_model)
     print(likelihood.device)
 
-    # for m1 in np.linspace(20, 50, 100):
-    m1 = 30
-    test_waveform = waveform.time_domain(parameters={"m1": 35*u.solMass,
-                                                          "m2": 30*u.solMass,
-                                                          "gpstime": 4000,
-                                                          "distance": 410 * u.megaparsec}, times=data.times)
+    for m1 in np.linspace(20, 50, 100):
+    
+        test_waveform = waveform.time_domain(parameters={"m1": m1*u.solMass,
+                                                              "m2": 30*u.solMass,
+                                                              "gpstime": 4000,
+                                                              "distance": 410 * u.megaparsec}, times=data.times)
 
-    projected_waveform = test_waveform.project(AdvancedLIGOHanford(),
-                                                          ra=0, dec=0,
-                                                          phi_0=0, psi=0,
-                                                          iota=0)
+        projected_waveform = test_waveform.project(AdvancedLIGOHanford(),
+                                                              ra=0, dec=0,
+                                                              phi_0=0, psi=0,
+                                                              iota=0)
 
-    log_like = likelihood.log_likelihood(projected_waveform)
+        log_like = likelihood.log_likelihood(projected_waveform)
 
 
 from torch.profiler import profile, record_function, ProfilerActivity

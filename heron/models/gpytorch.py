@@ -199,6 +199,7 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
         points[points[:, 1] < 0, 1] = points[points[:, 1] < 0, 1] / self.warp_scale
         # Extract the waveform
 
+        print("Evaluating at", points[0])
         output = WaveformDict(parameters=parameters)
         for polarisation in ("plus", "cross"):
             with torch.no_grad(), gpytorch.settings.fast_pred_var():
