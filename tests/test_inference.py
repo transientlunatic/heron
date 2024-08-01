@@ -54,13 +54,12 @@ class Test_Filter(unittest.TestCase):
         
         test_waveform = self.waveform.time_domain(parameters={"m1": 35*u.solMass,
                                                               "m2": 30*u.solMass,
-                                                              "distance": 1000 * u.megaparsec}, times=data.times)
-        
+                                                              "distance": 1000 * u.megaparsec}, times=likelihood.times)
         snr = likelihood.snr(test_waveform.project(AdvancedLIGOHanford(),
                                                    ra=0, dec=0,
                                                    phi_0=0, psi=0,
                                                    iota=0))
-        self.assertTrue(snr > 39 and snr < 41)
+        self.assertTrue(snr > 40 and snr < 45)
 
     # def test_snr_f(self):
     #     data = self.injections['H1']
@@ -86,13 +85,13 @@ class Test_Filter(unittest.TestCase):
         
         test_waveform = self.waveform.time_domain(parameters={"m1": 40*u.solMass,
                                                               "m2": 50*u.solMass,
-                                                              "distance": 200 * u.megaparsec}, times=data.times)
-
+                                                              "gpstime": 0,
+                                                              "distance": 200 * u.megaparsec}, times=likelihood.times)
         projected_waveform = test_waveform.project(AdvancedLIGOHanford(),
                                                               ra=0, dec=0,
                                                               phi_0=0, psi=0,
                                                               iota=0)
-        
+
         log_like = likelihood.log_likelihood(projected_waveform)
 
     def test_likelihood_with_uncertainty(self):
@@ -102,8 +101,9 @@ class Test_Filter(unittest.TestCase):
 
         waveform = IMRPhenomPv2_FakeUncertainty()
         test_waveform = waveform.time_domain(parameters={"m1": 40*u.solMass,
-                                                              "m2": 50*u.solMass,
-                                                              "distance": 200 * u.megaparsec}, times=data.times)
+                                                         "m2": 50*u.solMass,
+                                                         "geocent_time": 0,
+                                                         "distance": 200 * u.megaparsec}, times=likelihood.times)
         projected_waveform = test_waveform.project(AdvancedLIGOHanford(),
                                                               ra=0, dec=0,
                                                               phi_0=0, psi=0,
@@ -129,8 +129,7 @@ class Test_Filter(unittest.TestCase):
                       }
         
         log_like = likelihood(parameters=parameters)
-        print("log like", log_like)
-        self.assertTrue(-100000 < log_like < -10000)
+        self.assertTrue(-2400 < log_like < -2200)
 
     def test_sampling_with_uncertainty_multi(self):
         waveform = IMRPhenomPv2_FakeUncertainty()
@@ -155,8 +154,7 @@ class Test_Filter(unittest.TestCase):
                       }
 
         log_like = likelihood(parameters=parameters)
-        print("log like uncertain", log_like)
-        self.assertTrue(-200000 < log_like < -10000)
+        self.assertTrue(-2400 < log_like*0.5 < -2200)
 
 
 class TestInference(unittest.TestCase):
@@ -193,9 +191,9 @@ class Test_PyTorch(unittest.TestCase):
                                                     "AdvancedLIGOLivingston": "AdvancedLIGO"}
                                          )
 
-    def test_timedomain_psd(self):
-        noise = self.psd_model.time_domain(times=self.injections['H1'].times)
-        #print(noise)
+#     def test_timedomain_psd(self):
+#         noise = self.psd_model.time_domain(times=self.injections['H1'].times)
+#         #print(noise)
         
     def test_snr(self):
         data = self.injections['H1']
@@ -227,6 +225,7 @@ class Test_PyTorch(unittest.TestCase):
                                                               iota=0)
         
         log_like = likelihood.log_likelihood(projected_waveform)
+        print("log like pytorch", log_like)
 
     def test_likelihood_with_uncertainty(self):
         data = self.injections['H1']
@@ -242,3 +241,4 @@ class Test_PyTorch(unittest.TestCase):
                                                    phi_0=0, psi=0,
                                                    iota=0)
         log_like = likelihood.log_likelihood(projected_waveform)
+        print("log like unc pytorch", log_like)
