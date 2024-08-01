@@ -54,7 +54,9 @@ class ExactGPModelKeOps(gpytorch.models.ExactGP):
             )
             * gpytorch.kernels.keops.RBFKernel(
                 active_dims=[1],
-                lengthscale_constraint=gpytorch.constraints.GreaterThan(0.0015), # 0.001
+                lengthscale_constraint=gpytorch.constraints.GreaterThan(
+                    0.0015
+                ),  # 0.001
             )
         )
 
@@ -71,9 +73,7 @@ class GPyTorchSurrogate:
             model.likelihood.train()
 
             optimizer = torch.optim.Adam(model.parameters(), lr=0.05)
-            mll = gpytorch.mlls.ExactMarginalLogLikelihood(
-                model.likelihood, model
-            )
+            mll = gpytorch.mlls.ExactMarginalLogLikelihood(model.likelihood, model)
 
             for i in range(iterations):
                 optimizer.zero_grad()
@@ -91,7 +91,17 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
     A non-spinning model which is trained using a waveform approximant as the feedstock.
     """
 
-    def __init__(self, train_x_plus, train_x_cross, train_y_plus, train_y_cross, total_mass, distance, warp_scale=2, training=400):
+    def __init__(
+        self,
+        train_x_plus,
+        train_x_cross,
+        train_y_plus,
+        train_y_cross,
+        total_mass,
+        distance,
+        warp_scale=2,
+        training=400,
+    ):
         self.device = device
         self.output_scale = 1e27
         self.warp_scale = warp_scale
@@ -99,31 +109,33 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
         self.distance_factor = distance
         self.train_x_plus = train_x_plus.to(self.device)
         self.train_x_cross = train_x_cross.to(self.device)
-        times_cross = self.train_x_cross[:,1]
-        times_cross[times_cross<0] = times_cross[times_cross<0] / self.warp_scale
-        self.train_x_cross[:,1] = times_cross
+        times_cross = self.train_x_cross[:, 1]
+        times_cross[times_cross < 0] = times_cross[times_cross < 0] / self.warp_scale
+        self.train_x_cross[:, 1] = times_cross
 
-        times_plus = self.train_x_plus[:,1]
-        times_plus[times_plus<0] = times_plus[times_plus<0] / self.warp_scale
-        self.train_x_plus[:,1] = times_plus
-        
+        times_plus = self.train_x_plus[:, 1]
+        times_plus[times_plus < 0] = times_plus[times_plus < 0] / self.warp_scale
+        self.train_x_plus[:, 1] = times_plus
+
         self.train_y_plus = train_y_plus.cuda() * self.output_scale
         self.train_y_cross = train_y_cross.cuda() * self.output_scale
         self.models = {}
-        self.models['plus'] = ExactGPModelKeOps(self.train_x_plus,
-                                                self.train_y_plus).to(self.device)
-        self.models['cross'] = ExactGPModelKeOps(self.train_x_cross,
-                                                 self.train_y_cross).to(self.device)
+        self.models["plus"] = ExactGPModelKeOps(
+            self.train_x_plus, self.train_y_plus
+        ).to(self.device)
+        self.models["cross"] = ExactGPModelKeOps(
+            self.train_x_cross, self.train_y_cross
+        ).to(self.device)
         for polarisation in ("plus", "cross"):
             self.models[polarisation].likelihood.cuda()
 
-        self._args = {"total_mass": None,
-                      "mass_ratio": None,
-                      "luminosity_distance": None,
-                      "inclination": None,
-                      }
-                      
-            
+        self._args = {
+            "total_mass": None,
+            "mass_ratio": None,
+            "luminosity_distance": None,
+            "inclination": None,
+        }
+
         self.train(training)
 
     def _make_evaluation_manifold(
@@ -167,54 +179,71 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
         """
         Return a timedomain waveform.
         """
-        parameters = self._convert(parameters)
-        a = parameters["mass_ratio"]
-        epoch = parameters["gpstime"]
-        
+        a = parameters.get("mass_ratio", parameters.get("mass ratio"))
+        epoch = parameters.get("gpstime")
+
         total_mass = parameters.get("total_mass", self.mass_factor)
         mass_factor = (total_mass / self.mass_factor).value
-        
+
+        if times is None:
+            t = parameters.get("time", parameters.get("gpstime"))
+            times = (
+                torch.linspace(
+                    t["lower"],
+                    t["upper"],
+                    t["number"],
+                    dtype=torch.float32,
+                )
+                / mass_factor
+            )
+            times_i = times
+            # parameters.pop("time")
+        else:
+            times_i = (
+                torch.tensor(times.value, dtype=torch.float32) / mass_factor
+            ) - epoch
+
         distance = parameters.get("luminosity_distance", self.distance_factor)
         distance_factor = distance / self.distance_factor
 
-        if times is None:
-            t = parameters["time"]
-            times = torch.linspace(
-                        t["lower"], t["upper"], t["number"], dtype=torch.float32,
-                    ) / mass_factor
-            times_i = times
-            parameters.pop("time")
-        else:
-            times_i = (torch.tensor(times.value, dtype=torch.float32)/mass_factor)-epoch
-        
-        N = len(times)
         points = torch.vstack(
             [
-                torch.ones(N, dtype=torch.float32,
-                           ) * a,
-                times_i
+                torch.ones(
+                    t["number"],
+                    dtype=torch.float32,
+                )
+                * a,
+                torch.linspace(
+                    t["lower"],
+                    t["upper"],
+                    t["number"],
+                    dtype=torch.float32,
+                )
+                / mass_factor,
             ]
         ).T.to(device=self.device)
         # Warp the time axis
         points[points[:, 1] < 0, 1] = points[points[:, 1] < 0, 1] / self.warp_scale
         # Extract the waveform
 
-        print("Evaluating at", points[0])
+        parameters.pop("time")
         output = WaveformDict(parameters=parameters)
         for polarisation in ("plus", "cross"):
             with torch.no_grad(), gpytorch.settings.fast_pred_var():
-                observed_pred = self.models[polarisation].likelihood(self.models[polarisation](points))
+                observed_pred = self.models[polarisation].likelihood(
+                    self.models[polarisation](points)
+                )
                 mean = observed_pred.mean
             # Perform the unwarping of the time axis
-            #points[points[:, 1] < 0, 1] = points[points[:, 1] < 0, 1] * self.warp_scale
+            points[points[:, 1] < 0, 1] = points[points[:, 1] < 0, 1] * self.warp_scale
+
             output.waveforms[polarisation] = Waveform(
-                data=mean.cpu()/self.output_scale/distance_factor,
+                data=mean.cpu() / self.output_scale / distance_factor,
                 times=times,
-                covariance=observed_pred.covariance_matrix.cpu()/self.output_scale/self.output_scale/distance_factor**2,
+                covariance=observed_pred.covariance_matrix.cpu()
+                / self.output_scale
+                / self.output_scale
+                / distance_factor**2,
             )
 
         return output
-
-class HeronDemonstrator(HeronNonSpinningApproximant):
-    def __init__(self, *args, **kwargs):
-        pass
