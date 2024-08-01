@@ -3,12 +3,9 @@ logging:
 
 injection:
   parameters:
-    luminosity_distance: 400 # megaparsec
-    # m1: 35
-    # m2: 30
-    total_mass: 60 # solar mass
-    mass_ratio: 0.6
-    gpstime: 4000
+    luminosity_distance: 1000
+    m1: 35
+    m2: 30
   waveform: IMRPhenomPv2
   interferometers:
     H1: AdvancedLIGOHanford
@@ -28,6 +25,7 @@ inference:
         H1: H1:Injection
         L1: L1:Injection
       
+    
     waveform:
       model: IMRPhenomPv2
     interferometers:
@@ -36,21 +34,14 @@ inference:
     psds:
       H1: AdvancedLIGO
       L1: AdvancedLIGO
-    fixed_parameters: {}
-      # ra: 1
-      # dec: 0
-      # psi: 0
-      # phase: 0
-      # theta_jn: 0
+    fixed_parameters:
+      ra: 1
+      dec: 0
+      psi: 0
+      phase: 0
+      theta_jn: 0
         
-    priors:
-        gpstime:
-          name: gpstime
-          function: Uniform
-          minimum: 3999.9
-          maximum: 4000.1
-          boundary: null
-      
+    priors: 
         luminosity_distance:
           function: UniformSourceFrame
           name: luminosity_distance
@@ -62,49 +53,6 @@ inference:
           name: mass_ratio
           minimum: 0.125
           maximum: 1
-
-        total_mass:
-          name: total_mass
-          function: Uniform
-          minimum: 40
-          maximum: 80
-
-        # chirp_mass:
-        #   name: chirp_mass
-        #   function: Uniform
-        #   minimum: 1
-        #   maximum: 1000
-
-        theta_jn:
-          name: theta_jn
-          function: Sine
-
-        azimuth:
-          name: azimuth
-          function: Uniform
-          minimum: 0
-          maximum: 6.283185307179586
-          boundary: periodic
-
-        zenith:
-          name: zenith
-          minimum: 0
-          maximum: 3.141592653589793
-          function: Sine
-
-        psi:
-          name: psi
-          function: Uniform
-          minimum: 0
-          maximum: 3.14
-          boundary: periodic
-
-        phase:
-          name: phase
-          function: Uniform
-          minimum: 0
-          maximum: 3.14
-          boundary: periodic
 
     likelihood:
         function: TimeDomainLikelihood

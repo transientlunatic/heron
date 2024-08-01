@@ -27,13 +27,13 @@ def make_injection(
     framefile=None,
 ):
 
-    parameters = {"ra": 0, "dec": 0, "psi": 0, "theta_jn": 0, "phase": 0, 'gpstime': 4000}
+    parameters = {"ra": 0, "dec": 0, "psi": 0, "theta_jn": 0, "phase": 0}
     parameters.update(injection_parameters)
 
     waveform = waveform()
 
     if times is None:
-        times = np.linspace(-0.5, 0.1, int(0.6 * 4096)) + parameters['gpstime']
+        times = np.linspace(-0.5, 0.1, int(0.6 * 4096))
     waveform = waveform.time_domain(
         parameters,
         times=times,
@@ -41,73 +41,18 @@ def make_injection(
 
     injections = {}
     for detector, psd_model in detectors.items():
-        detector = KNOWN_IFOS[detector]()
-        channel = f"{detector.abbreviation}:Injection"
-        logger.info(f"Making injection for {detector} in channel {channel}")
+        logger.info(f"Making injection for {detector}")
         psd_model = KNOWN_PSDS[psd_model]()
+        detector = KNOWN_IFOS[detector]()
         data = psd_model.time_series(times)
 
-        import matplotlib
-        matplotlib.use("agg")
-        from gwpy.plot import Plot
-        injection = data + waveform.project(detector)
-        f = Plot(data, waveform.project(detector), injection, separate=True)
-        f.savefig(f"{detector.abbreviation}_injected_waveform.png")
-
-
-        injection.channel = channel
-        injections[detector.abbreviation] = injection
-        likelihood = TimeDomainLikelihood(injection, psd=psd_model)
-        snr = likelihood.snr(waveform.project(detector))
-
-        logger.info(f"Optimal Filter SNR: {snr}")
-
-        if framefile:
-            filename = f"{detector.abbreviation}_{framefile}.gwf"
-            logger.info(f"Saving framefile to {filename}")
-            injection.write(filename, format="gwf")
-
-    return injections
-
-def make_injection_zero_noise(
-    waveform=IMRPhenomPv2,
-    injection_parameters={},
-    times=None,
-    detectors=None,
-    framefile=None,
-):
-
-    parameters = {"ra": 0, "dec": 0, "psi": 0, "theta_jn": 0, "phase": 0, 'gpstime': 4000}
-    parameters.update(injection_parameters)
-
-    waveform = waveform()
-
-    if times is None:
-        times = np.linspace(-0.5, 0.1, int(0.6 * 4096)) + parameters['gpstime']
-    waveform = waveform.time_domain(
-        parameters,
-        times=times,
-    )
-
-    injections = {}
-    for detector, psd_model in detectors.items():
-        detector = KNOWN_IFOS[detector]()
         channel = f"{detector.abbreviation}:Injection"
-        logger.info(f"Making injection for {detector} in channel {channel}")
-        psd_model = KNOWN_PSDS[psd_model]()
-        #data = psd_model.time_series(times)
-
-        # import matplotlib
-        # matplotlib.use("agg")
-        # from gwpy.plot import Plot
-        # f = Plot(data, waveform.project(detector), data+waveform.project(detector), separate=False)
-        # f.savefig(f"{detector.abbreviation}_injected_waveform.png")
-
-        injection = waveform.project(detector)
+        injection = data + waveform.project(detector)
         injection.channel = channel
         injections[detector.abbreviation] = injection
         likelihood = TimeDomainLikelihood(injection, psd=psd_model)
         snr = likelihood.snr(waveform.project(detector))
+
         logger.info(f"Optimal Filter SNR: {snr}")
 
         if framefile:
@@ -122,7 +67,7 @@ def injection_parameters_add_units(parameters):
     UNITS = {"luminosity_distance": u.megaparsec, "m1": u.solMass, "m2": u.solMass}
 
     for parameter, value in parameters.items():
-        if not isinstance(value, u.Quantity) and parameter in UNITS.keys():
+        if not isinstance(value, u.Quantity):
             parameters[parameter] = value * UNITS[parameter]
     return parameters
 

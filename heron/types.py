@@ -102,10 +102,9 @@ class WaveformDict:
           The declination of the signal source.
         """
 
-        
         if not time:
             time = self.waveforms["plus"].epoch.value
-        
+
         if ((ra is None) and (dec is None)) and (
             ("ra" in self._parameters) and ("dec" in self._parameters)
         ):
@@ -114,21 +113,30 @@ class WaveformDict:
 
             dt = detector.geocentre_delay(ra=ra, dec=dec, times=time)
 
-        elif ("azimuth" in self._parameters.keys()) and ("zenith" in self._parameters.keys()) and ("reference_frame" in self._parameters.keys()):
+        elif (
+            ("azimuth" in self._parameters.keys())
+            and ("zenith" in self._parameters.keys())
+            and ("reference_frame" in self._parameters.keys())
+        ):
             # Use horizontal coordinates.
             det1 = cached_detector_by_prefix[self._parameters["reference_frame"][0]]
             det2 = cached_detector_by_prefix[self._parameters["reference_frame"][1]]
-            tg, ra, dec = DetFrameToEquatorial(
-                det1, det2, time, self._parameters["azimuth"], self._parameters["zenith"]
+            ra, dec, dt = DetFrameToEquatorial(
+                det1,
+                det2,
+                time,
+                self._parameters["azimuth"],
+                self._parameters["zenith"],
             )
-            dt = time - tg
+
         elif (ra is None) and (dec is None):
             raise ValueError("Right ascension and declination must both be specified.")
 
         else:
             dt = detector.geocentre_delay(ra=ra, dec=dec, times=time)
+
         if "plus" in self.waveforms and "cross" in self.waveforms:
-            
+
             if not iota and "theta_jn" in self._parameters:
                 iota = self._parameters["theta_jn"]
             elif isinstance(iota, type(None)):
@@ -180,14 +188,14 @@ class WaveformDict:
             else:
                 projected_covariance = None
 
-            bins = dt / (self.waveforms["plus"].dt)
-                
             projected_waveform = Waveform(
-                data=array_library.roll(array_library.pad(projected_data, 5000), int(bins.value))[5000:-5000],
+                data=projected_data,
                 variance=projected_variance,
                 covariance=projected_covariance,
                 times=self.waveforms["plus"].times,
             )
+
+            projected_waveform.shift(dt)
 
             return projected_waveform
 

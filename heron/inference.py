@@ -13,12 +13,7 @@ from nessai.flowsampler import FlowSampler
 
 from heron.detector import KNOWN_IFOS
 from heron.models.lalnoise import KNOWN_PSDS
-from heron.models.gpytorch import HeronNonSpinningApproximant
-from heron.likelihood import (TimeDomainLikelihood,
-                              MultiDetector,
-                              TimeDomainLikelihoodPyTorch,
-                              TimeDomainLikelihoodModelUncertaintyPyTorch,
-                              TimeDomainLikelihoodModelUncertainty)
+from heron.likelihood import TimeDomainLikelihood, MultiDetector
 import heron.priors
 
 from heron.sampling import NessaiSampler
@@ -35,50 +30,9 @@ logger = logging.getLogger("heron.inference")
 
 KNOWN_LIKELIHOODS = {
     "TimeDomainLikelihood": TimeDomainLikelihood,
-    "TimeDomainLikelihoodPyTorch": TimeDomainLikelihoodPyTorch,
-    "TimeDomainLikelihoodModelUncertainty": TimeDomainLikelihoodModelUncertainty,
-    "TimeDomainLikelihoodModelUncertaintyPyTorch": TimeDomainLikelihoodModelUncertaintyPyTorch
 }
-
-def init_heron():
-    import torch
-    import astropy.units as u
-    from heron.training.makedata import make_manifold, make_optimal_manifold
-    
-    train_data_plus, train_data_cross = make_optimal_manifold(
-        approximant=IMRPhenomPv2,
-        warp_factor=3,
-        varied={"mass_ratio": dict(lower=0.1, upper=1, step=0.05)},
-        fixed={"total_mass": 60*u.solMass,
-               "gpstime": 0,
-               "f_min": 40*u.Hertz,
-               "delta T": 1/(1024*u.Hertz)})
-
-    train_data_plus = torch.tensor(train_data_plus.array(parameter="mass_ratio"), device="cuda", dtype=torch.float32)
-    train_x_plus = train_data_plus[:,[0,1]]
-    train_y_plus = train_data_plus[:,2]
-
-    print("training data size", train_data_plus.shape)
-    
-    train_data_cross = torch.tensor(train_data_cross.array(parameter="mass_ratio", component="cross"), device="cuda", dtype=torch.float32)
-    train_x_cross = train_data_cross[:,[0,1]]
-    train_y_cross = train_data_cross[:,2]
-
-    # initialize likelihood and model
-    model = HeronNonSpinningApproximant(train_x_plus=train_x_plus.float(),
-                                        train_y_plus=train_y_plus.float(),
-                                        train_x_cross=train_x_cross.float(),
-                                        train_y_cross=train_y_cross.float(),
-                                        total_mass=(60*u.solMass),
-                                        distance=(1*u.Mpc).to(u.meter).value,
-                                        warp_scale=2,
-                                        training=100,
-                                        )
-    return model
-
 KNOWN_WAVEFORMS = {
     "IMRPhenomPv2": IMRPhenomPv2,
-    "Heron": init_heron,
 }
 
 
@@ -120,12 +74,9 @@ def heron_inference(settings):
         logging.getLogger("heron.likelihood.TimeDomainLikelihood").setLevel(
             LOGGER_LEVELS[level]
         )
-        logging.getLogger("heron.likelihood.MultiDetector").setLevel(
-            LOGGER_LEVELS[level]
-        )
-        logging.getLogger("matplotlib").setLevel(logging.ERROR)
 
     import matplotlib
+
     matplotlib.use("agg")
 
     data = {}
@@ -146,13 +97,9 @@ def heron_inference(settings):
         pass
 
     # Make Likelihood
-    logger.debug("Initialising waveform model")
-    waveform_model = KNOWN_WAVEFORMS[settings["waveform"]["model"]]()
-
-
-    logger.debug("Creating likelihood")
     if len(settings["interferometers"]) > 1:
         likelihoods = []
+        waveform_model = KNOWN_WAVEFORMS[settings["waveform"]["model"]]()
         for ifo in settings["interferometers"]:
             likelihoods.append(
                 KNOWN_LIKELIHOODS[settings.get("likelihood").get("function")](
@@ -161,7 +108,9 @@ def heron_inference(settings):
                     waveform=waveform_model,
                     detector=settings["interferometers"][ifo](),
                     fixed_parameters=settings["fixed_parameters"],
-                    timing_basis=settings["likelihood"].get("timing basis", ["H1", "L1"]),
+                    timing_basis=settings["likelihood"].get(
+                        "timing basis", ["H1", "L1"]
+                    ),
                 )
             )
             likelihood = MultiDetector(*likelihoods)
@@ -175,7 +124,6 @@ def heron_inference(settings):
             priors,
             injection_parameters_add_units(other_settings["injection"]["parameters"]),
         )
-        x = injection_parameters_add_units(other_settings["injection"]["parameters"]).values()
 
         fp = FlowSampler(
             nessai_model,
@@ -192,7 +140,7 @@ def heron_inference(settings):
             logging_interval=settings.get("sampler", {}).get("logging interval", 10),
             log_on_iteration=settings.get("sampler", {}).get("log on iteration", True),
             seed=settings.get("sampler", {}).get("seed", 1234),
-            flow_class=settings.get("sampler", {}).get("flow class", "GWFlowProposal"),
+            flow_class="GWFlowProposal",
             signal_handling=True,
         )
 
