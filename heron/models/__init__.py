@@ -35,10 +35,10 @@ class WaveformModel:
         if isinstance(args["m1"], u.Quantity):
             args["m1"].to_value(u.kilogram)
             args["m2"].to_value(u.kilogram)
-        elif args["m1"] < 1000:
+        if args["m1"] < 1000:
             # This appears to be in solar masses
             args["m1"] *= MSUN_SI
-        elif args["m2"] < 1000:
+        if args["m2"] < 1000:
             # This appears to be in solar masses
             args["m2"] *= MSUN_SI
         
