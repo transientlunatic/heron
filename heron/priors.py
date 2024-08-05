@@ -9,6 +9,10 @@ other approaches can also be incorporated more easily.
 import bilby
 
 KNOWN_PRIORS = {
+    "UniformInComponentsChirpMass": bilby.gw.prior.UniformInComponentsChirpMass,
+    "Uniform": bilby.prior.Uniform,
+    "PowerLaw": bilby.prior.PowerLaw,
+    "Sine": bilby.prior.Sine,
     "UniformSourceFrame": bilby.gw.prior.UniformSourceFrame,
     "UniformInComponentsMassRatio": bilby.gw.prior.UniformInComponentsMassRatio,
 }
