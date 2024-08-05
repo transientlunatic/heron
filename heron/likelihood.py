@@ -363,6 +363,7 @@ class TimeDomainLikelihoodModelUncertaintyPyTorch(TimeDomainLikelihoodPyTorch):
         return dw
 
     def log_likelihood(self, waveform, norm=True):
+        print("size", waveform.covariance.size)
         waveform_d = torch.tensor(waveform.data, device=self.device, dtype=torch.double)
         waveform_c = torch.tensor(
             waveform.covariance, device=self.device, dtype=torch.double
@@ -387,7 +388,6 @@ class TimeDomainLikelihoodModelUncertaintyPyTorch(TimeDomainLikelihoodPyTorch):
         # sigma = self.inverse(A)*factor_sqi
         # B = (self.einsum("ij,i", Ki, mu) + (self.einsum("ij,i", Ci, data)))*factor
         # N = - (self.N / 2) * self.log(2*self.pi) +  0.5 * (self.logdet(sigma) - self.logdet(self.C) - self.logdet(K) - 3 * self.log(factor_sq)) * self.dt
-        
         data_like = (self._weighted_data())
         model_like = -0.5 * mu @ self.solve(K, mu) #self.einsum("i,ij,j", mu, Ki, mu)
         # shift = + 0.5 * self.einsum('i,ij,j', B, sigma, B) #* ((self.dt) / 4)
