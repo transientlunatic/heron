@@ -1,5 +1,5 @@
 import torch
-from lal import antenna, LAL_MSUN_SI
+from lal import antenna, MSUN_SI
 from astropy import units as u
 
 
@@ -37,10 +37,10 @@ class WaveformModel:
             args["m2"].to_value(u.kilogram)
         elif args["m1"] < 1000:
             # This appears to be in solar masses
-            args["m1"] *= LAL_MSUN_SI
+            args["m1"] *= MSUN_SI
         elif args["m2"] < 1000:
             # This appears to be in solar masses
-            args["m2"] *= LAL_MSUN_SI
+            args["m2"] *= MSUN_SI
         
         args.pop("total_mass")
         args.pop("mass_ratio")
