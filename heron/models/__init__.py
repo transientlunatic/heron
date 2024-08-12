@@ -26,19 +26,28 @@ class WaveformModel:
         return args
 
     def _convert_mass_ratio_total_mass(self, args):        
-        
-        args["m1"] = (args["total_mass"] / (1 + args["mass_ratio"]))
-        args["m2"] = (args["total_mass"] / (1 + 1 / args["mass_ratio"]))
+        """
+        Convert a mass ratio and a total mass into individual component masses.
+        If the masses have no units they are assumed to be in SI units.
 
+        Parameters
+        ----------
+        args['total_mass'] : float, `astropy.units.Quantity`
+           The total mass for the system.
+        args['mass_ratio'] : float
+           The mass ratio of the system using the convention m2/m1
+        """
+        args["m1"] = (args["total_mass"] / (1 + args["mass_ratio"]))
+        args["m2"] = (args["total_mass"] / (1 + (1 / args["mass_ratio"])))
         # Do these have units?
         # If not then we can skip some relatively expensive operations and apply a heuristic.
         if isinstance(args["m1"], u.Quantity):
-            args["m1"].to_value(u.kilogram)
-            args["m2"].to_value(u.kilogram)
-        if args["m1"] < 1000:
+            args["m1"] = args["m1"].to_value(u.kilogram)
+            args["m2"] = args["m2"].to_value(u.kilogram)
+        if (not isinstance(args["m1"], u.Quantity)) and (args["m1"] < 1000):
             # This appears to be in solar masses
             args["m1"] *= MSUN_SI
-        if args["m2"] < 1000:
+        if (not isinstance(args["m2"], u.Quantity)) and (args["m2"] < 1000):
             # This appears to be in solar masses
             args["m2"] *= MSUN_SI
         
