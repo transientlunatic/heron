@@ -1,37 +1,35 @@
+"""This module contains logic to allow priors to be defined in an efficient manner.
+
+Initially we'll use just the bilby prior handling machinery, but in
+the middle-term it would be good to make this more flexible so that
+other approaches can also be incorporated more easily.
+
 """
-Prior distributions for GP hyperpriors.
-"""
 
-from scipy import stats
-from scipy.special import ndtri
+import bilby
 
-class Prior(object):
-    """
-    A prior probability distribution.
-    """
-    pass
+KNOWN_PRIORS = {
+    "UniformInComponentsChirpMass": bilby.gw.prior.UniformInComponentsChirpMass,
+    "Uniform": bilby.prior.Uniform,
+    "PowerLaw": bilby.prior.PowerLaw,
+    "Sine": bilby.prior.Sine,
+    "UniformSourceFrame": bilby.gw.prior.UniformSourceFrame,
+    "UniformInComponentsMassRatio": bilby.gw.prior.UniformInComponentsMassRatio,
+}
 
-class Normal(Prior):
-    """
-    A normal prior probability distribution.
-    """
-    
-    def __init__(self, mean, std):
-        self.mean = mean
-        self.std = std
-        self.distro = stats.norm
-        
-    def logp(self, x):
-        return self.distro.logpdf(x, loc = self.mean, scale = self.std)
 
-    def transform(self, x):
-        """
-        Transform from unit normalisation to this prior.
+class PriorDict(bilby.core.prior.PriorDict):
 
-        Parameters
-        ----------
-        x : float
-           The position in the normalised hyperparameter space
-        """
-        
-        return self.mean + self.srd * ndtri(x)
+    def from_dictionary(self, dictionary):
+
+        for key, value in dictionary.items():
+            if value["function"] in KNOWN_PRIORS:
+                kind = value.pop("function")
+                print(kind, value)
+                dictionary[key] = KNOWN_PRIORS[kind](**value)
+
+        super().from_dictionary(dictionary)
+
+    @property
+    def names(self):
+        return list(self.keys())

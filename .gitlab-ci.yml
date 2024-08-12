@@ -1,14 +1,22 @@
 stages:
   - analysis
   - test
+  - science tests
   - build
   - deploy
 
-image: python:3.6
+image: python:3.9
 
 include:
   - template: Dependency-Scanning.gitlab-ci.yml
 
+documentation-coverage:
+  stage: analysis
+  allow_failure: true
+  script:
+   - pip install docstr-coverage
+   - docstr-coverage -F 60.0 heron
+  coverage: '/Total coverage: (\d+\.\d+%)/'
   
 pylint:
   stage: analysis
@@ -22,36 +30,14 @@ flake8:
   stage: analysis
   allow_failure: false
   before_script:
-    - pip install flake8
+    - pip install flake8 flake8_formatter_junit_xml
   script:
-    - flake8  --count --select=E9,F63,F7,F82 --show-source --statistics heron/
+    - flake8  --count --select=E9,F63,F7,F82 --format junit-xml --verbose heron > report.xml
     # exit-zero treats all errors as warnings.
-    - flake8  --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics heron/
-    
-test-python27:
-  stage: test
-  image: python:2.7
-  allow_failure: true
-  script:
-    - pip install numpy
-    - pip install -r requirements.txt
-    - python setup.py test
-
-test-python36:
-  stage: test
-  image: python:3.6
-  script:
-    - pip install numpy
-    - pip install -r requirements.txt
-    - python setup.py test
-
-test-python37:
-  stage: test
-  image: python:3.7
-  script:
-    - pip install numpy
-    - pip install -r requirements.txt
-    - python setup.py test
+    - flake8  --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics  heron/
+  artifacts:  
+    reports:
+      junit: report.xml
 
 test-python38:
   stage: test
@@ -59,7 +45,65 @@ test-python38:
   script:
     - pip install numpy
     - pip install -r requirements.txt
+    - pip install -r requirements_test.txt
     - python setup.py test
+
+test-python39:
+  stage: test
+  image: python:3.9
+  before_script:
+    - pip install coverage unittest-xml-reporting
+  script:
+    - pip install numpy
+    - pip install -r requirements.txt
+    - pip install -r requirements_test.txt
+    - coverage run -m xmlrunner discover tests/ -o junit-reports
+    #- coverage report
+    #- coverage xml
+  # artifacts:
+  #   when: always
+  #   paths:
+  #     - public/coverage.txt
+  #   reports:
+  #     junit: junit-reports/*
+  #     coverage_report:
+  #       coverage_format: cobertura
+  #       path: coverage.xml
+  coverage: '/TOTAL\s+\d+\s+\d+\s+(\d+%)/'
+
+
+test-python310:
+  stage: test
+  image: python:3.10
+  script:
+    - pip install numpy
+    - pip install -r requirements.txt
+    - pip install -r requirements_test.txt
+    - python setup.py test
+
+test-python311:
+  stage: test
+  image: python:3.11
+  script:
+    - pip install numpy
+    - pip install -r requirements.txt
+    - pip install -r requirements_test.txt
+    - python setup.py test
+  allow_failure: True
+
+####
+# Science Tests
+####
+
+science-python39:
+  stage: science tests
+  image: python:3.9
+  script:
+    - pip install numpy
+    - pip install -r requirements.txt
+    - pip install -r requirements_test.txt
+    - python -m unittest discover science-tests/
+  allow_failure: True
 
 pages:
   image: sphinxdoc/sphinx
@@ -76,53 +120,3 @@ pages:
     - public
   only:
   - master
-# Build receipe for standalone wheels on Linux
-wheel-27:
-  image: python:2.7
-  stage: build
-  script:
-    - pip install wheel
-    # Build wheel
-    - python setup.py bdist_wheel --universal
-  dependencies: []
-  artifacts:
-    expire_in: 3h
-    paths:
-      - dist
-
-wheel-36:
-  image: python:3.6
-  stage: build
-  script:
-    - pip install wheel
-    # Build wheel
-    - python setup.py bdist_wheel --universal
-  dependencies: []
-  artifacts:
-    expire_in: 3h
-    paths:
-      - dist
-
-wheel-37:
-  image: python:3.7
-  stage: build
-  script:
-    - pip install wheel
-    # Build wheel
-    - python setup.py bdist_wheel --universal
-  dependencies: []
-  artifacts:
-    expire_in: 3h
-    paths:
-      - dist
-
-deploy:wheel:
-  stage: deploy
-  script:
-    - pip install twine
-    - twine upload dist/*
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-      if: '$CI_COMMIT_TAG'
-      when: on_success
-    - when: never

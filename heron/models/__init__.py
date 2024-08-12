@@ -1,76 +1,81 @@
+import torch
+from lal import antenna, MSUN_SI
+from astropy import units as u
 
-import numpy as np
 
-class Model(object):
-    """
-    This is the factory class for statistical models used for waveform generation.
+class WaveformModel:
 
-    A model class must expose the following methods:
+    def _convert(self, args):
+        if "mass_ratio" in args and "chirp_mass" in args:
+            args["total_mass"] = (
+                args["chirp_mass"]
+                * (1 + args["mass_ratio"]) ** 1.2
+                / args["mass_ratio"] ** 0.6
+            )
+        if "total_mass" in args and "mass_ratio" in args:
+            args = self._convert_mass_ratio_total_mass(args)
+        if "luminosity_distance" in args:
+            args = self._convert_luminosity_distance(args)
+        if "geocent_time" in args:
+            args["gpstime"] = args.pop("geocent_time")
 
-    - `distribution` : produce a distribution of waveforms at a given point in the parameter space
-    - `mean` : produce a mean waveform at a given point in the parameter space
-    - `train` : provide an interface for training the model
-    """
+        return args
 
-    def __init__(self):
+    def _convert_luminosity_distance(self, args):
+        args["distance"] = args.pop("luminosity_distance")
+        return args
+
+    def _convert_mass_ratio_total_mass(self, args):        
         """
-        Make some default initialisations.
-        These don't really mean anything, but it's important that the variables exist.
-        This __init__ function ought to be usable as a template for other functions, or run from the superclass.
-        """
-
-        # Need to explicitly set the number of dimensions of the training data.
-        # TODO: Decide if this is actually required.
-        self.x_dimensions = 2
-
-        # Need to create a lookup table between the columns in the model
-        # and their location in the training data
-        self.columns = {0: "time",
-                        1: "second quantity"}
-        self.c_ind = {j:i for i,j in self.columns.items()}
-
-        # The training data contains both the x and the y data, so we need
-        # to specify which are parameters.
-        # It's worth noting that right now, time isn't a parameter...
-        self.parameters = ("second quantity",)
-    
-    def _process_inputs(self, times, p):
-        """
-        Apply regularisations and normalisations to any input point dictionary.
+        Convert a mass ratio and a total mass into individual component masses.
+        If the masses have no units they are assumed to be in SI units.
 
         Parameters
         ----------
-        times: list, array-like
-           An array of time stamps.
-        p : dict
-           A dictionary of the input locations
+        args['total_mass'] : float, `astropy.units.Quantity`
+           The total mass for the system.
+        args['mass_ratio'] : float
+           The mass ratio of the system using the convention m2/m1
         """
-
-        # The default implementation of this method just passes the data straight through.
-       
-        return times, p
-    
-    def _generate_eval_matrix(self, p, times):
-        """
-        Create the matrix of parameter points at which to evaluate the model.
-        """
-
-        times, p = self._process_inputs(times, p)
-
+        args["m1"] = (args["total_mass"] / (1 + args["mass_ratio"]))
+        args["m2"] = (args["total_mass"] / (1 + (1 / args["mass_ratio"])))
+        # Do these have units?
+        # If not then we can skip some relatively expensive operations and apply a heuristic.
+        if isinstance(args["m1"], u.Quantity):
+            args["m1"] = args["m1"].to_value(u.kilogram)
+            args["m2"] = args["m2"].to_value(u.kilogram)
+        if (not isinstance(args["m1"], u.Quantity)) and (args["m1"] < 1000):
+            # This appears to be in solar masses
+            args["m1"] *= MSUN_SI
+        if (not isinstance(args["m2"], u.Quantity)) and (args["m2"] < 1000):
+            # This appears to be in solar masses
+            args["m2"] *= MSUN_SI
         
-        
-        nt = len(times)
-        points = np.ones((nt, self.x_dimensions))
-        points[:,self.c_ind['time']] = times
+        args.pop("total_mass")
+        args.pop("mass_ratio")
 
-        for parameter in self.parameters:
-            if parameter in p.keys():
-                value = p[parameter]
-            else:
-                value = 0.0
-                
-            points[:, self.c_ind[parameter]] *= value
+        return args
 
-        return points
-    
+
+class WaveformApproximant(WaveformModel):
+    """
+    This class handles a waveform approximant model.
+    """
+
+    pass
+
+
+class WaveformSurrogate(WaveformModel):
+    """
+    This class handles a waveform surrogate model.
+    """
+
+    pass
+
+
+class PSDModel:
+    pass
+
+
+class PSDApproximant(PSDModel):
     pass

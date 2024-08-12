@@ -1,0 +1,31 @@
+def profile_likelihood(self):
+    self.waveform = IMRPhenomPv2()
+    self.psd_model = AdvancedLIGO()
+
+    self.injections = make_injection_zero_noise(waveform=IMRPhenomPv2,
+                                     injection_parameters={"m1": 35*u.solMass,
+                                                          "m2": 30*u.solMass,
+                                                          "gpstime": 4000,
+                                                          "distance": 410 * u.megaparsec},
+                                     detectors={"AdvancedLIGOHanford": "AdvancedLIGO",
+                                                "AdvancedLIGOLivingston": "AdvancedLIGO"}
+                                     )
+
+    data = self.injections['H1']
+
+    likelihood = TimeDomainLikelihood(data, psd=self.psd_model)
+
+    test_waveform = self.waveform.time_domain(parameters={"m1": 35*u.solMass,
+                                                          "m2": 30*u.solMass,
+                                                          "gpstime": 4000,
+                                                          "distance": 410 * u.megaparsec}, times=data.times)
+
+    projected_waveform = test_waveform.project(AdvancedLIGOHanford(),
+                                                          ra=0, dec=0,
+                                                          phi_0=0, psi=0,
+                                                          iota=0)
+
+    log_like = likelihood.log_likelihood(projected_waveform)
+
+
+profile_likelihood()
