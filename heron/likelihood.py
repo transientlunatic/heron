@@ -33,7 +33,8 @@ class Likelihood(LikelihoodBase):
         return np.einsum(*args, **kwargs)
     
     def logdet(self, K):
-        return np.linalg.slogdet(K).logabsdet
+        (sign, logabsdet) = np.linalg.slogdet(K)
+        return logabsdet
 
     def inverse(self, A):
         return np.linalg.inv(A)

@@ -121,6 +121,9 @@ def injection_parameters_add_units(parameters):
 @click.command()
 @click.option("--settings")
 def injection(settings):
+
+    click.secho("Creating an injection with the heron injection engine")
+
     settings = load_yaml(settings)
 
     if "logging" in settings:
