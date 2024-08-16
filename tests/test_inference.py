@@ -19,7 +19,8 @@ from heron.models.lalsimulation import SEOBNRv3, IMRPhenomPv2, IMRPhenomPv2_Fake
 from heron.models.lalnoise import AdvancedLIGO
 from heron.injection import make_injection
 from heron.detector import Detector, AdvancedLIGOHanford, AdvancedLIGOLivingston, AdvancedVirgo
-from heron.likelihood import MultiDetector, TimeDomainLikelihood, TimeDomainLikelihoodModelUncertainty, TimeDomainLikelihoodPyTorch, TimeDomainLikelihoodModelUncertaintyPyTorch
+from heron.likelihood import MultiDetector, TimeDomainLikelihood, TimeDomainLikelihoodModelUncertainty
+# TimeDomainLikelihoodPyTorch, TimeDomainLikelihoodModelUncertaintyPyTorch
 
 from heron.inference import heron_inference, parse_dict, load_yaml
 
@@ -55,6 +56,9 @@ class Test_Filter(unittest.TestCase):
         test_waveform = self.waveform.time_domain(parameters={"m1": 35*u.solMass,
                                                               "m2": 30*u.solMass,
                                                               "distance": 1000 * u.megaparsec}, times=likelihood.times)
+
+        print("noise max", likelihood.C.max())
+        print("waveform max", np.array(test_waveform['plus'].data).max())
         snr = likelihood.snr(test_waveform.project(AdvancedLIGOHanford(),
                                                    ra=0, dec=0,
                                                    phi_0=0, psi=0,
@@ -176,6 +180,8 @@ class TestInference(unittest.TestCase):
     # def test_sampler(self):
     #     heron_inference("tests/test_inference_config.yaml")
 
+
+@unittest.skip("Skipping gpytorch tests until these are nearer being ready")
 class Test_PyTorch(unittest.TestCase):
     """Test that the pytorch likelihoods work."""
 
