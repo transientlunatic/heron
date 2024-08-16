@@ -1,23 +1,16 @@
-# This is a basic workflow to help you get started with Actions
-
-name: CI
-
-# Controls when the action will run. Triggers the workflow on push or pull request
-# events but only for the master branch
+name: Tests
 on:
   push:
-    branches: [ review ]
+    branches:
+      - master
+      - v*-preview
   pull_request:
-    branches: [ review ]
+    branches:
+      - master
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This workflow contains a single job called "build"
-  build:
-    # The type of runner that the job will run on
+  test:
     runs-on: ubuntu-latest
-
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
     - uses: actions/checkout@v2
       
@@ -25,23 +18,7 @@ jobs:
       uses: actions/setup-python@v2
       with:
         python-version: 3.8
-        
-    - name: Build HTML Docs
+
+    - name: Run Tests
       run: |
-        sudo apt install pandoc
-        pip install sphinx
-        pip install kentigern
-        pip install -r requirements.txt
-        pip install -r requirements_dev.txt
-        pip install .
-        cd docs
-        make html
-        
-    - name: SCP Deploy HTML Docs
-      uses: horochx/deploy-via-scp@v1.0.1
-      with:
-        local: docs/_build/html/*
-        remote: /home/danwilliams/code.daniel-williams.co.uk/heron/review
-        host: ${{ secrets.sshhost }}
-        user: ${{ secrets.sshuser }}
-        key: ${{ secrets.sshkey }}
+        python -m unittest discover tests/
