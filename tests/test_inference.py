@@ -17,7 +17,7 @@ import bilby.gw.prior
 
 from heron.models.lalsimulation import SEOBNRv3, IMRPhenomPv2, IMRPhenomPv2_FakeUncertainty
 from heron.models.lalnoise import AdvancedLIGO
-from heron.injection import make_injection
+from heron.injection import make_injection, make_injection_zero_noise
 from heron.detector import Detector, AdvancedLIGOHanford, AdvancedLIGOLivingston, AdvancedVirgo
 from heron.likelihood import MultiDetector, TimeDomainLikelihood, TimeDomainLikelihoodModelUncertainty
 # TimeDomainLikelihoodPyTorch, TimeDomainLikelihoodModelUncertaintyPyTorch
@@ -28,6 +28,49 @@ from torch.cuda import is_available
 
 CUDA_NOT_AVAILABLE = not is_available()
 
+
+class Test_Likelihood_ZeroNoise(unittest.TestCase):
+    """
+    Test likelihoods on a zero noise injection.
+    """
+
+    def setUp(self):
+        self.waveform = IMRPhenomPv2()
+        self.psd_model = AdvancedLIGO()
+
+        self.injections = make_injection_zero_noise(waveform=IMRPhenomPv2,
+                                         injection_parameters={"distance": 1000*u.megaparsec,
+                                                               "mass_ratio": 0.6,
+                                                               "gpstime": 0,
+                                                               "total_mass": 60 * u.solMass},
+                                         detectors={"AdvancedLIGOHanford": "AdvancedLIGO",
+                                                    "AdvancedLIGOLivingston": "AdvancedLIGO"}
+                                         )
+
+    def test_likelihood_no_norm(self):
+        data = self.injections['H1']
+
+        from gwpy.plot import Plot
+
+        likelihood = TimeDomainLikelihood(data, psd=self.psd_model)
+        
+        test_waveform = self.waveform.time_domain(parameters={"distance": 1000*u.megaparsec,
+                                                               "mass_ratio": 0.6,
+                                                              "gpstime": 0,
+                                                               "total_mass": 60 * u.solMass}, times=likelihood.times)
+        projected_waveform = test_waveform.project(AdvancedLIGOHanford(),
+                                                   ra=0, dec=0,
+                                                   gpstime=0,
+                                                   phi_0=0, psi=0,
+                                                   iota=0)
+
+        f = Plot(data, projected_waveform)
+        f.savefig("projected_waveform.png")
+
+        log_like = likelihood.log_likelihood(projected_waveform, norm=False)
+
+        self.assertTrue(log_like <= 1e-5)
+    
 
 class Test_Filter(unittest.TestCase):
     """Test that filters can be applied correctly to data."""
@@ -43,6 +86,7 @@ class Test_Filter(unittest.TestCase):
                                          detectors={"AdvancedLIGOHanford": "AdvancedLIGO",
                                                     "AdvancedLIGOLivingston": "AdvancedLIGO"}
                                          )
+
 
     def test_timedomain_psd(self):
         noise = self.psd_model.time_domain(times=self.injections['H1'].times)
@@ -66,7 +110,6 @@ class Test_Filter(unittest.TestCase):
         f.savefig("projected_waveform.png")
         
         snr = likelihood.snr(projected_waveform)
-        print("snr", snr)
         self.assertTrue(snr > 40 and snr < 45)
 
     # def test_snr_f(self):
