@@ -19,19 +19,19 @@ jobs:
     - name: Build HTML Docs
       run: |
         sudo apt install pandoc
-        pip install sphinx
+        pip install sphinx sphinx-multiversion
         pip install kentigern
         pip install -r requirements.txt
         pip install -r requirements_dev.txt
         pip install .
         cd docs
-        make multi
+        make html
         
     - name: SCP Deploy HTML Docs
       uses: horochx/deploy-via-scp@v1.0.1
       with:
         local: docs/_build/html/*
-        remote: /home/danwilliams/code.daniel-williams.co.uk/heron/
+        remote: /home/danwilliams/code.daniel-williams.co.uk/heron/${{ github.ref_name }}
         host: ${{ secrets.sshhost }}
         user: ${{ secrets.sshuser }}
         key: ${{ secrets.sshkey }}
