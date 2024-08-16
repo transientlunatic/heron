@@ -92,11 +92,12 @@ class TimeDomainLikelihood(Likelihood):
         """
         Calculate the signal to noise ratio for a given waveform.
         """
-        factor = 1e30
+        factor = 1e22
         N = len(self.times)
-        h_h = (
-            (np.array(waveform.data).T*factor @ self.solve(self.C*factor**2, np.array(waveform.data)*factor)) * self.dt
-        )
+        dt = (self.times[1] - self.times[0]).value
+        T = (self.times[-1] - self.times[0]).value
+        print("dt", dt, "N", N)
+        h_h = (np.array(waveform.data).T @ self.solve(self.C, np.array(waveform.data))) * (dt * dt / N / 4) 
         return np.sqrt(np.abs(h_h))
 
     def snr_f(self, waveform):
