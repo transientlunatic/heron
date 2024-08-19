@@ -109,7 +109,7 @@ def make_injection_zero_noise(
             logger.info(f"Saving framefile to {filename}")
             injection.write(filename, format="gwf")
 
-        return injections
+    return injections
 
 def injection_parameters_add_units(parameters):
     UNITS = {"luminosity_distance": u.megaparsec, "m1": u.solMass, "m2": u.solMass}

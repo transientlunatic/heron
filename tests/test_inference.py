@@ -19,8 +19,8 @@ from heron.models.lalsimulation import SEOBNRv3, IMRPhenomPv2, IMRPhenomPv2_Fake
 from heron.models.lalnoise import AdvancedLIGO
 from heron.injection import make_injection, make_injection_zero_noise
 from heron.detector import Detector, AdvancedLIGOHanford, AdvancedLIGOLivingston, AdvancedVirgo
-from heron.likelihood import MultiDetector, TimeDomainLikelihood, TimeDomainLikelihoodModelUncertainty
-# TimeDomainLikelihoodPyTorch, TimeDomainLikelihoodModelUncertaintyPyTorch
+from heron.likelihood import MultiDetector, TimeDomainLikelihood, TimeDomainLikelihoodModelUncertainty, TimeDomainLikelihoodPyTorch
+#, TimeDomainLikelihoodModelUncertaintyPyTorch
 
 from heron.inference import heron_inference, parse_dict, load_yaml
 
@@ -50,7 +50,7 @@ class Test_Likelihood_ZeroNoise(unittest.TestCase):
     def test_likelihood_no_norm(self):
         data = self.injections['H1']
 
-        from gwpy.plot import Plot
+        # from gwpy.plot import Plot
 
         likelihood = TimeDomainLikelihood(data, psd=self.psd_model)
         
@@ -64,20 +64,63 @@ class Test_Likelihood_ZeroNoise(unittest.TestCase):
                                                    phi_0=0, psi=0,
                                                    iota=0)
 
-        f = Plot(data, projected_waveform)
-        f.savefig("projected_waveform.png")
+        # f = Plot(data, projected_waveform)
+        # f.savefig("projected_waveform.png")
 
         log_like = likelihood.log_likelihood(projected_waveform, norm=False)
 
         self.assertTrue(log_like <= 1e-5)
 
 
+    def test_likelihood_maximum_at_true_value_mass_ratio(self):
+        
+        data = self.injections['H1']
+
+        likelihood = TimeDomainLikelihood(data, psd=self.psd_model)
+        mass_ratios = np.linspace(0.1, 1.0, 100)
+
+        log_likes = []
+        for mass_ratio in mass_ratios:
+        
+            test_waveform = self.waveform.time_domain(parameters={"distance": 1000*u.megaparsec,
+                                                                   "mass_ratio": mass_ratio,
+                                                                  "gpstime": 0,
+                                                                   "total_mass": 60 * u.solMass}, times=likelihood.times)
+            projected_waveform = test_waveform.project(AdvancedLIGOHanford(),
+                                                       ra=0, dec=0,
+                                                       gpstime=0,
+                                                       phi_0=0, psi=0,
+                                                       iota=0)
+
+            log_likes.append(likelihood.log_likelihood(projected_waveform))
+
+        self.assertTrue(mass_ratios[np.argmax(log_likes)] == 0.6)
+
+
+class Test_PyTorch_Likelihood_ZeroNoise(unittest.TestCase):
+    """
+    Test likelihoods on a zero noise injection.
+    """
+
+    def setUp(self):
+        self.waveform = IMRPhenomPv2()
+        self.psd_model = AdvancedLIGO()
+
+        self.injections = make_injection_zero_noise(waveform=IMRPhenomPv2,
+                                         injection_parameters={"distance": 1000*u.megaparsec,
+                                                               "mass_ratio": 0.6,
+                                                               "gpstime": 0,
+                                                               "total_mass": 60 * u.solMass},
+                                         detectors={"AdvancedLIGOHanford": "AdvancedLIGO",
+                                                    "AdvancedLIGOLivingston": "AdvancedLIGO"}
+                                         )
+
     def test_likelihood_no_norm(self):
         data = self.injections['H1']
 
-        from gwpy.plot import Plot
+        # from gwpy.plot import Plot
 
-        likelihood = TimeDomainLikelihood(data, psd=self.psd_model)
+        likelihood = TimeDomainLikelihoodPyTorch(data, psd=self.psd_model)
         
         test_waveform = self.waveform.time_domain(parameters={"distance": 1000*u.megaparsec,
                                                                "mass_ratio": 0.6,
@@ -89,12 +132,63 @@ class Test_Likelihood_ZeroNoise(unittest.TestCase):
                                                    phi_0=0, psi=0,
                                                    iota=0)
 
-        f = Plot(data, projected_waveform)
-        f.savefig("projected_waveform.png")
+        log_like = likelihood.log_likelihood(projected_waveform, norm=False)
 
-        log_like = likelihood.log_likelihood(projected_waveform)
+        self.assertTrue(log_like.cpu().numpy() <= 1e-5)
 
-        self.assertTrue(log_like <= 1e-5)
+
+    def test_likelihood_maximum_at_true_value_mass_ratio(self):
+        
+        data = self.injections['H1']
+
+        likelihood = TimeDomainLikelihoodPyTorch(data, psd=self.psd_model)
+        mass_ratios = np.linspace(0.1, 1.0, 100)
+
+        log_likes = []
+        for mass_ratio in mass_ratios:
+        
+            test_waveform = self.waveform.time_domain(parameters={"distance": 1000*u.megaparsec,
+                                                                   "mass_ratio": mass_ratio,
+                                                                  "gpstime": 0,
+                                                                   "total_mass": 60 * u.solMass}, times=likelihood.times)
+            projected_waveform = test_waveform.project(AdvancedLIGOHanford(),
+                                                       ra=0, dec=0,
+                                                       gpstime=0,
+                                                       phi_0=0, psi=0,
+                                                       iota=0)
+
+            log_likes.append(likelihood.log_likelihood(projected_waveform).cpu().numpy())
+
+        self.assertTrue(mass_ratios[np.argmax(log_likes)] == 0.6)
+
+
+    def test_likelihood_numpy_equivalent(self):
+        
+        data = self.injections['H1']
+
+        likelihood = TimeDomainLikelihoodPyTorch(data, psd=self.psd_model)
+        numpy_likelihood = TimeDomainLikelihood(data, psd=self.psd_model)
+        mass_ratios = np.linspace(0.1, 1.0, 100)
+
+        log_likes = []
+        log_likes_n = []
+        for mass_ratio in mass_ratios:
+        
+            test_waveform = self.waveform.time_domain(parameters={"distance": 1000*u.megaparsec,
+                                                                   "mass_ratio": mass_ratio,
+                                                                  "gpstime": 0,
+                                                                   "total_mass": 60 * u.solMass}, times=likelihood.times)
+            projected_waveform = test_waveform.project(AdvancedLIGOHanford(),
+                                                       ra=0, dec=0,
+                                                       gpstime=0,
+                                                       phi_0=0, psi=0,
+                                                       iota=0)
+
+            log_likes.append(likelihood.log_likelihood(projected_waveform).cpu().numpy())
+            log_likes_n.append(numpy_likelihood.log_likelihood(projected_waveform))
+
+        self.assertTrue(mass_ratios[np.argmax(log_likes)] == 0.6)
+        self.assertTrue(np.all((np.array(log_likes) - np.array(log_likes_n)) < 0.001))
         
 
 class Test_Filter(unittest.TestCase):
