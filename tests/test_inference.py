@@ -70,7 +70,32 @@ class Test_Likelihood_ZeroNoise(unittest.TestCase):
         log_like = likelihood.log_likelihood(projected_waveform, norm=False)
 
         self.assertTrue(log_like <= 1e-5)
-    
+
+
+    def test_likelihood_no_norm(self):
+        data = self.injections['H1']
+
+        from gwpy.plot import Plot
+
+        likelihood = TimeDomainLikelihood(data, psd=self.psd_model)
+        
+        test_waveform = self.waveform.time_domain(parameters={"distance": 1000*u.megaparsec,
+                                                               "mass_ratio": 0.6,
+                                                              "gpstime": 0,
+                                                               "total_mass": 60 * u.solMass}, times=likelihood.times)
+        projected_waveform = test_waveform.project(AdvancedLIGOHanford(),
+                                                   ra=0, dec=0,
+                                                   gpstime=0,
+                                                   phi_0=0, psi=0,
+                                                   iota=0)
+
+        f = Plot(data, projected_waveform)
+        f.savefig("projected_waveform.png")
+
+        log_like = likelihood.log_likelihood(projected_waveform)
+
+        self.assertTrue(log_like <= 1e-5)
+        
 
 class Test_Filter(unittest.TestCase):
     """Test that filters can be applied correctly to data."""
