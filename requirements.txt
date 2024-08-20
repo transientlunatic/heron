@@ -3,7 +3,7 @@ matplotlib
 scipy
 progressbar
 emcee
-pyyaml
+pyyaml==6.0.2
 jinja2
 cython
 george
