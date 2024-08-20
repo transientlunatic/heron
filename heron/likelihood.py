@@ -102,7 +102,7 @@ class TimeDomainLikelihood(Likelihood):
             (residual) @ self.solve(self.C[a[0]:a[1],b[0]:b[1]], residual) * (self.dt * self.dt / 4) / 4
         )
         normalisation = self.logdet(2 * np.pi * self.C[a[0]:a[1],b[0]:b[1]]) if norm else 0
-        return -0.5 * weighted_residual + 0.5 * normalisation
+        return 0.5 * weighted_residual + 0.5 * normalisation
 
     def __call__(self, parameters):
         self.logger.info(parameters)
@@ -233,6 +233,8 @@ class TimeDomainLikelihoodPyTorch(LikelihoodPyTorch):
         self.logger.info(f"Using device {device}")
         self.psd = psd
 
+        self.timeseries = data
+        
         self.data = torch.tensor(data.data, device=self.device, dtype=torch.double)
         self.times = data.times
 
@@ -263,14 +265,24 @@ class TimeDomainLikelihoodPyTorch(LikelihoodPyTorch):
         h_h = (waveform_d.T @ self.solve(self.C, waveform_d)) * (dt * dt / N / 4) / 4
         return torch.sqrt(torch.abs(h_h))
 
-    def log_likelihood(self, waveform):
-        waveform_d = torch.tensor(waveform.data, device=self.device, dtype=torch.double)
-        residual = self.data - waveform_d
+    def log_likelihood(self, waveform, norm=True):
+        a, b = self.timeseries.determine_overlap(self, waveform)
+        residual = np.array(self.data.data[a[0]:a[1]]) - np.array(waveform.data[b[0]:b[1]])
         weighted_residual = (
-            (residual) @ self.solve(self.C, residual) * (self.dt * self.dt / 4) / 4
+            (residual) @ self.solve(self.C[a[0]:a[1],b[0]:b[1]], residual) * (self.dt * self.dt / 4) / 4
         )
-        normalisation = self.logdet(2 * np.pi * self.C)
-        return -0.5 * weighted_residual + 0.5 * normalisation
+        normalisation = self.logdet(2 * np.pi * self.C[a[0]:a[1],b[0]:b[1]]) if norm else 0
+        return 0.5 * weighted_residual + 0.5 * normalisation
+    
+    def log_likelihood(self, waveform, norm=True):
+        a, b = self.timeseries.determine_overlap(self, waveform)
+        waveform_d = torch.tensor(waveform.data, device=self.device, dtype=torch.double)
+        residual = self.data[a[0]:a[1]] - waveform_d[b[0]:b[1]]
+        weighted_residual = (
+            (residual) @ self.solve(self.C[a[0]:a[1],b[0]:b[1]], residual) * (self.dt * self.dt / 4) / 4
+        )
+        normalisation = self.logdet(2 * np.pi * self.C[a[0]:a[1],b[0]:b[1]]) if norm else 0
+        return 0.5 * weighted_residual + 0.5 * normalisation
 
     def __call__(self, parameters):
         self.logger.info(parameters)
