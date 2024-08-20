@@ -11,4 +11,4 @@ nestle
 sphinx
 numpydoc
 git+https://github.com/transientlunatic/sphinx-daniel-theme.git
-nbsphinx
+nbsphinx==0.9.5
