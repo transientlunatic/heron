@@ -8,7 +8,7 @@ cython
 george
 nestle
 
-sphinx
+sphinx==8.0.2
 numpydoc
 git+https://github.com/transientlunatic/sphinx-daniel-theme.git
 nbsphinx
