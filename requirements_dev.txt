@@ -5,7 +5,7 @@ emcee
 pyyaml
 jinja2
 cython
-george
+george==0.4.3
 nestle
 
 sphinx
