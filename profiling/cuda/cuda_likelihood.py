@@ -9,7 +9,6 @@ from heron.models.lalsimulation import IMRPhenomPv2, IMRPhenomPv2_FakeUncertaint
 
 def profile_likelihood_pytorch_nouncert():
     waveform = IMRPhenomPv2()
-
     psd_model = AdvancedLIGO()
 
     injections = make_injection_zero_noise(waveform=IMRPhenomPv2,
@@ -38,7 +37,6 @@ def profile_likelihood_pytorch_nouncert():
                                                           iota=0)
 
     log_like = likelihood.log_likelihood(projected_waveform)
-
 
 
 from torch.profiler import profile, record_function, ProfilerActivity
