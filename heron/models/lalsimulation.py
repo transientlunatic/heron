@@ -198,7 +198,7 @@ class IMRPhenomPv2_FakeUncertainty(IMRPhenomPv2):
 
     def time_domain(self, parameters, times=None):
         waveform_dict = super().time_domain(parameters, times)
-        covariance = torch.eye(len(waveform_dict["plus"].times)) * self.covariance
+        covariance = np.eye((len(waveform_dict["plus"].times))) * self.covariance**2
         for wave in waveform_dict.waveforms.values():
             # Artificially add a covariance function to each of these
             wave.covariance = covariance

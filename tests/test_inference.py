@@ -189,7 +189,8 @@ class Test_PyTorch_Likelihood_ZeroNoise(unittest.TestCase):
 
         self.assertTrue(mass_ratios[np.argmax(log_likes)] == 0.6)
         self.assertTrue(np.all((np.array(log_likes) - np.array(log_likes_n)) < 0.001))
-        
+
+
 
 class Test_Filter(unittest.TestCase):
     """Test that filters can be applied correctly to data."""
@@ -225,8 +226,6 @@ class Test_Filter(unittest.TestCase):
                                                    phi_0=0, psi=0,
                                                    iota=0)
 
-        f = projected_waveform.plot()
-        f.savefig("projected_waveform.png")
         
         snr = likelihood.snr(projected_waveform)
         self.assertTrue(snr > 40 and snr < 45)

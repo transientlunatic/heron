@@ -126,6 +126,9 @@ class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
     def __init__(self, data, psd, waveform=None, detector=None):
         super().__init__(data, psd, waveform, detector)
 
+        self.norm_factor_2 = np.max(self.C)
+        self.norm_factor = np.sqrt(self.norm_factor_2)
+
     def _normalisation(self, K, S):
         norm = (
             -1.5 * K.shape[0] * self.log(2 * self.pi)
@@ -135,12 +138,13 @@ class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
         )
         return norm
 
-    def _weighted_data(self):
+    def _weighted_data(self, indices):
         """Return the weighted data component"""
         # TODO This can all be pre-computed
+        (a, b) = indices
         if not hasattr(self, "weighted_data_CACHE"):
             dw = self.weighted_data_CACHE = (
-                -0.5 * self.data.T @ self.solve(self.C, self.data)
+                -0.5 * (np.array(self.data)/np.sqrt(self.norm_factor))[a[0]:a[1]].T @ self.solve((self.C/self.norm_factor_2)[a[0]:a[1], a[0]:a[1]], self.data[a[0]:a[1]])
             )
         else:
             dw = self.weighted_data_CACHE
@@ -150,22 +154,34 @@ class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
         """Return the inner product of the GPR mean"""
         return -0.5 * np.array(mu).T @ self.solve(K, mu)
 
-    def _weighted_cross(self, mu, K):
-        a = self.solve(self.C, self.data) + self.solve(K, mu)
-        b = self.inverse_C + self.inverse(K)
-        return 0.5 * a.T @ self.solve(b, a)
+    def _weighted_cross(self, mu, K, indices):
+        # NB the first part of this is repeated elsewhere
+        (a,b) = indices
+        C = (self.C/self.norm_factor_2)[a[0]:a[1],a[0]:a[1]]
+        data = (self.data/self.norm_factor)[a[0]:a[1]]
+        
+        A = (self.solve(C, data) - self.solve(K, mu))
+        B = (self.inverse_C*self.norm_factor_2)[a[0]:a[1],a[0]:a[1]] + self.inverse(K)
+        return 0.5 * A.T @ self.solve(B, A)
 
-    def log_likelihood(self, waveform):
-        like = self._weighted_cross(waveform.data, waveform.covariance)
+    def log_likelihood(self, waveform, norm=True):
+        a, b = self.timeseries.determine_overlap(self, waveform)
+        
+        wf = np.array(waveform.data)[b[0]:b[1]]
+        wc = waveform.covariance[b[0]:b[1],b[0]:b[1]]
+        wc /= self.norm_factor_2 #np.max(wc)
+        wf /= self.norm_factor #np.sqrt(np.max(wc))
+        
+        like = - self._weighted_cross(wf, wc, indices=(a,b))
         # print("cross term", like)
-        A = self._weighted_data()
+        A = self._weighted_data((a, b))
         # print("data term", A)
-        B = self._weighted_model(waveform.data, waveform.covariance)
+        B = self._weighted_model(wf, wc)
         # print("model term", B)
-        like = like + A + B
-        norm = self._normalisation(waveform.covariance, self.C)
+        like = like - A - B
+        #N = self._normalisation(waveform.covariance/np.sqrt(normalise), self.C/normalise)
         # print("normalisation", norm)
-        like += norm
+        #like += (N if norm else 0)
 
         return like
 
@@ -337,6 +353,8 @@ class TimeDomainLikelihoodModelUncertaintyPyTorch(TimeDomainLikelihoodPyTorch):
         return 0.5 * a.T @ self.solve(b, a)
 
     def log_likelihood(self, waveform):
+        a, b = self.timeseries.determine_overlap(self, waveform)
+        
         waveform_d = torch.tensor(waveform.data, device=self.device, dtype=torch.double)
         waveform_c = torch.tensor(
             waveform.covariance, device=self.device, dtype=torch.double
