@@ -179,9 +179,9 @@ class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
         B = self._weighted_model(wf, wc)
         # print("model term", B)
         like = like - A - B
-        #N = self._normalisation(waveform.covariance/np.sqrt(normalise), self.C/normalise)
+        N = self._normalisation(waveform.covariance/self.norm_factor, self.C/self.norm_factor_2)
         # print("normalisation", norm)
-        #like += (N if norm else 0)
+        like += (N if norm else 0)
 
         return like
 
