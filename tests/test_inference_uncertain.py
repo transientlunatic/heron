@@ -68,7 +68,7 @@ class Test_Likelihood_ZeroNoise_With_Uncertainty(unittest.TestCase):
 
         self.assertTrue(np.abs(mass_ratios[np.argmax(log_likes)] - 0.6) < 0.1)
 
-
+@unittest.skipIf(CUDA_NOT_AVAILABLE, "CUDA is not installed on this system")
 class Test_Likelihood_ZeroNoise_With_Uncertainty_PyTorch(unittest.TestCase):
     """
     Test likelihoods on a zero noise injection.
