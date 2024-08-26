@@ -108,7 +108,7 @@ class TimeDomainLikelihood(Likelihood):
         self.logger.info(parameters)
 
         keys = set(parameters.keys())
-        extrinsic = {"phase", "psi", "ra", "dec", "theta_jn"}
+        extrinsic = {"phase", "psi", "ra", "dec", "theta_jn", "gpstime", "geocent_time"}
         conversions = {"mass_ratio", "total_mass", "luminosity_distance"}
         bad_keys = keys - set(self.waveform._args.keys()) - extrinsic - conversions
         if len(bad_keys) > 0:

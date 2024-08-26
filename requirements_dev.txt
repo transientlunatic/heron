@@ -10,7 +10,7 @@ nestle
 
 sphinx
 sphinx-versions
-numpydoc
 kentigern
-nbsphinx
 sphinxcontrib-bibtex
+numpydoc==1.8.0
+nbsphinx==0.9.5

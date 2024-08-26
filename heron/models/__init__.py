@@ -26,16 +26,22 @@ class WaveformModel:
         return args
 
     def _convert_mass_ratio_total_mass(self, args):
-
-        args["m1"] = (args["total_mass"] / (1 + args["mass_ratio"])).to_value(
-            u.kilogram
-        )
-        args["m2"] = (args["total_mass"] / (1 + 1 / args["mass_ratio"])).to_value(
-            u.kilogram
-        )
+        args["m1"] = (args["total_mass"] / (1 + args["mass_ratio"]))
+        args["m2"] = (args["total_mass"] / (1 + (1 / args["mass_ratio"])))
+        # Do these have units?
+        # If not then we can skip some relatively expensive operations and apply a heuristic.
+        if isinstance(args["m1"], u.Quantity):
+            args["m1"] = args["m1"].to_value(u.kilogram)
+            args["m2"] = args["m2"].to_value(u.kilogram)
+        if (not isinstance(args["m1"], u.Quantity)) and (args["m1"] < 1000):
+            # This appears to be in solar masses
+            args["m1"] *= MSUN_SI
+        if (not isinstance(args["m2"], u.Quantity)) and (args["m2"] < 1000):
+            # This appears to be in solar masses
+            args["m2"] *= MSUN_SI
+        
         args.pop("total_mass")
         args.pop("mass_ratio")
-
         return args
 
 
