@@ -1,5 +1,6 @@
 import torch
-from lal import antenna
+import numpy as np
+from lal import antenna, MSUN_SI
 from astropy import units as u
 
 
