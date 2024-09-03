@@ -6,7 +6,7 @@ import logging
 
 import click
 
-from gwpy.timeseries import TimeSeries
+from .types import TimeSeries
 import astropy.units as u
 
 from nessai.flowsampler import FlowSampler
@@ -84,6 +84,7 @@ def heron_inference(settings):
     if "data files" in settings.get("data", {}):
         # Load frame files from disk
         for ifo in settings["interferometers"]:
+            print(f"Loading {ifo} data")
             logger.info(
                 f"Loading {ifo} data from "
                 f"{settings['data']['data files'][ifo]}/{settings['data']['channels'][ifo]}"
@@ -93,14 +94,16 @@ def heron_inference(settings):
                 channel=settings["data"]["channels"][ifo],
                 format="gwf",
             )
-    elif "injection" in other_settings:
-        pass
+    #elif "injection" in other_settings:
+    #    pass
 
     # Make Likelihood
     if len(settings["interferometers"]) > 1:
         likelihoods = []
+        print("Creating likelihoods")
         waveform_model = KNOWN_WAVEFORMS[settings["waveform"]["model"]]()
         for ifo in settings["interferometers"]:
+            print(f"\t {ifo}")
             likelihoods.append(
                 KNOWN_LIKELIHOODS[settings.get("likelihood").get("function")](
                     data[ifo],
@@ -113,7 +116,7 @@ def heron_inference(settings):
                     ),
                 )
             )
-            likelihood = MultiDetector(*likelihoods)
+        likelihood = MultiDetector(*likelihoods)
 
     priors = heron.priors.PriorDict()
     priors.from_dictionary(settings["priors"])

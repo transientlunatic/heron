@@ -91,7 +91,6 @@ class LALSimulationApproximant(WaveformApproximant):
                 args[name] = argument.to_value(units[mappings[name]])
             elif name in mappings.keys() and argument:
                 # This is commented out as it causes problems if e.g. lalnative values are passed
-                print(f"Performing a mapping on {name}, {argument}")
                 args[name] = (argument * default_units[mappings[name]]).to_value(
                     units[mappings[name]]
                 )
