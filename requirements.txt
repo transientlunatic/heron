@@ -11,4 +11,4 @@ nestle
 elk-waveform
 gpytorch==1.0.1
 torch==2.4.0
-torchvision==0.5.0
+torchvision==0.19.1
