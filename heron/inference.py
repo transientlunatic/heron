@@ -6,7 +6,7 @@ import logging
 
 import click
 
-from gwpy.timeseries import TimeSeries
+from .types import TimeSeries
 import astropy.units as u
 
 from nessai.flowsampler import FlowSampler
