@@ -50,6 +50,9 @@ class TimeSeries(TimeSeries):
             overlap = timeseries_a.times[0], timeseries_a.times[-1]
         else:
             overlap = None
+            #print("No overlap found")
+            #print(timeseries_a.times[0], timeseries_a.times[-1])
+            #print(timeseries_b.times[0], timeseries_b.times[-1])
             return None
 
         start_a = np.argmin(np.abs(timeseries_a.times - overlap[0]))

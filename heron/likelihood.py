@@ -60,7 +60,6 @@ class TimeDomainLikelihood(Likelihood):
         self.timeseries = data
         self.data = np.array(data.data)
         self.times = data.times
-
         self.C = self.psd.covariance_matrix(times=self.times)
         self.inverse_C = np.linalg.inv(self.C)
 
@@ -96,7 +95,11 @@ class TimeDomainLikelihood(Likelihood):
         return np.sqrt(np.abs(h_h))
 
     def log_likelihood(self, waveform, norm=True):
-        a, b = self.timeseries.determine_overlap(self, waveform)
+        w = self.timeseries.determine_overlap(self, waveform)
+        if w is not None:
+            (a,b) = w
+        else:
+            return -np.inf
         residual = np.array(self.data.data[a[0]:a[1]]) - np.array(waveform.data[b[0]:b[1]])
         weighted_residual = (
             (residual) @ self.solve(self.C[a[0]:a[1],b[0]:b[1]], residual) * (self.dt * self.dt / 4) / 4
@@ -108,7 +111,7 @@ class TimeDomainLikelihood(Likelihood):
         self.logger.info(parameters)
 
         keys = set(parameters.keys())
-        extrinsic = {"phase", "psi", "ra", "dec", "theta_jn"}
+        extrinsic = {"phase", "psi", "ra", "dec", "theta_jn", "gpstime", "geocent_time"}
         conversions = {"mass_ratio", "total_mass", "luminosity_distance"}
         bad_keys = keys - set(self.waveform._args.keys()) - extrinsic - conversions
         if len(bad_keys) > 0:
