@@ -1,0 +1,64 @@
+logging: 
+  level: info
+
+injection:
+  parameters:
+    luminosity_distance: 1000
+    m1: 35
+    m2: 30
+  waveform: IMRPhenomPv2
+  interferometers:
+    H1: AdvancedLIGOHanford
+    L1: AdvancedLIGOLivingston
+  psds:
+    H1: AdvancedLIGO
+    L1: AdvancedLIGO
+  
+inference: 
+    name: Inference_Test
+
+    data:
+      data files:
+        H1: H1_injection.gwf
+        L1: L1_injection.gwf
+      channels:
+        H1: H1:Injection
+        L1: L1:Injection
+      
+    
+    waveform:
+      model: IMRPhenomPv2
+    interferometers:
+      H1: AdvancedLIGOHanford
+      L1: AdvancedLIGOLivingston
+    psds:
+      H1: AdvancedLIGO
+      L1: AdvancedLIGO
+    fixed_parameters:
+      ra: 1
+      dec: 0
+      psi: 0
+      phase: 0
+      theta_jn: 0
+        
+    priors: 
+        luminosity_distance:
+          function: UniformSourceFrame
+          name: luminosity_distance
+          minimum: !!float 1.0e2
+          maximum: !!float 5.0e3
+
+        mass_ratio:
+          function: UniformInComponentsMassRatio
+          name: mass_ratio
+          minimum: 0.125
+          maximum: 1
+
+    likelihood:
+        function: TimeDomainLikelihood
+        timing basis: [H1, L1]
+
+    sampler:
+      sampler: nessai
+      live points: 50
+      maximum uninformed: 100

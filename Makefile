@@ -65,7 +65,7 @@ docs:
 	rm -f docs/modules.rst
 	sphinx-apidoc -o docs/ heron
 	$(MAKE) -C docs clean
-	$(MAKE) -C docs html
+	$(MAKE) -C docs multihtml
 	$(BROWSER) docs/_build/html/index.html
 
 servedocs: docs

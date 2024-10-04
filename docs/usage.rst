@@ -1,6 +1,6 @@
-=====
-Usage
-=====
+===============
+Getting started
+===============
 
 In order to run one of Heron's built-in models you'll need to import that model as well as Heron itself, for example: ::
 

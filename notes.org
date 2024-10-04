@@ -1,0 +1,69 @@
+* To Do
+    :PROPERTIES:
+    :category: heron
+    :END:
+
+** REVIEW Inference interface
+   :LOGBOOK:
+   CLOCK: [2020-08-31 Mon 10:07]--[2020-08-31 Mon 10:45] =>  0:38
+   CLOCK: [2020-08-31 Mon 09:50]--[2020-08-31 Mon 09:51] =>  0:01
+   :END:
+   There seem to be problems with the inference interface.
+   There seems to be around 3 orders of magnitude difference between the likelihoods with and without the waveform uncertainty, with the waveform uncertainty bringing log-likelihoods into the region of -4000 c.f. -4.
+   It seems highly likely that this is a problem with the normalisation of the likelihood.
+
+   For the likelihood with waveform uncertainty the (additive) log-normalisation is implemented as 
+
+   #+BEGIN_SRC python
+   normalisation = torch.sum(torch.log(psd)) - torch.log(torch.prod(psd / psd.max()) + torch.prod(variance / variance.max())) + torch.log(psd.max())*len(psd) + torch.log(variance.max())*len(variance)
+   #+END_SRC
+
+   but for the case without the uncertainty it is [[file:heron/matched.py:152][implemented]] as
+
+   #+BEGIN_SRC python
+   normalisation = 0
+   #+END_SRC
+
+   I suspect this is the root of the problem!
+
+   In the case of no waveform uncertainty we can just treat this as if this quantity is zero, and so 
+
+   #+BEGIN_SRC python
+   normalisation = torch.sum(torch.log(psd)) - torch.log(torch.prod(psd / psd.max())) +  torch.log(psd.max())*len(psd)
+   #+END_SRC
+
+   This seems to have fixed the problem, and the two likelihoods now look reasonably sensible.
+   This needs to be reviewed though.
+
+*** REVIEW Open questions
+    + [ ] Is FFTing the time-domain covariance matrix the equivalent of a 1- or 2-sided PSD?
+
+** DONE Documentation
+*** Add class diagram to the documentation
+
+** DOING Antenna functions
+   + [ ] Need two polarisations
+   + [ ] How does the mixing of uncertainties work
+
+** TODO Bilby interface
+   + Probably just a wrapper around our own likelihood function.
+
+** TODO Considerations for Tests of GR
+   + Tests of GR generally assume that an approximant is correct how will this affect things.
+** TODO Considerations for population inference
+   + What effect will the systematics have on this?
+** TODO Check the lowest possible mass for model
+   + Defined by NR training waveforms
+** TODO Inference against GW150914
+** TODO Inference with analytical models as training data
+   + Using two models to train a GPR in order to estimate the overall uncertainty
+   + e.g. comparison in the (SEOBNR?) paper
+** TODO GW190412 
+   + High mass ratio
+** TODO GW190521
+   + Very high total mass
+** TODO GW190727
+** TODO Software injections
+** TODO Integrate additional waveform catalogues
+
+

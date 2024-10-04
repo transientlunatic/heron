@@ -1,0 +1,8 @@
+
+executable = /home/daniel/.pyenv/versions/machine-learning/bin/heron
+args = inference --settings /home/daniel/repositories/ligo/heron/scripts/test_settings.yml
+request_gpus = 1
+log                     = heron_test.log
+output                  = heron_test.out
+error                   = heron_test.err
+queue

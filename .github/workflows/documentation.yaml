@@ -1,0 +1,37 @@
+name: Documentation
+on:
+  push:
+    branches:
+      - master
+      - v*-preview
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+      
+    - name: Set up Python 3.8
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.8
+        
+    - name: Build HTML Docs
+      run: |
+        sudo apt install pandoc
+        pip install sphinx sphinx-multiversion
+        pip install kentigern
+        pip install -r requirements.txt
+        pip install -r requirements_dev.txt
+        pip install .
+        cd docs
+        make html
+        
+    - name: SCP Deploy HTML Docs
+      uses: horochx/deploy-via-scp@v1.0.1
+      with:
+        local: docs/_build/html/*
+        remote: /home/danwilliams/code.daniel-williams.co.uk/heron/${{ github.ref_name }}
+        host: ${{ secrets.sshhost }}
+        user: ${{ secrets.sshuser }}
+        key: ${{ secrets.sshkey }}
