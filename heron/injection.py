@@ -115,7 +115,7 @@ def injection_parameters_add_units(parameters):
     UNITS = {"luminosity_distance": u.megaparsec, "m1": u.solMass, "m2": u.solMass}
 
     for parameter, value in parameters.items():
-        if not isinstance(value, u.Quantity) and parameter in UNITS:
+        if not isinstance(value, u.Quantity) and (parameter in UNITS.keys()):
             parameters[parameter] = value * UNITS[parameter]
     return parameters
 
