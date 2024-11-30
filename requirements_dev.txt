@@ -6,7 +6,7 @@ pyyaml
 jinja2
 cython
 george
-nestle
+nestle==0.2.0
 
 sphinx
 numpydoc==1.8.0
