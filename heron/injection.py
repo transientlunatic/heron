@@ -22,6 +22,8 @@ logger = logging.getLogger("heron.injection")
 def make_injection(
     waveform=IMRPhenomPv2,
     injection_parameters={},
+    duration=32,
+    sample_rate=4096,
     times=None,
     detectors=None,
     framefile=None,
@@ -33,7 +35,7 @@ def make_injection(
     waveform = waveform()
 
     if times is None:
-        times = np.linspace(-0.5, 0.1, int(0.6 * 4096))
+        times = np.linspace(parameters['gpstime']-duration+2, parameters['gpstime']+2, int(duration * sample_rate))
     waveform = waveform.time_domain(
         parameters,
         times=times,
@@ -44,16 +46,19 @@ def make_injection(
         logger.info(f"Making injection for {detector}")
         psd_model = KNOWN_PSDS[psd_model]()
         detector = KNOWN_IFOS[detector]()
+        if times is None:
+            times = waveform['plus'].times.value
         data = psd_model.time_series(times)
+        print(data)
 
         channel = f"{detector.abbreviation}:Injection"
         injection = data + waveform.project(detector)
         injection.channel = channel
         injections[detector.abbreviation] = injection
-        likelihood = TimeDomainLikelihood(injection, psd=psd_model)
-        snr = likelihood.snr(waveform.project(detector))
+        # likelihood = TimeDomainLikelihood(injection, psd=psd_model)
+        # snr = likelihood.snr(waveform.project(detector))
 
-        logger.info(f"Optimal Filter SNR: {snr}")
+        #logger.info(f"Optimal Filter SNR: {snr}")
 
         if framefile:
             filename = f"{detector.abbreviation}_{framefile}.gwf"
@@ -113,7 +118,7 @@ def injection_parameters_add_units(parameters):
     UNITS = {"luminosity_distance": u.megaparsec, "m1": u.solMass, "m2": u.solMass}
 
     for parameter, value in parameters.items():
-        if not isinstance(value, u.Quantity):
+        if not isinstance(value, u.Quantity) and parameter in UNITS:
             parameters[parameter] = value * UNITS[parameter]
     return parameters
 
@@ -144,6 +149,8 @@ def injection(settings):
     }
     injections = make_injection(
         waveform=IMRPhenomPv2,
+        duration=settings["duration"],
+        sample_rate=settings["sample rate"],
         injection_parameters=parameters,
         detectors=detector_dict,
         framefile="injection",

@@ -122,9 +122,9 @@ class LALSimulationApproximant(WaveformApproximant):
         """
         Retrieve a time domain waveform for a given set of parameters.
         """
+        epoch = parameters.get("gpstime", parameters.get("epoch", 0))
         self._args.update(parameters)
-        epoch = parameters.get("gpstime", 0)
-
+        print("epoch is ", epoch)
         if not (self._args == self._cache_key):
             self.logger.info(f"Generating new waveform at {self.args}")
             self._cache_key = self.args.copy()
@@ -163,17 +163,17 @@ class LALSimulationApproximant(WaveformApproximant):
                 spl_hx = CubicSpline(times_wf, hx.data.data)
                 hp_data = spl_hp(times)
                 hx_data = spl_hx(times)
-                hp_ts = Waveform(data=hp_data, times=times)
-                hx_ts = Waveform(data=hx_data, times=times)
+                hp_ts = Waveform(data=hp_data, times=times + epoch)
+                hx_ts = Waveform(data=hx_data, times=times + epoch)
                 parameters.pop("time")
             else:
                 hp_data = hp.data.data
                 hx_data = hx.data.data
                 hp_ts = Waveform(data=hp_data, dt=hp.deltaT, t0=hp.epoch + epoch)
                 hx_ts = Waveform(data=hx_data, dt=hx.deltaT, t0=hx.epoch + epoch)
-
+            
             self._cache = WaveformDict(parameters=parameters, plus=hp_ts, cross=hx_ts)
-
+            print("written epoch is ", hp_ts.times[0])
         return self._cache
 
 
