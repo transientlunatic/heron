@@ -78,6 +78,7 @@ class LALSimulationPSD(PSDApproximant):
 
         dt = times[1] - times[0]
         N = len(times)
+        print(N)
         T = times[-1] - times[0]
         df = 1 / T
         frequencies = torch.arange(len(times) // 2 + 1) * df
