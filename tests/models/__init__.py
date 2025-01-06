@@ -179,3 +179,16 @@ class _GenericWaveform(unittest.TestCase):
                                                            "mass_2": mass2.to(u.kilogram).value})
 
         self.assertTrue(time_domain_1['plus'].data == time_domain_2['plus'].data)
+
+
+class _GenericPSD(unittest.TestCase):
+    
+    @classmethod
+    def setUpClass(self):
+        self.psd_model = AdvancedLIGO
+
+    def test_frequency_series_ascii_two_column(self):
+        """Test that a frequency series is correctly produced."""
+        frequency_series = self.psd_model().twocolumn()
+
+        self.assertTrue(frequency_series.ndim == 2)
