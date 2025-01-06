@@ -10,7 +10,8 @@ nestle
 
 sphinx
 sphinx-versions
-numpydoc
 kentigern
-nbsphinx
 sphinxcontrib-bibtex
+numpydoc==1.8.0
+git+https://github.com/transientlunatic/sphinx-daniel-theme.git
+nbsphinx==0.9.5

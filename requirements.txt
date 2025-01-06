@@ -10,11 +10,13 @@ cython
 george
 nestle
 elk-waveform>=0.13
-gpytorch
-torch
 lalsuite
 h5py
 click
 asimov
 pesummary
 nessai
+elk-waveform
+gpytorch==1.0.1
+torch==2.4.0
+torchvision==0.5.0
