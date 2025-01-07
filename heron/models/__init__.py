@@ -26,18 +26,7 @@ class WaveformModel:
         args["distance"] = args.pop("luminosity_distance")
         return args
 
-    def _convert_mass_ratio_total_mass(self, args):        
-        """
-        Convert a mass ratio and a total mass into individual component masses.
-        If the masses have no units they are assumed to be in SI units.
-
-        Parameters
-        ----------
-        args['total_mass'] : float, `astropy.units.Quantity`
-           The total mass for the system.
-        args['mass_ratio'] : float
-           The mass ratio of the system using the convention m2/m1
-        """
+    def _convert_mass_ratio_total_mass(self, args):
         args["m1"] = (args["total_mass"] / (1 + args["mass_ratio"]))
         args["m2"] = (args["total_mass"] / (1 + (1 / args["mass_ratio"])))
         # Do these have units?
@@ -54,7 +43,6 @@ class WaveformModel:
         
         args.pop("total_mass")
         args.pop("mass_ratio")
-
         return args
 
 

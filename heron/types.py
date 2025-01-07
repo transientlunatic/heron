@@ -8,6 +8,7 @@ from lal import cached_detector_by_prefix, TimeDelayFromEarthCenter, LIGOTimeGPS
 from lalinference import DetFrameToEquatorial
 
 import numpy as array_library
+import numpy as np
 import matplotlib.pyplot as plt
 
 
@@ -16,8 +17,61 @@ class TimeSeries(TimeSeries):
     Overload the GWPy timeseries so that additional methods can be defined upon it.
     """
 
-    pass
+    def determine_overlap(self, timeseries_a, timeseries_b):
+        def is_in(time, timeseries):
+            diff = np.min(np.abs(timeseries - time))
+            if diff < (timeseries[1] - timeseries[0]):
+                return True, diff
+            else:
+                return False, diff
 
+        overlap = None
+        if (
+            is_in(timeseries_a.times[-1], timeseries_b.times)[0]
+            and is_in(timeseries_b.times[0], timeseries_a.times)[0]
+        ):
+            overlap = timeseries_b.times[0], timeseries_a.times[-1]
+        elif (
+            is_in(timeseries_a.times[0], timeseries_b.times)[0]
+            and is_in(timeseries_b.times[-1], timeseries_a.times)[0]
+        ):
+            overlap = timeseries_a.times[0], timeseries_b.times[-1]
+        elif (
+            is_in(timeseries_b.times[0], timeseries_a.times)[0]
+            and is_in(timeseries_b.times[-1], timeseries_a.times)[0]
+            and not is_in(timeseries_a.times[-1], timeseries_b.times)[0]
+        ):
+            overlap = timeseries_b.times[0], timeseries_b.times[-1]
+        elif (
+            is_in(timeseries_a.times[0], timeseries_b.times)[0]
+            and is_in(timeseries_a.times[-1], timeseries_b.times)[0]
+            and not is_in(timeseries_b.times[-1], timeseries_a.times)[0]
+        ):
+            overlap = timeseries_a.times[0], timeseries_a.times[-1]
+        else:
+            overlap = None
+            #print("No overlap found")
+            #print(timeseries_a.times[0], timeseries_a.times[-1])
+            #print(timeseries_b.times[0], timeseries_b.times[-1])
+            return None
+
+        start_a = np.argmin(np.abs(timeseries_a.times - overlap[0]))
+        finish_a = np.argmin(np.abs(timeseries_a.times - overlap[-1]))
+
+        start_b = np.argmin(np.abs(timeseries_b.times - overlap[0]))
+        finish_b = np.argmin(np.abs(timeseries_b.times - overlap[-1]))
+        return (start_a, finish_a), (start_b, finish_b)
+    
+    def align(self, waveform_b):
+        """
+        Align this waveform with another one by altering the phase.
+        """
+
+        indices = self.determine_overlap(self, waveform_b)
+
+        return self[indices[0][0]:indices[0][1]], waveform_b[indices[1][0]: indices[1][1]]
+
+    
 
 class PSD(FrequencySeries):
     def __init__(self, data, frequencies, *args, **kwargs):
@@ -40,7 +94,7 @@ class Waveform(WaveformBase):
     def __new__(self, variance=None, covariance=None, *args, **kwargs):
         # if "covariance" in kwargs:
         #     self.covariance = kwargs.pop("covariance")
-        waveform = super(Waveform, self).__new__(TimeSeriesBase, *args, **kwargs)
+        waveform = super(Waveform, self).__new__(TimeSeries, *args, **kwargs)
         waveform.covariance = covariance
         waveform.variance = variance
 
@@ -50,11 +104,6 @@ class Waveform(WaveformBase):
     # def dt(self):
     #     return self.waveform.times[1] - self.waveform.times[0]
 
-    def align(self, waveform_b):
-        """
-        Align this waveform with another one by altering the phase.
-        """
-        pass
 
 
 class WaveformDict:
@@ -102,10 +151,9 @@ class WaveformDict:
           The declination of the signal source.
         """
 
-        
         if not time:
             time = self.waveforms["plus"].epoch.value
-        
+
         if ((ra is None) and (dec is None)) and (
             ("ra" in self._parameters) and ("dec" in self._parameters)
         ):
@@ -114,21 +162,30 @@ class WaveformDict:
 
             dt = detector.geocentre_delay(ra=ra, dec=dec, times=time)
 
-        elif ("azimuth" in self._parameters.keys()) and ("zenith" in self._parameters.keys()) and ("reference_frame" in self._parameters.keys()):
+        elif (
+            ("azimuth" in self._parameters.keys())
+            and ("zenith" in self._parameters.keys())
+            and ("reference_frame" in self._parameters.keys())
+        ):
             # Use horizontal coordinates.
             det1 = cached_detector_by_prefix[self._parameters["reference_frame"][0]]
             det2 = cached_detector_by_prefix[self._parameters["reference_frame"][1]]
-            tg, ra, dec = DetFrameToEquatorial(
-                det1, det2, time, self._parameters["azimuth"], self._parameters["zenith"]
+            ra, dec, dt = DetFrameToEquatorial(
+                det1,
+                det2,
+                time,
+                self._parameters["azimuth"],
+                self._parameters["zenith"],
             )
-            dt = time - tg
+
         elif (ra is None) and (dec is None):
             raise ValueError("Right ascension and declination must both be specified.")
 
         else:
             dt = detector.geocentre_delay(ra=ra, dec=dec, times=time)
+
         if "plus" in self.waveforms and "cross" in self.waveforms:
-            
+
             if not iota and "theta_jn" in self._parameters:
                 iota = self._parameters["theta_jn"]
             elif isinstance(iota, type(None)):
@@ -180,14 +237,14 @@ class WaveformDict:
             else:
                 projected_covariance = None
 
-            bins = dt / (self.waveforms["plus"].dt)
-                
             projected_waveform = Waveform(
-                data=array_library.roll(array_library.pad(projected_data, 5000), int(bins.value))[5000:-5000],
+                data=projected_data,
                 variance=projected_variance,
                 covariance=projected_covariance,
                 times=self.waveforms["plus"].times,
             )
+            
+            projected_waveform.shift(dt)
 
             return projected_waveform
 
