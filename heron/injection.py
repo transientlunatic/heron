@@ -65,6 +65,11 @@ def make_injection(
             logger.info(f"Saving framefile to {filename}")
             injection.write(filename, format="gwf")
 
+        if psdfile:
+            # Write the PSD file to an ascii file
+            filename = f"{detector.abbreviation}_{psdfile}.dat"
+            psd_model.to_file(filename)
+            
     return injections
 
 
@@ -156,5 +161,6 @@ def injection(settings):
         injection_parameters=parameters,
         detectors=detector_dict,
         framefile="injection",
+        psdfile="psd",
     )
     data = injections

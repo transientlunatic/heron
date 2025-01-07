@@ -42,6 +42,16 @@ class LALSimulationPSD(PSDApproximant):
         psd = PSD(psd_data, frequencies=frequencies)
         return psd
 
+    def twocolumn(self, *args, **kwargs):
+        """
+        Produce the PSD in two-column format.
+        """
+        psd = self.frequency_domain(*args, **kwargs)
+        frequencies = psd.frequencies.value
+        data = np.array(psd.data)
+
+        return np.vstack([frequencies, data]).T
+    
     def covariance_matrix(self, times):
         """
         Return a time-domain representation of this power spectral density.
