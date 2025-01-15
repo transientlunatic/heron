@@ -83,6 +83,10 @@ def heron_inference(settings):
 
     if "data files" in settings.get("data", {}):
         # Load frame files from disk
+
+        start = settings['event time'] - settings['segment length'] + settings['after merger']
+        end = settings['event time'] + settings['after merger']
+        
         for ifo in settings["interferometers"]:
             print(f"Loading {ifo} data")
             logger.info(
@@ -93,6 +97,8 @@ def heron_inference(settings):
                 source=settings["data"]["data files"][ifo],
                 channel=settings["data"]["channels"][ifo],
                 format="gwf",
+                start=start,
+                end=end,
             )
     #elif "injection" in other_settings:
     #    pass
