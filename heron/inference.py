@@ -100,6 +100,9 @@ def heron_inference(settings):
                 start=start,
                 end=end,
             )
+            if data[ifo].sample_rate != settings['likelihood']['sampling rate']:
+                logger.info("Resampling the data to the likelihood sampling rate")
+                data[ifo] = data[ifo].resample(settings['likelihood']['sampling rate'])
     #elif "injection" in other_settings:
     #    pass
 
