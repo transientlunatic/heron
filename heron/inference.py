@@ -83,6 +83,10 @@ def heron_inference(settings):
 
     if "data files" in settings.get("data", {}):
         # Load frame files from disk
+
+        start = settings['event time'] - settings['segment length'] + settings['after merger']
+        end = settings['event time'] + settings['after merger']
+        
         for ifo in settings["interferometers"]:
             print(f"Loading {ifo} data")
             logger.info(
@@ -93,7 +97,12 @@ def heron_inference(settings):
                 source=settings["data"]["data files"][ifo],
                 channel=settings["data"]["channels"][ifo],
                 format="gwf",
+                start=start,
+                end=end,
             )
+            if data[ifo].sample_rate != settings['likelihood']['sampling rate']:
+                logger.info("Resampling the data to the likelihood sampling rate")
+                data[ifo] = data[ifo].resample(settings['likelihood']['sampling rate'])
     #elif "injection" in other_settings:
     #    pass
 
