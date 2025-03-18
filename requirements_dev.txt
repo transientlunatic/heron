@@ -1,6 +1,6 @@
 numpy
 scipy
-progressbar
+progressbar==2.5
 emcee
 pyyaml
 jinja2
