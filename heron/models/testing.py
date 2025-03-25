@@ -48,7 +48,7 @@ class FlatPSD(PSDApproximant):
         Create the covariance matrix for this PSD.
         """
         N = int(len(times))
-        autocovariance = np.exp(np.arange(N)*0.1)
+        autocovariance = np.exp(-np.arange(N)*0.1)
         return scipy.linalg.circulant(autocovariance)
     
 
@@ -71,7 +71,6 @@ class SineGaussianWaveform(WaveformApproximant):
         width = self._args['width']
         length = self._args['segment length']
         times = np.linspace(-length/2, length/2, int((length*sample_rate).value))
-
         envelope = np.exp(
             (- (times - epoch)**2/(2*width**2)).value
         ) / np.sqrt(2*np.pi*width**2)

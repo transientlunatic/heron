@@ -102,7 +102,7 @@ class TimeDomainLikelihood(Likelihood):
             return -np.inf
         residual = np.array(self.data.data[a[0]:a[1]]) - np.array(waveform.data[b[0]:b[1]])
         weighted_residual = (
-            (residual) @ self.solve(self.C[a[0]:a[1],b[0]:b[1]], residual) * (self.dt * self.dt / 4) / 4
+            (residual) @ self.solve(self.C[a[0]:a[1],b[0]:b[1]], residual) #* (self.dt * self.dt / 4) / 4
         )
         normalisation = self.logdet(2 * np.pi * self.C[a[0]:a[1],b[0]:b[1]]) if norm else 0
         return 0.5 * weighted_residual + 0.5 * normalisation
