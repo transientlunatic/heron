@@ -55,4 +55,5 @@ class TestInjection(unittest.TestCase):
                        detectors={"AdvancedLIGOHanford": "AdvancedLIGO",
                                   "AdvancedLIGOLivingston": "AdvancedLIGO"},
                        framefile="test",
+                       psdfile="psd"
                        )
