@@ -24,6 +24,9 @@ class LikelihoodBase:
 
 class Likelihood(LikelihoodBase):
 
+    array = np.array
+    device = "cpu"
+    
     def logdet(self, K):
         (sign, logabsdet) = np.linalg.slogdet(K)
         return logabsdet
@@ -43,6 +46,9 @@ class Likelihood(LikelihoodBase):
     def log(self, A):
         return np.log(A)
 
+    def to_device(self, A, device):
+        return A
+
     @property
     def pi(self):
         return np.pi
@@ -61,10 +67,10 @@ class TimeDomainLikelihood(Likelihood):
     ):
         self.psd = psd
         self.timeseries = data
-        self.data = np.array(data.data)
+        self.data = self.array(data.data)
         self.times = data.times
         self.C = self.psd.covariance_matrix(times=self.times)
-        self.inverse_C = np.linalg.inv(self.C)
+        self.inverse_C = self.inverse(self.C)
 
         self.dt = (self.times[1] - self.times[0]).value
         self.N = len(self.times)
@@ -89,7 +95,7 @@ class TimeDomainLikelihood(Likelihood):
         """
         dt = (self.times[1] - self.times[0]).value
         N = len(self.times)
-        w = np.array(waveform.data)
+        w = self.array(waveform.data, device=self.device)
         h_h = (
             (w.T @ self.solve(self.C, w))
             * (dt * dt / N / 4)
@@ -103,7 +109,8 @@ class TimeDomainLikelihood(Likelihood):
             (a,b) = w
         else:
             return -np.inf
-        residual = np.array(self.data.data[a[0]:a[1]]) - np.array(waveform.data[b[0]:b[1]])
+        residual = self.array(self.data.data[a[0]:a[1]]) - self.array(waveform.data[b[0]:b[1]])
+        residual = self.to_device(residual, self.device)
         weighted_residual = (
             (residual) @ self.solve(self.C[a[0]:a[1],b[0]:b[1]], residual) #* (self.dt * self.dt / 4) / 4
         )
@@ -139,15 +146,15 @@ class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
     def log_likelihood(self, waveform, norm=True):
         a, b = self.timeseries.determine_overlap(self, waveform)
         
-        wf = np.array(waveform.data)[b[0]:b[1]]
+        wf = self.to_device(self.array(waveform.data), self.device)[b[0]:b[1]]
         data = self.data[a[0]:a[1]]
 
         C = self.C[a[0]:a[1], a[0]:a[1]]
-        K = waveform.covariance[b[0]:b[1],b[0]:b[1]]
-        W_0 = data - wf
+        K = self.to_device(self.array(waveform.covariance[b[0]:b[1],b[0]:b[1]]), self.device)
+        W_0 = self.to_device(self.array(data - wf), device=self.device)
         N = len(W_0)
         W = - 0.5 * self.solve((K+C), W_0) @ W_0
-        N = - 0.5 * N*self.log((2*np.pi)) - 0.5 * self.logdet((C+K)) if norm else 0
+        N = - 0.5 * N*self.log((2*self.pi)) - 0.5 * self.logdet((C+K)) if norm else 0
         return W + N
 
 
@@ -197,8 +204,10 @@ class LikelihoodPyTorch(Likelihood):
     def pi(self):
         return torch.tensor(torch.pi, device=self.device)
 
+    def to_device(self, A, device):
+        return A.to(device=device)    
 
-class TimeDomainLikelihoodPyTorch(LikelihoodPyTorch):
+class TimeDomainLikelihoodPyTorch(TimeDomainLikelihood, LikelihoodPyTorch):
 
     def __init__(
         self,
@@ -238,63 +247,63 @@ class TimeDomainLikelihoodPyTorch(LikelihoodPyTorch):
         if timing_basis is not None:
             self.fixed_parameters["reference_frame"] = timing_basis
 
-    def snr(self, waveform):
-        """
-        Calculate the signal to noise ratio for a given waveform.
-        """
-        dt = (self.times[1] - self.times[0]).value
-        N = len(self.times)
-        waveform_d = torch.tensor(waveform.data, device=self.device, dtype=torch.double)
-        h_h = (waveform_d.T @ self.solve(self.C, waveform_d)) * (dt * dt / N / 4) / 4
-        return torch.sqrt(torch.abs(h_h))
+    # def snr(self, waveform):
+    #     """
+    #     Calculate the signal to noise ratio for a given waveform.
+    #     """
+    #     dt = (self.times[1] - self.times[0]).value
+    #     N = len(self.times)
+    #     waveform_d = self.array(waveform.data, device=self.device, dtype=torch.double)
+    #     h_h = (waveform_d.T @ self.solve(self.C, waveform_d)) * (dt * dt / N / 4) / 4
+    #     return torch.sqrt(torch.abs(h_h))
 
-    def log_likelihood(self, waveform, norm=True):
-        w = self.timeseries.determine_overlap(self, waveform)
-        if w is not None:
-            (a,b) = w
-        else:
-            return -np.inf
-        residual = self.array(self.data.data[a[0]:a[1]], device=self.device) - self.array(waveform.data[b[0]:b[1]], device=self.device)
-        weighted_residual = (
-            (residual) @ self.solve(self.C[a[0]:a[1],b[0]:b[1]], residual) #* (self.dt * self.dt / 4) / 4
-        )
-        N = len(residual)
-        normalisation = N * self.log(2*np.pi) + self.logdet(self.C[a[0]:a[1],b[0]:b[1]]) if norm else 0
-        return - 0.5 * weighted_residual - 0.5 * normalisation
+    # def log_likelihood(self, waveform, norm=True):
+    #     w = self.timeseries.determine_overlap(self, waveform)
+    #     if w is not None:
+    #         (a,b) = w
+    #     else:
+    #         return -np.inf
+    #     residual = self.array(self.data.data[a[0]:a[1]], device=self.device) - self.array(waveform.data[b[0]:b[1]], device=self.device)
+    #     weighted_residual = (
+    #         (residual) @ self.solve(self.C[a[0]:a[1],b[0]:b[1]], residual)
+    #     )
+    #     N = len(residual)
+    #     normalisation = N * self.log(2*np.pi) + self.logdet(self.C[a[0]:a[1],b[0]:b[1]]) if norm else 0
+    #     return - 0.5 * weighted_residual - 0.5 * normalisation
 
-    def __call__(self, parameters):
-        self.logger.info(parameters)
+    # def __call__(self, parameters):
+    #     self.logger.info(parameters)
 
-        keys = set(parameters.keys())
-        extrinsic = {"phase", "psi", "ra", "dec", "theta_jn"}
-        conversions = {"mass_ratio", "total_mass", "luminosity_distance"}
-        bad_keys = keys - set(self.waveform._args.keys()) - extrinsic - conversions
-        if len(bad_keys) > 0:
-            print("The following keys were not recognised", bad_keys)
-        parameters.update(self.fixed_parameters)
-        test_waveform = self.waveform.time_domain(
-            parameters=parameters, times=self.times
-        )
-        projected_waveform = test_waveform.project(self.detector)
-        return self.log_likelihood(projected_waveform)
+    #     keys = set(parameters.keys())
+    #     extrinsic = {"phase", "psi", "ra", "dec", "theta_jn"}
+    #     conversions = {"mass_ratio", "total_mass", "luminosity_distance"}
+    #     bad_keys = keys - set(self.waveform._args.keys()) - extrinsic - conversions
+    #     if len(bad_keys) > 0:
+    #         print("The following keys were not recognised", bad_keys)
+    #     parameters.update(self.fixed_parameters)
+    #     test_waveform = self.waveform.time_domain(
+    #         parameters=parameters, times=self.times
+    #     )
+    #     projected_waveform = test_waveform.project(self.detector)
+    #     return self.log_likelihood(projected_waveform)
 
 
-class TimeDomainLikelihoodModelUncertaintyPyTorch(TimeDomainLikelihoodPyTorch):
+class TimeDomainLikelihoodModelUncertaintyPyTorch(TimeDomainLikelihoodPyTorch, TimeDomainLikelihoodModelUncertainty):
 
     def __init__(self, data, psd, waveform=None, detector=None):
         super().__init__(data, psd, waveform, detector)
 
-    def log_likelihood(self, waveform, norm=True):
-        a, b = self.timeseries.determine_overlap(self, waveform)
-        
-        wf = torch.tensor(waveform.data, device=self.device)[b[0]:b[1]]
-        data = self.data[a[0]:a[1]]
+    # def log_likelihood(self, waveform, norm=True):
+    #     a, b = self.timeseries.determine_overlap(self, waveform)
 
-        C = self.C[a[0]:a[1], a[0]:a[1]]
-        K = waveform.covariance[b[0]:b[1],b[0]:b[1]]
-        W_0 = data - wf
-        N = len(W_0)
-        W = - 0.5 * self.solve((K+C), W_0) @ W_0
-        N = - 0.5 * N*self.log((2*np.pi)) - 0.5 * self.logdet((C+K)) if norm else 0
+    #     wf = self.array(waveform.data, device=self.device)[b[0]:b[1]]
+    #     data = self.data[a[0]:a[1]]
 
-        return like
+    #     C = self.C[a[0]:a[1], a[0]:a[1]]
+    #     K = waveform.covariance[b[0]:b[1], b[0]:b[1]]
+    #     W_0 = data - wf
+    #     N = len(W_0)
+    #     W = - 0.5 * self.solve((K+C), W_0) @ W_0
+    #     N = - 0.5 * N*self.log((2*np.pi)) - 0.5 * self.logdet((C+K))
+
+    #     return W + N
