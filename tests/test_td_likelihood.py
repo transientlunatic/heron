@@ -18,8 +18,9 @@ class TestTDLikelihood(unittest.TestCase):
         self.duration = 2 # seconds
         N = self.sample_rate * self.duration
         self.psd = FlatPSD()
+        self.inject = 0.02
         self.data = SineGaussianWaveform().time_domain(
-            parameters={"width":0.02,
+            parameters={"width":self.inject,
                         "ra": 1, "dec": 1,
                         "phase": 0, "psi": 0,
                         "theta_jn": 1}).project(
@@ -29,7 +30,7 @@ class TestTDLikelihood(unittest.TestCase):
         f.savefig("test_data_plot.png")
 
         data = SineGaussianWaveform().time_domain(
-            parameters={"width":0.01,
+            parameters={"width":self.inject,
                         "ra": 1, "dec": 1,
                         "phase": 0, "psi": 0,
                         "theta_jn": 1}).project(
@@ -59,7 +60,11 @@ class TestTDLikelihood(unittest.TestCase):
         f, ax = plt.subplots(1,1)
         ax.plot(np.linspace(0.01, 0.19, 101), likelihoods)
         f.savefig("test_likelihood_plot.png")
-        self.assertEqual(np.linspace(0.01, 0.19, 101)[np.argmin(likelihoods)], 0.05)
+        self.assertTrue(
+            np.abs(
+                np.linspace(0.01, 0.19, 101)[np.argmax(likelihoods)] - self.inject)
+            < (0.19-0.01)/100
+            )
 
 
 class TestTDLikelihoodUncertainty(unittest.TestCase):
@@ -69,8 +74,9 @@ class TestTDLikelihoodUncertainty(unittest.TestCase):
         self.duration = 2 # seconds
         N = self.sample_rate * self.duration
         self.psd = FlatPSD()
+        self.inject = 0.02
         self.data = SineGaussianWaveform().time_domain(
-            parameters={"width":0.02,
+            parameters={"width": self.inject,
                         "ra": 1, "dec": 1,
                         "phase": 0, "psi": 0,
                         "theta_jn": 1})
@@ -100,5 +106,7 @@ class TestTDLikelihoodUncertainty(unittest.TestCase):
         f, ax = plt.subplots(1,1)
         ax.plot(np.linspace(0.01, 0.19, 100), likelihoods)
         f.savefig("test_likelihood_unc_plot.png")
-        self.assertEqual(np.linspace(0.01, 0.19, 100)[np.argmin(likelihoods)], 0.02)
-        
+        self.assertTrue(np.abs(
+            np.linspace(0.01, 0.19, 100)[np.argmax(likelihoods)]  - self.inject)
+            < (0.19-0.01)/100
+        )

@@ -82,7 +82,7 @@ class SineGaussianWaveform(WaveformApproximant):
             -0.5 * scipy.spatial.distance.cdist(np.expand_dims(times, 1),
                                                 np.expand_dims(times, 1), 'sqeuclidean')
             
-        ) + np.exp((100*np.abs(width-0.05)))
+        ) * np.exp((100*np.abs(width-0.05)))
         variance = np.diag(covariance)
         hp_data = Waveform(data=strain,
                            times=times,
