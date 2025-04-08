@@ -8,6 +8,7 @@ They aren't designed for use in production analyses!
 
 import numpy as np
 import scipy.linalg
+import scipy.spatial.distance
 from astropy import units as u
 from ..types import PSD, Waveform, WaveformDict
 from . import PSDApproximant, WaveformApproximant
@@ -76,11 +77,22 @@ class SineGaussianWaveform(WaveformApproximant):
         ) / np.sqrt(2*np.pi*width**2)
 
         strain = np.sin((times*u.second * self._args['frequency']).value) * envelope
+ 
+        covariance =  np.exp(
+            -0.5 * scipy.spatial.distance.cdist(np.expand_dims(times, 1),
+                                                np.expand_dims(times, 1), 'sqeuclidean')
+            
+        ) + np.exp((100*np.abs(width-0.05)))
+        variance = np.diag(covariance)
         hp_data = Waveform(data=strain,
                            times=times,
+                           covariance=covariance,
+                           variance=variance,
                            t0=epoch)
         hx_data = Waveform(data=strain,
                            times=times,
+                           covariance=covariance,
+                           variance=variance,
                            t0=epoch)
         return WaveformDict(parameters=self._args,
                             plus=hp_data,

@@ -17,6 +17,24 @@ class TimeSeries(TimeSeries):
     Overload the GWPy timeseries so that additional methods can be defined upon it.
     """
 
+
+    def plot(self, *args, **kwargs):
+        f = super().plot(*args, **kwargs)
+        ax = f.get_axes()[0]
+        if not isinstance(self._variance, type(None)):
+            ax.fill_between(self.times.value,
+                            self.data + self._variance,
+                            self.data - self._variance,
+                            alpha=0.5)
+        return f
+    
+    @property
+    def variance(self):
+        if isinstance(self._variance, type(None)):
+            return self._variance
+        elif isinstance(self.covariance, type(None)):
+            return np.diag(self.covariance)
+    
     def determine_overlap(self, timeseries_a, timeseries_b):
         def is_in(time, timeseries):
             diff = np.min(np.abs(timeseries - time))
@@ -71,7 +89,6 @@ class TimeSeries(TimeSeries):
 
         return self[indices[0][0]:indices[0][1]], waveform_b[indices[1][0]: indices[1][1]]
 
-    
 
 class PSD(FrequencySeries):
     def __init__(self, data, frequencies, *args, **kwargs):
@@ -82,13 +99,12 @@ class WaveformBase(TimeSeries):
     def __init__(self, *args, **kwargs):
         super(WaveformBase).__init__()
 
-
 class Waveform(WaveformBase):
     def __init__(self, variance=None, covariance=None, *args, **kwargs):
         # if "covariance" in kwargs:
         #     self.covariance = kwargs.pop("covariance")
         self.covariance = covariance
-        self.variance = variance
+        self._variance = variance
         super(Waveform, self).__init__(*args, **kwargs)
 
     def __new__(self, variance=None, covariance=None, *args, **kwargs):
@@ -96,14 +112,9 @@ class Waveform(WaveformBase):
         #     self.covariance = kwargs.pop("covariance")
         waveform = super(Waveform, self).__new__(TimeSeries, *args, **kwargs)
         waveform.covariance = covariance
-        waveform.variance = variance
+        waveform._variance = variance
 
         return waveform
-
-    # @property
-    # def dt(self):
-    #     return self.waveform.times[1] - self.waveform.times[0]
-
 
 
 class WaveformDict:
@@ -221,10 +232,10 @@ class WaveformDict:
                 + self.waveforms["cross"].data * cross_prefactor
             )
 
-            if self.waveforms["plus"].variance is not None:
+            if self.waveforms["plus"]._variance is not None:
                 projected_variance = (
-                    self.waveforms["plus"].variance * plus_prefactor**2
-                    + self.waveforms["cross"].variance * cross_prefactor**2
+                    self.waveforms["plus"]._variance * plus_prefactor**2
+                    + self.waveforms["cross"]._variance * cross_prefactor**2
                 )
             else:
                 projected_variance = None

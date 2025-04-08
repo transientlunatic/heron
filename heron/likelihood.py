@@ -28,6 +28,9 @@ class Likelihood(LikelihoodBase):
         (sign, logabsdet) = np.linalg.slogdet(K)
         return logabsdet
 
+    def det(self, A):
+        return np.linalg.det(A)
+    
     def inverse(self, A):
         return np.linalg.inv(A)
 
@@ -132,12 +135,14 @@ class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
         self.norm_factor_2 = np.max(self.C)
         self.norm_factor = np.sqrt(self.norm_factor_2)
 
-    def _normalisation(self, K, S):
+    def _normalisation(self, K, S, indices):
+        (ind_a, ind_b) = indices
         norm = (
             -1.5 * K.shape[0] * self.log(2 * self.pi)
             - 0.5 * self.logdet(K)
             + 0.5 * self.logdet(self.C)
-            - 0.5 * self.logdet(self.solve(K, self.C) + self.eye(K.shape[0]))
+            - 0.5 * self.logdet(self.solve(K, self.C)
+                                + self.eye(K.shape[0]))
         )
         return norm
 
@@ -147,7 +152,8 @@ class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
         (a, b) = indices
         if not hasattr(self, "weighted_data_CACHE"):
             dw = self.weighted_data_CACHE = (
-                -0.5 * (np.array(self.data)/np.sqrt(self.norm_factor))[a[0]:a[1]].T @ self.solve((self.C/self.norm_factor_2)[a[0]:a[1], a[0]:a[1]], self.data[a[0]:a[1]])
+                #-0.5 * (np.array(self.data)/np.sqrt(self.norm_factor))[a[0]:a[1]].T @ self.solve((self.C/self.norm_factor_2)[a[0]:a[1], a[0]:a[1]], self.data[a[0]:a[1]])
+                -0.5 * self.data.T @ self.solve(self.C, self.data)
             )
         else:
             dw = self.weighted_data_CACHE
@@ -160,33 +166,26 @@ class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
     def _weighted_cross(self, mu, K, indices):
         # NB the first part of this is repeated elsewhere
         (a,b) = indices
-        C = (self.C/self.norm_factor_2)[a[0]:a[1],a[0]:a[1]]
-        data = (self.data/self.norm_factor)[a[0]:a[1]]
+        C = (self.C)[a[0]:a[1],a[0]:a[1]]
+        data = (self.data)[a[0]:a[1]]
         
-        A = (self.solve(C, data) - self.solve(K, mu))
-        B = (self.inverse_C*self.norm_factor_2)[a[0]:a[1],a[0]:a[1]] + self.inverse(K)
+        A = (self.solve(C, data) + self.solve(K, mu))
+        B = (self.inverse_C)[a[0]:a[1],a[0]:a[1]] + self.inverse(K)
         return 0.5 * A.T @ self.solve(B, A)
 
     def log_likelihood(self, waveform, norm=True):
         a, b = self.timeseries.determine_overlap(self, waveform)
         
         wf = np.array(waveform.data)[b[0]:b[1]]
-        wc = waveform.covariance[b[0]:b[1],b[0]:b[1]]
-        wc /= self.norm_factor_2 #np.max(wc)
-        wf /= self.norm_factor #np.sqrt(np.max(wc))
-        
-        like = - self._weighted_cross(wf, wc, indices=(a,b))
-        # print("cross term", like)
-        A = self._weighted_data((a, b))
-        # print("data term", A)
-        B = self._weighted_model(wf, wc)
-        # print("model term", B)
-        like = like - A - B
-        N = self._normalisation(waveform.covariance/self.norm_factor, self.C/self.norm_factor_2)
-        # print("normalisation", norm)
-        like += (N if norm else 0)
+        data = self.data[a[0]:a[1]]
 
-        return like
+        C = self.C[a[0]:a[1],a[0]:a[1]]
+        K = waveform.covariance[b[0]:b[1],b[0]:b[1]]
+        W_0 = data - wf
+
+        W = 0.5 * self.solve((K+C), W_0) @ W_0
+        N = 0.5 * self.logdet(2*np.pi*(C+K)) if norm else 0
+        return W + N
 
 
 class MultiDetector:
@@ -331,7 +330,8 @@ class TimeDomainLikelihoodModelUncertaintyPyTorch(TimeDomainLikelihoodPyTorch):
             -1.5 * K.shape[0] * self.log(2 * self.pi)
             - 0.5 * self.logdet(K)
             + 0.5 * self.logdet(self.C[ind_a[0]:ind_a[1],ind_a[0]:ind_a[1]])
-            - 0.5 * self.logdet(self.solve(K, self.C[ind_a[0]:ind_a[1],ind_a[0]:ind_a[1]]) + self.eye(K.shape[0]))
+            - 0.5 * self.logdet(self.solve(K, self.C[ind_a[0]:ind_a[1],ind_a[0]:ind_a[1]])
+                                + self.eye(K.shape[0]))
         )
         return norm
 
