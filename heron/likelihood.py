@@ -135,56 +135,18 @@ class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
         self.norm_factor_2 = np.max(self.C)
         self.norm_factor = np.sqrt(self.norm_factor_2)
 
-    def _normalisation(self, K, S, indices):
-        (ind_a, ind_b) = indices
-        norm = (
-            -1.5 * K.shape[0] * self.log(2 * self.pi)
-            - 0.5 * self.logdet(K)
-            + 0.5 * self.logdet(self.C)
-            - 0.5 * self.logdet(self.solve(K, self.C)
-                                + self.eye(K.shape[0]))
-        )
-        return norm
-
-    def _weighted_data(self, indices):
-        """Return the weighted data component"""
-        # TODO This can all be pre-computed
-        (a, b) = indices
-        if not hasattr(self, "weighted_data_CACHE"):
-            dw = self.weighted_data_CACHE = (
-                #-0.5 * (np.array(self.data)/np.sqrt(self.norm_factor))[a[0]:a[1]].T @ self.solve((self.C/self.norm_factor_2)[a[0]:a[1], a[0]:a[1]], self.data[a[0]:a[1]])
-                -0.5 * self.data.T @ self.solve(self.C, self.data)
-            )
-        else:
-            dw = self.weighted_data_CACHE
-        return dw
-
-    def _weighted_model(self, mu, K):
-        """Return the inner product of the GPR mean"""
-        return -0.5 * np.array(mu).T @ self.solve(K, mu)
-
-    def _weighted_cross(self, mu, K, indices):
-        # NB the first part of this is repeated elsewhere
-        (a,b) = indices
-        C = (self.C)[a[0]:a[1],a[0]:a[1]]
-        data = (self.data)[a[0]:a[1]]
-        
-        A = (self.solve(C, data) + self.solve(K, mu))
-        B = (self.inverse_C)[a[0]:a[1],a[0]:a[1]] + self.inverse(K)
-        return 0.5 * A.T @ self.solve(B, A)
-
     def log_likelihood(self, waveform, norm=True):
         a, b = self.timeseries.determine_overlap(self, waveform)
         
         wf = np.array(waveform.data)[b[0]:b[1]]
         data = self.data[a[0]:a[1]]
 
-        C = self.C[a[0]:a[1],a[0]:a[1]]
+        C = self.C[a[0]:a[1], a[0]:a[1]]
         K = waveform.covariance[b[0]:b[1],b[0]:b[1]]
         W_0 = data - wf
-
-        W = 0.5 * self.solve((K+C), W_0) @ W_0
-        N = 0.5 * self.logdet(2*np.pi*(C+K)) if norm else 0
+        N = len(W_0)
+        W = - 0.5 * self.solve((K+C), W_0) @ W_0
+        N = - 0.5 * self.logdet((2*np.pi)**N*(C+K)) if norm else 0
         return W + N
 
 
