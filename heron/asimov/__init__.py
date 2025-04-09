@@ -9,7 +9,7 @@ import asimov.pipeline
 from asimov import config
 import htcondor
 from asimov.utils import set_directory
-from .utils import make_metafile
+from ..utils import make_metafile
 
 class MetaPipeline(asimov.pipeline.Pipeline):
 
