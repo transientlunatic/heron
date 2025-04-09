@@ -1,4 +1,4 @@
-numpy
+numpy==2.2.0
 scipy
 progressbar
 emcee
@@ -9,6 +9,9 @@ george
 nestle
 
 sphinx
+sphinx-versions
+kentigern
+sphinxcontrib-bibtex
 numpydoc==1.8.0
 git+https://github.com/transientlunatic/sphinx-daniel-theme.git
 nbsphinx==0.9.5
