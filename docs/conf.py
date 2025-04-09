@@ -34,7 +34,7 @@ sys.path.insert(0, project_root)
 import heron
 
 # Load the bootstrap theme
-import sphinx_daniel_theme
+import kentigern
 # -- General configuration ---------------------------------------------
 
 # If your documentation needs a minimal Sphinx version, state it here.
@@ -42,8 +42,15 @@ import sphinx_daniel_theme
 
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
-extensions = ['sphinx.ext.autodoc', 'sphinx.ext.viewcode', 'numpydoc', 'sphinx.ext.autosummary', 'nbsphinx']
-
+extensions = ['sphinx.ext.autodoc',
+              'sphinx.ext.graphviz',
+              'sphinx.ext.viewcode',
+              'sphinx.ext.napoleon',
+              'sphinx.ext.todo',
+              'sphinx.ext.autosummary',
+              'nbsphinx',]
+              # 'sphinxcontrib.bibtex']
+napoleon_include_special_with_doc = True
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
 
@@ -58,7 +65,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = u'Heron'
-copyright = u'2018, Daniel Williams'
+copyright = u'2018-2020, Daniel Williams'
 
 # The version info for the project you're documenting, acts as replacement
 # for |version| and |release|, also used in various other places throughout
@@ -69,7 +76,7 @@ from pkg_resources import get_distribution
 try:
     release = get_distribution('heron-model').version
 except:
-    release = get_distribution('heron').version
+    release = get_distribution('heron-model').version
     # for example take major/minor
 version = '.'.join(release.split('.')[:2])
 
@@ -119,40 +126,12 @@ pygments_style = 'sphinx'
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 
-html_theme = 'daniel'
-html_theme_path = sphinx_daniel_theme.get_html_theme_path()
-
-# Theme options are theme-specific and customize the look and feel of a
-# theme further.  For a list of options available for each theme, see the
-# documentation.
-#html_theme_options = {}
-
-# Add any paths that contain custom themes here, relative to this directory.
-#html_theme_path = []
-
-# The name for this set of Sphinx documents.  If None, it defaults to
-# "<project> v<release> documentation".
-#html_title = None
-
-# A shorter title for the navigation bar.  Default is the same as
-# html_title.
-#html_short_title = None
+html_theme = 'kentigern'
 
 # The name of an image file (relative to this directory) to place at the
 # top of the sidebar.
 #html_logo = None
 
-# The name of an image file (within the static path) to use as favicon
-# of the docs.  This file should be a Windows icon file (.ico) being
-# 16x16 or 32x32 pixels large.
-#html_favicon = None
-
-# Add any paths that contain custom static files (such as style sheets)
-# here, relative to this directory. They are copied after the builtin
-# static files, so a file named "default.css" will overwrite the builtin
-# "default.css".
-html_static_path = ['_static']
-templates_path = ['_templates']
 
 # If not '', a 'Last updated on:' timestamp is inserted at every page
 # bottom, using the given strftime format.

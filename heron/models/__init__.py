@@ -1,75 +1,72 @@
-
+import torch
 import numpy as np
+from lal import antenna, MSUN_SI
+from astropy import units as u
 
-class Model(object):
-    """
-    This is the factory class for statistical models used for waveform generation.
 
-    A model class must expose the followi*** TODO Email about Away Dayc_ind = {j:i for i,j in columns.items()}c_ind = {j:i for i,j in columns.items()}ng methods:
-    - `distribution` : produce a distribution of waveforms at a given point in the parameter space
-    - `mean` : produce a mean waveform at a given point in the parameter space
-    - `train` : provide an interface for training the model
-    """
+class WaveformModel:
 
-    def __init__(self):
-        """
-        Make some default initialisations.
-        These don't really mean anything, but it's important that the variables exist.
-        This __init__ function ought to be usable as a template for other functions, or run from the superclass.
-        """
+    def _convert(self, args):
+        if "mass_ratio" in args and "chirp_mass" in args:
+            args["total_mass"] = (
+                args["chirp_mass"]
+                * (1 + args["mass_ratio"]) ** 1.2
+                / args["mass_ratio"] ** 0.6
+            )
+        if "total_mass" in args and "mass_ratio" in args:
+            args = self._convert_mass_ratio_total_mass(args)
+        if "luminosity_distance" in args:
+            args = self._convert_luminosity_distance(args)
+        if "geocent_time" in args:
+            args["gpstime"] = args.pop("geocent_time")
 
-        # Need to explicitly set the number of dimensions of the training data.
-        # TODO: Decide if this is actually required.
-        self.x_dimensions = 2
+        return args
 
-        # Need to create a lookup table between the columns in the model
-        # and their location in the training data
-        self.columns = {0: "time",
-                        1: "second quantity"}
-        self.c_ind = {j:i for i,j in self.columns.items()}
+    def _convert_luminosity_distance(self, args):
+        args["distance"] = args.pop("luminosity_distance")
+        return args
 
-        # The training data contains both the x and the y data, so we need
-        # to specify which are parameters.
-        # It's worth noting that right now, time isn't a parameter...
-        self.parameters = ("second quantity",)
-    
-    def _process_inputs(self, times, p):
-        """
-        Apply regularisations and normalisations to any input point dictionary.
-
-        Parameters
-        ----------
-        times: list, array-like
-           An array of time stamps.
-        p : dict
-           A dictionary of the input locations
-        """
-
-        # The default implementation of this method just passes the data straight through.
-       
-        return times, p
-    
-    def _generate_eval_matrix(self, p, times):
-        """
-        Create the matrix of parameter points at which to evaluate the model.
-        """
-
-        times, p = self._process_inputs(times, p)
-
+    def _convert_mass_ratio_total_mass(self, args):
+        args["m1"] = (args["total_mass"] / (1 + args["mass_ratio"]))
+        args["m2"] = (args["total_mass"] / (1 + (1 / args["mass_ratio"])))
+        # Do these have units?
+        # If not then we can skip some relatively expensive operations and apply a heuristic.
+        if isinstance(args["m1"], u.Quantity):
+            args["m1"] = args["m1"].to_value(u.kilogram)
+            args["m2"] = args["m2"].to_value(u.kilogram)
+        if (not isinstance(args["m1"], u.Quantity)) and (args["m1"] < 1000):
+            # This appears to be in solar masses
+            args["m1"] *= MSUN_SI
+        if (not isinstance(args["m2"], u.Quantity)) and (args["m2"] < 1000):
+            # This appears to be in solar masses
+            args["m2"] *= MSUN_SI
         
-        
-        nt = len(times)
-        points = np.ones((nt, self.x_dimensions))
-        points[:,self.c_ind['time']] = times
+        args.pop("total_mass")
+        args.pop("mass_ratio")
+        return args
 
-        for parameter in self.parameters:
-            if parameter in p.keys():
-                value = p[parameter]
-            else:
-                value = 0.0
-                
-            points[:, self.c_ind[parameter]] *= value
 
-        return points
-    
+class WaveformApproximant(WaveformModel):
+    """
+    This class handles a waveform approximant model.
+    """
+
+    pass
+
+
+class WaveformSurrogate(WaveformModel):
+    """
+    This class handles a waveform surrogate model.
+    """
+
+    pass
+
+
+class PSDModel:
+
+    def to_file(self, filename, *args, **kwargs):
+        data = self.twocolumn(*args, **kwargs)
+        np.savetxt(filename, data)
+
+class PSDApproximant(PSDModel):
     pass
