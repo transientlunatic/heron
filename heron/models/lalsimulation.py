@@ -123,7 +123,6 @@ class LALSimulationApproximant(WaveformApproximant):
         """
         epoch = parameters.get("gpstime", parameters.get("epoch", 0))
         self._args.update(parameters)
-        print("epoch is ", epoch)
         if not (self._args == self._cache_key):
             self.logger.info(f"Generating new waveform at {self.args}")
             self._cache_key = self.args.copy()
@@ -172,7 +171,6 @@ class LALSimulationApproximant(WaveformApproximant):
                 hx_ts = Waveform(data=hx_data, dt=hx.deltaT, t0=hx.epoch + epoch)
             
             self._cache = WaveformDict(parameters=parameters, plus=hp_ts, cross=hx_ts)
-            print("written epoch is ", hp_ts.times[0])
         return self._cache
 
 
