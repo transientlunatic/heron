@@ -1,6 +1,6 @@
+matplotlib==3.9.3
 numpy==2.2.0
 bilby
-matplotlib
 scipy
 progressbar
 emcee
