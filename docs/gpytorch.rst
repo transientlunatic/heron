@@ -20,4 +20,6 @@ HeronCUDA : A spinning, NR-trained, GPU-capable surrogate model
 
 The model is trained on `numerical relativity waveforms <http://www.einstein.gatech.edu/catalog/>`_ produced by the Centre for Relativistic Astrophysics at Georgia Tech, and uses exact scalable GPR techniques implemented by `GPyTorch <https://gpytorch.readthedocs.io/>`_.
 
+.. inheritance-diagram:: heron.models.torchbased.HeronCUDA
+
 .. autoclass:: heron.models.torchbased.HeronCUDA
