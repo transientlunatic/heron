@@ -1,5 +1,5 @@
+numpy==2.2.0
 bilby
-numpy
 matplotlib
 scipy
 progressbar
