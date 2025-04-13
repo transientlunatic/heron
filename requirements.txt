@@ -2,7 +2,7 @@ matplotlib==3.9.3
 numpy==2.2.0
 bilby
 scipy
-progressbar
+progressbar==2.5
 emcee
 pyyaml
 jinja2
