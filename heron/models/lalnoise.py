@@ -62,7 +62,7 @@ class LALSimulationPSD(PSDApproximant):
         df = 1 / T
         frequencies = torch.arange(len(times) // 2 + 1) * df.value
         psd = self.frequency_domain(df=df, frequencies=frequencies)
-        ts = np.fft.irfft(psd, n=(N))  # * (N*N/dt/dt/2), n=(N))
+        ts = np.fft.irfft(psd, n=(N)) * (N/2/dt)
         return scipy.linalg.toeplitz(ts)
 
     def time_domain(self, times):

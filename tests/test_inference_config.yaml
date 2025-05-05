@@ -3,6 +3,7 @@ logging:
 
 injection:
   parameters:
+    event time: 1000
     luminosity_distance: 1000
     m1: 35
     m2: 30
@@ -24,7 +25,10 @@ inference:
       channels:
         H1: H1:Injection
         L1: L1:Injection
-      
+
+    event time: 1000
+    segment length: 4
+    after merger: 2
     
     waveform:
       model: IMRPhenomPv2

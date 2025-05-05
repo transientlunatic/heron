@@ -20,13 +20,14 @@ logger = logging.getLogger("heron.injection")
 
 
 def make_injection(
-    waveform=IMRPhenomPv2,
-    injection_parameters={},
-    duration=32,
-    sample_rate=4096,
-    times=None,
-    detectors=None,
-    framefile=None,
+        waveform=IMRPhenomPv2,
+        injection_parameters={},
+        duration=32,
+        sample_rate=4096,
+        times=None,
+        detectors=None,
+        framefile=None,
+        psdfile=None,
 ):
 
     parameters = {"ra": 0, "dec": 0, "psi": 0, "theta_jn": 0, "phase": 0}
@@ -34,8 +35,8 @@ def make_injection(
 
     waveform = waveform()
 
-    if times is None:
-        times = np.linspace(parameters['gpstime']-duration+2, parameters['gpstime']+2, int(duration * sample_rate))
+    # if times is None:
+    #     times = np.linspace(parameters['gpstime']-duration+2, parameters['gpstime']+2, int(duration * sample_rate))
     waveform = waveform.time_domain(
         parameters,
         times=times,
@@ -50,7 +51,6 @@ def make_injection(
         if times is None:
             times = waveform['plus'].times.value
         data = psd_model.time_series(times)
-        print(data)
 
         channel = f"{detector.abbreviation}:Injection"
 
