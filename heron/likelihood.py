@@ -82,17 +82,14 @@ class TimeDomainLikelihood(Likelihood):
 
     def snr(self, waveform):
         """
-        Calculate the signal to noise ratio for a given waveform.
+        Calculate the optimal signal to noise ratio for a given waveform.
         """
-        dt = (self.times[1] - self.times[0]).value
-        N = len(self.times)
         w = np.array(waveform.data)
         h_h = (
-            (w.T @ self.solve(self.C, w))
-            * (dt * dt / N / 4)
-            / 4
-        )
-        return np.sqrt(np.abs(h_h))
+            (w.T @ self.solve(self.C, w)) 
+        ) / len(w)**2
+        
+        return np.sqrt(2*np.abs(h_h))
 
     def log_likelihood(self, waveform, norm=True):
         w = self.timeseries.determine_overlap(self, waveform)
@@ -102,7 +99,7 @@ class TimeDomainLikelihood(Likelihood):
             return -np.inf
         residual = np.array(self.data.data[a[0]:a[1]]) - np.array(waveform.data[b[0]:b[1]])
         weighted_residual = (
-            (residual) @ self.solve(self.C[a[0]:a[1],b[0]:b[1]], residual) * (self.dt * self.dt / 4) / 4
+            (residual) @ self.solve(self.C[a[0]:a[1],b[0]:b[1]], residual) / len(residual)**2
         )
         normalisation = self.logdet(2 * np.pi * self.C[a[0]:a[1],b[0]:b[1]]) if norm else 0
         return 0.5 * weighted_residual + 0.5 * normalisation
