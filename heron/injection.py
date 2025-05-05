@@ -42,19 +42,26 @@ def make_injection(
 
     injections = {}
     for detector, psd_model in detectors.items():
+        print(f"Making injection for {detector}")
         logger.info(f"Making injection for {detector}")
         psd_model = KNOWN_PSDS[psd_model]()
         detector = KNOWN_IFOS[detector]()
+        print("Making noise timeseries.")
         data = psd_model.time_series(times)
 
         channel = f"{detector.abbreviation}:Injection"
+
+        print("Projecting the waveform")
         injection = data + waveform.project(detector)
         injection.channel = channel
         injections[detector.abbreviation] = injection
-        likelihood = TimeDomainLikelihood(injection, psd=psd_model)
-        snr = likelihood.snr(waveform.project(detector))
+        print("Calculating the likelihood")
+        #likelihood = TimeDomainLikelihood(injection, psd=psd_model)
+        #snr = likelihood.snr(waveform.project(detector))
 
-        logger.info(f"Optimal Filter SNR: {snr}")
+        #print(f"SNR: {snr}")
+        
+        #logger.info(f"Optimal Filter SNR: {snr}")
 
         if framefile:
             filename = f"{detector.abbreviation}_{framefile}.gwf"
@@ -127,6 +134,9 @@ def injection_parameters_add_units(parameters):
 @click.command()
 @click.option("--settings")
 def injection(settings):
+
+    click.echo("Preparing an injection")
+    
     settings = load_yaml(settings)
 
     if "logging" in settings:
@@ -142,12 +152,18 @@ def injection(settings):
         logging.basicConfig(level=LOGGER_LEVELS[level])
 
     settings = settings["injection"]
+
+    print(settings)
+    
     parameters = injection_parameters_add_units(settings["parameters"])
 
     detector_dict = {
         settings["interferometers"][ifo]: settings["psds"][ifo]
         for ifo in settings["interferometers"]
     }
+
+    click.echo("Making injections")
+    
     injections = make_injection(
         waveform=IMRPhenomPv2,
         injection_parameters=parameters,
