@@ -3,8 +3,6 @@ This module contains likelihood functions for heron to allow it to perform param
 using the waveform models it supports.
 """
 
-from gwpy.timeseries import TimeSeries
-
 import numpy as np
 import torch
 
@@ -26,14 +24,9 @@ class LikelihoodBase:
 
 class Likelihood(LikelihoodBase):
 
-    def abs(self, A):
-        return np.abs(A)
-
-    def einsum(self, *args, **kwargs):
-        return np.einsum(*args, **kwargs)
-    
     def logdet(self, K):
-        return np.linalg.slogdet(K).logabsdet
+        (sign, logabsdet) = np.linalg.slogdet(K)
+        return logabsdet
 
     def inverse(self, A):
         return np.linalg.inv(A)
@@ -54,26 +47,23 @@ class Likelihood(LikelihoodBase):
 
 class TimeDomainLikelihood(Likelihood):
 
-    def __init__(self, data, psd, waveform=None, detector=None, fixed_parameters={}, timing_basis=None):
+    def __init__(
+        self,
+        data,
+        psd,
+        waveform=None,
+        detector=None,
+        fixed_parameters={},
+        timing_basis=None,
+    ):
         self.psd = psd
-
+        self.timeseries = data
         self.data = np.array(data.data)
-        self.data_ts = data
         self.times = data.times
-        
-        self.logger = logger = logging.getLogger(
-            "heron.likelihood.TimeDomainLikelihood"
-        )
-        self.N = len(self.times)
         self.C = self.psd.covariance_matrix(times=self.times)
-        factor = 1e30
-        self.inverse_C = self.inverse(self.C*factor**2)
-        self.dt = self.abs((self.times[1] - self.times[0]).value)
-        
-        self.normalisation = - (self.N/2) * self.log(2*self.pi) + (self.logdet(self.C*1e30) - self.log(1e30)) *self.dt
-        #* (self.dt * self.dt / 4) / 4
-        self.logger.info(f"Normalisation: {self.normalisation}")
+        self.inverse_C = np.linalg.inv(self.C)
 
+        self.dt = (self.times[1] - self.times[0]).value
         self.N = len(self.times)
 
         if waveform is not None:
@@ -84,126 +74,118 @@ class TimeDomainLikelihood(Likelihood):
 
         self.fixed_parameters = fixed_parameters
         if timing_basis is not None:
-            self.fixed_parameters['reference_frame'] = timing_basis
+            self.fixed_parameters["reference_frame"] = timing_basis
 
+        self.logger = logger = logging.getLogger(
+            "heron.likelihood.TimeDomainLikelihood"
+        )
 
     def snr(self, waveform):
         """
         Calculate the signal to noise ratio for a given waveform.
         """
-        factor = 1e30
+        dt = (self.times[1] - self.times[0]).value
         N = len(self.times)
+        w = np.array(waveform.data)
         h_h = (
-            (np.array(waveform.data).T*factor @ self.solve(self.C*factor**2, np.array(waveform.data)*factor)) * self.dt
+            (w.T @ self.solve(self.C, w))
+            * (dt * dt / N / 4)
+            / 4
         )
         return np.sqrt(np.abs(h_h))
 
-    def snr_f(self, waveform):
-        dt = (self.times[1] - self.times[0]).value
-        T = (self.times[-1] - self.times[0]).value
-        wf = np.fft.rfft(waveform.data * dt)
-        S = self.psd.frequency_domain(frequencies=np.arange(0, 0.5/dt, 1/T))
-        A = (4 *  (wf.conj()*wf)[:-1] / S.value[:-1] / T)
-        return np.sqrt(np.real(np.sum(A)))
-    
     def log_likelihood(self, waveform, norm=True):
-        """
-        Calculate the log likelihood of a given waveform and the data.
-
-        Parameters
-        ----------
-        waveform : `heron.types.Waveform`
-           The waveform to compare to the data.
-
-        Returns
-        -------
-        float
-           The log-likelihood for the waveform.
-        """
-        factor = 1e30
-        try:
-            assert(np.all(self.times == waveform.times))
-        except AssertionError:
-            print(self.times, waveform.times)
-            raise Exception
-        residual = (self.data * factor) - (np.array(waveform.data) * factor)
-        weighted_residual = (residual.T @ self.inverse_C @ residual) * (self.dt)
-        # why is this negative using Toeplitz?
-        self.logger.info(f"residual: {residual}; chisq: {weighted_residual}")
-        out = - 0.5 * weighted_residual
-        if norm:
-            out += self.normalisation
-        return out
+        w = self.timeseries.determine_overlap(self, waveform)
+        if w is not None:
+            (a,b) = w
+        else:
+            return -np.inf
+        residual = np.array(self.data.data[a[0]:a[1]]) - np.array(waveform.data[b[0]:b[1]])
+        weighted_residual = (
+            (residual) @ self.solve(self.C[a[0]:a[1],b[0]:b[1]], residual) * (self.dt * self.dt / 4) / 4
+        )
+        normalisation = self.logdet(2 * np.pi * self.C[a[0]:a[1],b[0]:b[1]]) if norm else 0
+        return 0.5 * weighted_residual + 0.5 * normalisation
 
     def __call__(self, parameters):
         self.logger.info(parameters)
 
         keys = set(parameters.keys())
-        extrinsic = {"phase", "psi", "ra", "dec", "theta_jn", "zenith", "azimuth", "gpstime"}
-        conversions = {"geocent_time", "mass_ratio", "total_mass", "luminosity_distance", "chirp_mass"}
-        bad_keys = keys - set(self.waveform.allowed_parameters) - extrinsic - conversions
+        extrinsic = {"phase", "psi", "ra", "dec", "theta_jn", "gpstime", "geocent_time"}
+        conversions = {"mass_ratio", "total_mass", "luminosity_distance"}
+        bad_keys = keys - set(self.waveform._args.keys()) - extrinsic - conversions
         if len(bad_keys) > 0:
             print("The following keys were not recognised", bad_keys)
-        if self.fixed_parameters:
-            parameters.update(self.fixed_parameters)
+        parameters.update(self.fixed_parameters)
         test_waveform = self.waveform.time_domain(
             parameters=parameters, times=self.times
         )
         projected_waveform = test_waveform.project(self.detector)
-        llike = self.log_likelihood(projected_waveform)
-        self.logger.info(f"log likelihood: {llike}")
-        return llike
+        return self.log_likelihood(projected_waveform)
 
 
 class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
 
-    def __init__(self, data, psd, waveform=None, detector=None, fixed_parameters=None, timing_basis=None):
-        super().__init__(data, psd, waveform, detector, fixed_parameters, timing_basis)
+    def __init__(self, data, psd, waveform=None, detector=None):
+        super().__init__(data, psd, waveform, detector)
 
-    def _weighted_data(self):
+        self.norm_factor_2 = np.max(self.C)
+        self.norm_factor = np.sqrt(self.norm_factor_2)
+
+    def _normalisation(self, K, S):
+        norm = (
+            -1.5 * K.shape[0] * self.log(2 * self.pi)
+            - 0.5 * self.logdet(K)
+            + 0.5 * self.logdet(self.C)
+            - 0.5 * self.logdet(self.solve(K, self.C) + self.eye(K.shape[0]))
+        )
+        return norm
+
+    def _weighted_data(self, indices):
         """Return the weighted data component"""
         # TODO This can all be pre-computed
-        factor = 1e23
-        factor_sq = factor**2
-
+        (a, b) = indices
         if not hasattr(self, "weighted_data_CACHE"):
             dw = self.weighted_data_CACHE = (
-                -0.5 * (self.data*factor) @ self.solve(self.C*factor_sq, self.data*factor)
+                -0.5 * (np.array(self.data)/np.sqrt(self.norm_factor))[a[0]:a[1]].T @ self.solve((self.C/self.norm_factor_2)[a[0]:a[1], a[0]:a[1]], self.data[a[0]:a[1]])
             )
         else:
             dw = self.weighted_data_CACHE
         return dw
 
+    def _weighted_model(self, mu, K):
+        """Return the inner product of the GPR mean"""
+        return -0.5 * np.array(mu).T @ self.solve(K, mu)
+
+    def _weighted_cross(self, mu, K, indices):
+        # NB the first part of this is repeated elsewhere
+        (a,b) = indices
+        C = (self.C/self.norm_factor_2)[a[0]:a[1],a[0]:a[1]]
+        data = (self.data/self.norm_factor)[a[0]:a[1]]
+        
+        A = (self.solve(C, data) - self.solve(K, mu))
+        B = (self.inverse_C*self.norm_factor_2)[a[0]:a[1],a[0]:a[1]] + self.inverse(K)
+        return 0.5 * A.T @ self.solve(B, A)
+
     def log_likelihood(self, waveform, norm=True):
+        a, b = self.timeseries.determine_overlap(self, waveform)
+        
+        wf = np.array(waveform.data)[b[0]:b[1]]
+        wc = waveform.covariance[b[0]:b[1],b[0]:b[1]]
+        wc /= self.norm_factor_2 #np.max(wc)
+        wf /= self.norm_factor #np.sqrt(np.max(wc))
+        
+        like = - self._weighted_cross(wf, wc, indices=(a,b))
+        # print("cross term", like)
+        A = self._weighted_data((a, b))
+        # print("data term", A)
+        B = self._weighted_model(wf, wc)
+        # print("model term", B)
+        like = like - A - B
+        N = self._normalisation(waveform.covariance/self.norm_factor, self.C/self.norm_factor_2)
+        # print("normalisation", norm)
+        like += (N if norm else 0)
 
-        waveform_d = np.array(waveform.data)
-        waveform_c = np.array(waveform.covariance)
-        K = waveform_c
-        mu = waveform_d
-        factor = 1/np.max(K)
-        factor_sq = factor**2
-        factor_sqi = factor**-2
-
-        K = K*factor_sq
-        C = self.C * factor_sq
-        Ci = self.inverse(self.C * factor_sq)
-        Ki = self.inverse(K)
-        A = self.inverse(C + K)
-        mu = mu * factor
-        data = self.data*factor
-
-        sigma = self.inverse(Ki+Ci)*factor_sqi
-        B = (self.einsum("ij,i", Ki, mu) + (self.einsum("ij,i", Ci, data)))*factor
-
-        N = - (self.N / 2) * self.log(2*self.pi) +  0.5 * (self.logdet(sigma) - self.logdet(self.C) - self.logdet(K) - 3 * self.log(factor_sq)) * self.dt
-
-        data_like = (self._weighted_data())
-        model_like = -0.5 * self.einsum("i,ij,j", mu, Ki, mu)
-        shift = + 0.5 * self.einsum('i,ij,j', B, sigma, B) #* ((self.dt) / 4)
-        like = data_like + model_like + shift
-
-        if norm:
-            like += N
         return like
 
 
@@ -217,13 +199,9 @@ class MultiDetector:
         for detector in args:
             if isinstance(detector, LikelihoodBase):
                 self._likelihoods.append(detector)
-        self.logger = logger = logging.getLogger(
-            "heron.likelihood.MultiDetector"
-        )
 
     def __call__(self, parameters):
         out = 0
-        self.logger.info(f"Calling likelihood at {parameters}")
         for detector in self._likelihoods:
             out += detector(parameters)
 

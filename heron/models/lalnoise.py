@@ -38,7 +38,7 @@ class LALSimulationPSD(PSDApproximant):
         )
         self.psd_function(psd_data, flow=lower_frequency)
         psd_data = psd_data.data.data
-        #psd_data[frequencies < mask_below] = psd_data[frequencies > mask_below][0]
+        psd_data[frequencies < mask_below] = psd_data[frequencies > mask_below][0]
         psd = PSD(psd_data, frequencies=frequencies)
         return psd
 
@@ -56,25 +56,14 @@ class LALSimulationPSD(PSDApproximant):
         """
         Return a time-domain representation of this power spectral density.
         """
-                
         dt = times[1] - times[0]
         N = len(times)
         T = times[-1] - times[0]
         df = 1 / T
         frequencies = torch.arange(len(times) // 2 + 1) * df.value
-        psd = np.array(self.frequency_domain(df=df, frequencies=frequencies).data)
-        psd[-1] = psd[-2]
-        # import matplotlib.pyplot as plt
-        # f, ax = plt.subplots(1,1)
-        # ax.plot(frequencies, psd)
-        # f.savefig("psd.png")
-        # Calculate the autocovariance from a one-sided PSD
-        acf = 0.5*np.real(np.fft.irfft(psd*df, n=(N)))*T
-        # The covariance is then the Toeplitz matrix formed from the acf
-        # f, ax = plt.subplots(1,1)
-        # ax.plot(acf)
-        # f.savefig("acf.png")
-        return scipy.linalg.toeplitz(acf)
+        psd = self.frequency_domain(df=df, frequencies=frequencies)
+        ts = np.fft.irfft(psd, n=(N))  # * (N*N/dt/dt/2), n=(N))
+        return scipy.linalg.toeplitz(ts)
 
     def time_domain(self, times):
         return self.covariance_matrix(times)
@@ -99,22 +88,23 @@ class LALSimulationPSD(PSDApproximant):
 
         dt = times[1] - times[0]
         N = len(times)
+        print(N)
         T = times[-1] - times[0]
         df = 1 / T
         frequencies = torch.arange(len(times) // 2 + 1) * df
         reals = np.random.randn(len(frequencies))
         imags = np.random.randn(len(frequencies))
-        psd = np.array(self.frequency_domain(df=df, frequencies=frequencies).data)
-        psd[-1] = psd[-2]
 
-        S = 0.5 * np.sqrt(psd / df) #* T inside sqrt # np.sqrt(N * N / 4 / (T) * psd.value)
+        psd = self.frequency_domain(frequencies=frequencies)
+
+        S = 0.5 * np.sqrt(psd.value * T)  # np.sqrt(N * N / 4 / (T) * psd.value)
 
         noise_r = S * (reals)
         noise_i = S * (imags)
 
         noise_f = noise_r + 1j * noise_i
 
-        return TimeSeries(data=np.fft.irfft(noise_f, n=(N))*df*N, times=times)
+        return TimeSeries(data=np.fft.irfft(noise_f, n=(N)), times=times)
 
 
 class AdvancedLIGODesignSensitivity2018(LALSimulationPSD):

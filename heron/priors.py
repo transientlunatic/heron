@@ -13,6 +13,7 @@ KNOWN_PRIORS = {
     "Uniform": bilby.prior.Uniform,
     "PowerLaw": bilby.prior.PowerLaw,
     "Sine": bilby.prior.Sine,
+    "Cosine": bilby.prior.Cosine,
     "UniformSourceFrame": bilby.gw.prior.UniformSourceFrame,
     "UniformInComponentsMassRatio": bilby.gw.prior.UniformInComponentsMassRatio,
 }
