@@ -1,5 +1,5 @@
-matplotlib==3.9.3
-numpy==2.2.0
+matplotlib
+numpy>=2.2.0
 bilby
 scipy
 progressbar
@@ -17,7 +17,7 @@ asimov
 pesummary
 nessai
 elk-waveform
-gpytorch==1.0.1
-torch==2.5.1
-torchvision==0.5.0
+gpytorch>=1.0.1
+torch>=2.5.1
+torchvision>=0.5.0
 bilby_pipe
