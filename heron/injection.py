@@ -2,6 +2,8 @@
 Code to create injections using the various models supported by heron.
 """
 
+import os
+
 import logging
 
 import click
