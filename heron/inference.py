@@ -26,6 +26,8 @@ from heron.models.lalsimulation import (
 )
 from heron.utils import load_yaml
 
+import otter
+
 logger = logging.getLogger("heron.inference")
 
 KNOWN_LIKELIHOODS = {
@@ -81,12 +83,14 @@ def heron_inference(settings):
 
     data = {}
 
+    report = otter.Report(location=settings['webdir'])
+
     if "data files" in settings.get("data", {}):
         # Load frame files from disk
-
+        report += "# Data"
         start = settings['event time'] - settings['segment length'] + settings['after merger']
         end = settings['event time'] + settings['after merger']
-        
+
         for ifo in settings["interferometers"]:
             print(f"Loading {ifo} data")
             logger.info(
@@ -100,6 +104,8 @@ def heron_inference(settings):
                 start=start,
                 end=end,
             )
+            report += "## IFO"
+            report += data[ifo].plot()
             if data[ifo].sample_rate != settings['likelihood']['sampling rate']:
                 logger.info("Resampling the data to the likelihood sampling rate")
                 data[ifo] = data[ifo].resample(settings['likelihood']['sampling rate'])
