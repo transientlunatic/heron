@@ -63,6 +63,13 @@ def make_injection(
 
         #logger.info(f"Optimal Filter SNR: {snr}")
 
+        import matplotlib
+        matplotlib.use("agg")
+        from gwpy.plot import Plot
+        webdir = settings['pages directory']
+        f = Plot(data, waveform.project(detector), data+waveform.project(detector), separate=False)
+        f.savefig(os.path.join(webdir, f"{detector.abbreviation}_injected_waveform.png"))
+
         if framefile:
             filename = f"{detector.abbreviation}_{framefile}.gwf"
             logger.info(f"Saving framefile to {filename}")
@@ -72,7 +79,7 @@ def make_injection(
             # Write the PSD file to an ascii file
             filename = f"{detector.abbreviation}_{psdfile}.dat"
             psd_model.to_file(filename)
-            
+
     return injections
 
 
@@ -104,11 +111,12 @@ def make_injection_zero_noise(
         psd_model = KNOWN_PSDS[psd_model]()
         #data = psd_model.time_series(times)
 
-        # import matplotlib
-        # matplotlib.use("agg")
-        # from gwpy.plot import Plot
-        # f = Plot(data, waveform.project(detector), data+waveform.project(detector), separate=False)
-        # f.savefig(f"{detector.abbreviation}_injected_waveform.png")
+        import matplotlib
+        matplotlib.use("agg")
+        from gwpy.plot import Plot
+        webdir = settings['pages directory']
+        f = Plot(data, waveform.project(detector), data+waveform.project(detector), separate=False)
+        f.savefig(os.path.join(webdir, f"{detector.abbreviation}_injected_waveform.png"))
 
         injection = waveform.project(detector)
         injection.channel = channel
@@ -138,7 +146,7 @@ def injection_parameters_add_units(parameters):
 def injection(settings):
 
     click.echo("Preparing an injection")
-    
+
     settings = load_yaml(settings)
 
     if "logging" in settings:
@@ -156,7 +164,7 @@ def injection(settings):
     settings = settings["injection"]
 
     print(settings)
-    
+
     parameters = injection_parameters_add_units(settings["parameters"])
 
     detector_dict = {
@@ -165,7 +173,7 @@ def injection(settings):
     }
 
     click.echo("Making injections")
-    
+
     injections = make_injection(
         waveform=IMRPhenomPv2,
         duration=settings["duration"],
