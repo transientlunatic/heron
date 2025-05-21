@@ -86,10 +86,10 @@ def heron_inference(settings):
 
     report = otter.Otter(os.path.join(
         other_settings.get('pages directory', 'pages'),
-        nference.html),
-                         author="Heron",
-                         title="Heron Inference"
-                         )
+        "inference.html"),
+        author="Heron",
+        title="Heron Inference"
+    )
 
     if "data files" in settings.get("data", {}):
         # Load frame files from disk
