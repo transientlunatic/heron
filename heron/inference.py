@@ -83,16 +83,17 @@ def heron_inference(settings):
 
     data = {}
 
-    report = otter.Otter(settings['webdir']/inference.html,
-                        author="Heron",
-                        title="Heron Inference"
-                        )
+    report = otter.Otter(settings['pages directory']/inference.html,
+                         author="Heron",
+                         title="Heron Inference"
+                         )
 
     if "data files" in settings.get("data", {}):
         # Load frame files from disk
         with report:
             report += "# Data"
-        start = settings['event time'] - settings['segment length'] + settings['after merger']
+        start = settings['event time'] - \
+            settings['segment length'] + settings['after merger']
         end = settings['event time'] + settings['after merger']
 
         for ifo in settings["interferometers"]:
@@ -112,9 +113,11 @@ def heron_inference(settings):
                 report += "## IFO"
                 report += data[ifo].plot()
             if data[ifo].sample_rate != settings['likelihood']['sampling rate']:
-                logger.info("Resampling the data to the likelihood sampling rate")
-                data[ifo] = data[ifo].resample(settings['likelihood']['sampling rate'])
-    #elif "injection" in other_settings:
+                logger.info(
+                    "Resampling the data to the likelihood sampling rate")
+                data[ifo] = data[ifo].resample(
+                    settings['likelihood']['sampling rate'])
+    # elif "injection" in other_settings:
     #    pass
 
     # Make Likelihood
@@ -145,7 +148,8 @@ def heron_inference(settings):
         nessai_model = NessaiSampler(
             likelihood,
             priors,
-            injection_parameters_add_units(other_settings["injection"]["parameters"]),
+            injection_parameters_add_units(
+                other_settings["injection"]["parameters"]),
         )
 
         fp = FlowSampler(
@@ -156,14 +160,18 @@ def heron_inference(settings):
             ),
             output=settings["name"],
             resume=settings.get("sampler", {}).get("resume", True),
-            checkpointing=settings.get("sampler", {}).get("checkpointing", True),
+            checkpointing=settings.get(
+                "sampler", {}).get("checkpointing", True),
             checkpoint_interval=settings.get("sampler", {}).get(
                 "checkpointing interval", 3600
             ),
-            logging_interval=settings.get("sampler", {}).get("logging interval", 10),
-            log_on_iteration=settings.get("sampler", {}).get("log on iteration", True),
+            logging_interval=settings.get(
+                "sampler", {}).get("logging interval", 10),
+            log_on_iteration=settings.get(
+                "sampler", {}).get("log on iteration", True),
             seed=settings.get("sampler", {}).get("seed", 1234),
-            flow_class=settings.get("sampler", {}).get("flow class", "GWFlowProposal"),
+            flow_class=settings.get("sampler", {}).get(
+                "flow class", "GWFlowProposal"),
             signal_handling=True,
         )
 
