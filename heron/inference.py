@@ -113,8 +113,14 @@ def heron_inference(settings):
                 end=end,
             )
             with report:
-                report += "## IFO"
-                report += data[ifo].plot()
+                report += f"## {ifo}"
+                f = data[ifo].plot()
+                f.savefig(os.path.join(
+                    other_settings.get('pages directory', 'pages'),
+                    f"{ifo}_data.png"
+                ))
+                report += f
+
             if data[ifo].sample_rate != settings['likelihood']['sampling rate']:
                 logger.info(
                     "Resampling the data to the likelihood sampling rate")
