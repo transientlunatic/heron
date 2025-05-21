@@ -3,6 +3,7 @@ Logic to allow heron to complete signal inference
 """
 
 import logging
+import os
 
 import click
 
@@ -83,7 +84,9 @@ def heron_inference(settings):
 
     data = {}
 
-    report = otter.Otter(settings['pages directory']/inference.html,
+    report = otter.Otter(os.path.join(
+        other_settings.get('pages directory', 'pages'),
+        nference.html),
                          author="Heron",
                          title="Heron Inference"
                          )
