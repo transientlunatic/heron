@@ -28,6 +28,7 @@ def make_injection(
         detectors=None,
         framefile=None,
         psdfile=None,
+        webdir="pages"
 ):
 
     parameters = {"ra": 0, "dec": 0, "psi": 0, "theta_jn": 0, "phase": 0}
@@ -66,7 +67,7 @@ def make_injection(
         import matplotlib
         matplotlib.use("agg")
         from gwpy.plot import Plot
-        webdir = settings['pages directory']
+
         f = Plot(data, waveform.project(detector), data+waveform.project(detector), separate=False)
         f.savefig(os.path.join(webdir, f"{detector.abbreviation}_injected_waveform.png"))
 
@@ -160,7 +161,7 @@ def injection(settings):
         }
 
         logging.basicConfig(level=LOGGER_LEVELS[level])
-
+    webdir = settings['pages directory']
     settings = settings["injection"]
 
     print(settings)
@@ -182,5 +183,6 @@ def injection(settings):
         detectors=detector_dict,
         framefile="injection",
         psdfile="psd",
+        webdir=webdir,
     )
     data = injections
