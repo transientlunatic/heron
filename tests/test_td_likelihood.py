@@ -8,6 +8,7 @@ import unittest
 import numpy as np
 
 from heron.models.testing import FlatPSD, SineGaussianWaveform
+from heron.models.gpytorch import HeronNonSpinningApproximant
 from heron import likelihood
 from heron.detector import KNOWN_IFOS
 
@@ -157,3 +158,64 @@ class TestTDLikelihoodUncertaintyPyTorch(unittest.TestCase):
             np.linspace(0.01, 0.15, 100)[np.argmax(likelihoods)]  - self.inject)
             < (0.19-0.01)/100
         )
+
+
+class TestTDLikelihood_GP(unittest.TestCase):
+
+    def setUp(self):
+        self.sample_rate = 1024
+        self.duration = 2 # seconds
+        N = self.sample_rate * self.duration
+        self.psd = FlatPSD()
+        self.inject = 0.8
+        self.data = HeronNonSpinningApproximant().time_domain(
+            parameters={"mass ratio":self.inject,
+                        "total mass": 50,
+                        "ra": 1, "dec": 1,
+                        "phase": 0, "psi": 0,
+                        "theta_jn": 1}).project(
+                            detector=KNOWN_IFOS["AdvancedLIGOLivingston"]())
+
+        f = self.data.plot()
+        f.savefig("test_data_plot_gp.png")
+
+        data = SineGaussianWaveform().time_domain(
+            parameters={
+                "mass ratio":self.inject,
+                "total mass": 50,
+                "ra": 1, "dec": 1,
+                "phase": 0, "psi": 0,
+                "theta_jn": 1}).project(
+                    detector=KNOWN_IFOS["AdvancedLIGOLivingston"]())
+
+        f = data.plot()
+        f.savefig("test_data_plot_2_gp.png")
+        
+        self.likelihood = likelihood.TimeDomainLikelihood(
+            data=self.data,
+            psd=self.psd,
+            detector=KNOWN_IFOS["AdvancedLIGOLivingston"](),
+            waveform=SineGaussianWaveform(),
+        )
+
+    def test_evaluate(self):
+
+        likelihoods = []
+        for w in np.linspace(0.01, 1.0, 101):
+        
+            likelihoods.append(self.likelihood({"mass ratio":self.inject,
+                                                "total mass": 50,
+                                                "ra": 1, "dec": 1,
+                                                "phase": 0, "psi": 0,
+                                                "theta_jn": 1}))
+        likelihoods = np.array(likelihoods)
+        import matplotlib.pyplot as plt
+        f, ax = plt.subplots(1,1)
+        ax.plot(np.linspace(0.01, 1.0, 101), likelihoods)
+        f.savefig("test_likelihood_plot_gp.png")
+        self.assertTrue(
+            np.abs(
+                np.linspace(0.01, 1.0, 101)[np.argmax(likelihoods)] - self.inject)
+            < (0.19-0.01)/100
+            )
+        
