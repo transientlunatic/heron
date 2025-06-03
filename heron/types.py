@@ -21,20 +21,20 @@ class TimeSeries(TimeSeries):
     def plot(self, *args, **kwargs):
         f = super().plot(*args, **kwargs)
         ax = f.get_axes()[0]
-        if not isinstance(self._variance, type(None)):
+        if hasattr(self, "_variance") and self._variance is not None:
             ax.fill_between(self.times.value,
                             self.data + self._variance,
                             self.data - self._variance,
                             alpha=0.5)
         return f
-    
+
     @property
     def variance(self):
         if isinstance(self._variance, type(None)):
             return self._variance
         elif isinstance(self.covariance, type(None)):
             return np.diag(self.covariance)
-    
+
     def determine_overlap(self, timeseries_a, timeseries_b):
         def is_in(time, timeseries):
             diff = np.min(np.abs(timeseries - time))
@@ -79,7 +79,7 @@ class TimeSeries(TimeSeries):
         start_b = np.argmin(np.abs(timeseries_b.times - overlap[0]))
         finish_b = np.argmin(np.abs(timeseries_b.times - overlap[-1]))
         return (start_a, finish_a), (start_b, finish_b)
-    
+
     def align(self, waveform_b):
         """
         Align this waveform with another one by altering the phase.
@@ -254,7 +254,7 @@ class WaveformDict:
                 covariance=projected_covariance,
                 times=self.waveforms["plus"].times,
             )
-            
+
             projected_waveform.shift(dt)
 
             return projected_waveform

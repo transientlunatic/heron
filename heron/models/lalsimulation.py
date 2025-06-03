@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from scipy.interpolate import CubicSpline
 import scipy
+import scipy.spatial.distance
 
 # Astropy to handle units sanely
 from astropy import units as u
@@ -141,10 +142,12 @@ class LALSimulationApproximant(WaveformApproximant):
                     + hp.epoch
                     + epoch
                 )
-                spl_hp = CubicSpline(times_wf, hp.data.data)
-                spl_hx = CubicSpline(times_wf, hx.data.data)
-                hp_data = spl_hp(times)
-                hx_data = spl_hx(times)
+                times_wf = np.array([time.ns() for time in times_wf])
+                spl_hp = CubicSpline(times_wf, hp.data.data, extrapolate=False)
+                spl_hx = CubicSpline(times_wf, hx.data.data, extrapolate=False)
+
+                hp_data = np.nan_to_num(spl_hp(times*1e9))
+                hx_data = np.nan_to_num(spl_hx(times*1e9))
                 hp_ts = Waveform(data=hp_data, times=times)
                 hx_ts = Waveform(data=hx_data, times=times)
             elif "time" in parameters:
@@ -169,7 +172,7 @@ class LALSimulationApproximant(WaveformApproximant):
                 hx_data = hx.data.data
                 hp_ts = Waveform(data=hp_data, dt=hp.deltaT, t0=hp.epoch + epoch)
                 hx_ts = Waveform(data=hx_data, dt=hx.deltaT, t0=hx.epoch + epoch)
-            
+
             self._cache = WaveformDict(parameters=parameters, plus=hp_ts, cross=hx_ts)
         return self._cache
 
@@ -193,9 +196,16 @@ class IMRPhenomPv2_FakeUncertainty(IMRPhenomPv2):
         super().__init__()
         self.covariance = covariance
 
+
+
     def time_domain(self, parameters, times=None):
         waveform_dict = super().time_domain(parameters, times)
-        covariance = np.eye((len(waveform_dict["plus"].times))) * self.covariance**2
+        covariance =  np.exp(
+            -0.5 * scipy.spatial.distance.cdist(np.expand_dims(times, 1),
+                                                np.expand_dims(times, 1), 'sqeuclidean')
+
+        ) * self.covariance
+        #covariance = np.eye((len(waveform_dict["plus"].times))) * self.covariance**2
         for wave in waveform_dict.waveforms.values():
             # Artificially add a covariance function to each of these
             wave.covariance = covariance

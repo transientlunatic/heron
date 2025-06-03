@@ -3,6 +3,7 @@ Logic to allow heron to complete signal inference
 """
 
 import logging
+import os
 
 import click
 
@@ -13,7 +14,7 @@ from nessai.flowsampler import FlowSampler
 
 from heron.detector import KNOWN_IFOS
 from heron.models.lalnoise import KNOWN_PSDS
-from heron.likelihood import TimeDomainLikelihood, MultiDetector
+from heron.likelihood import TimeDomainLikelihood, MultiDetector, TimeDomainLikelihoodModelUncertainty
 import heron.priors
 
 from heron.sampling import NessaiSampler
@@ -26,13 +27,17 @@ from heron.models.lalsimulation import (
 )
 from heron.utils import load_yaml
 
+import otter
+
 logger = logging.getLogger("heron.inference")
 
 KNOWN_LIKELIHOODS = {
     "TimeDomainLikelihood": TimeDomainLikelihood,
+    "TimeDomainUncertaintyLikelihood": TimeDomainLikelihoodModelUncertainty,
 }
 KNOWN_WAVEFORMS = {
     "IMRPhenomPv2": IMRPhenomPv2,
+    "IMRPhenomPv2_FakeUncertainty": IMRPhenomPv2_FakeUncertainty,
 }
 
 
@@ -57,6 +62,7 @@ def parse_dict(settings):
 def heron_inference(settings):
 
     settings = load_yaml(settings)
+    webdir = settings['pages directory']
     settings, other_settings = parse_dict(settings)
 
     if "logging" in other_settings:
@@ -81,12 +87,21 @@ def heron_inference(settings):
 
     data = {}
 
+    report = otter.Otter(os.path.join(
+        webdir,
+        "inference.html"),
+        author="Heron",
+        title="Heron Inference"
+    )
+
     if "data files" in settings.get("data", {}):
         # Load frame files from disk
-
-        start = settings['event time'] - settings['segment length'] + settings['after merger']
+        with report:
+            report += "# Data"
+        start = settings['event time'] - \
+            settings['segment length'] + settings['after merger']
         end = settings['event time'] + settings['after merger']
-        
+
         for ifo in settings["interferometers"]:
             print(f"Loading {ifo} data")
             logger.info(
@@ -100,10 +115,21 @@ def heron_inference(settings):
                 start=start,
                 end=end,
             )
+            with report:
+                report += f"## {ifo}"
+                f = data[ifo].plot()
+                f.savefig(os.path.join(
+                    other_settings.get('pages directory', 'pages'),
+                    f"{ifo}_data.png"
+                ))
+                report += f
+
             if data[ifo].sample_rate != settings['likelihood']['sampling rate']:
-                logger.info("Resampling the data to the likelihood sampling rate")
-                data[ifo] = data[ifo].resample(settings['likelihood']['sampling rate'])
-    #elif "injection" in other_settings:
+                logger.info(
+                    "Resampling the data to the likelihood sampling rate")
+                data[ifo] = data[ifo].resample(
+                    settings['likelihood']['sampling rate'])
+    # elif "injection" in other_settings:
     #    pass
 
     # Make Likelihood
@@ -125,16 +151,47 @@ def heron_inference(settings):
                     ),
                 )
             )
+            print(likelihoods[-1])
         likelihood = MultiDetector(*likelihoods)
 
     priors = heron.priors.PriorDict()
     priors.from_dictionary(settings["priors"])
 
-    if settings["sampler"]["sampler"] == "nessai":
+    if settings["sampler"]["sampler"] == "naive":
+        import numpy as np
+        import matplotlib.pyplot as plt
+        # Just draw 100 points across mass ratio space
+        #prior_points = np.linspace(50, 70, 100)
+        #prior_points = np.linspace(50, 150, 100)
+        posterior = []
+        prior_points = np.linspace(settings["sampler"]["naive range"][0],
+            settings["sampler"]["naive range"][1],
+            100)
+        for mass in prior_points:
+            parameters = {
+            "total_mass": 60,#mass * u.solMass,
+            "mass_ratio": 1.0,
+            "luminosity_distance": 100,
+            "gpstime": 4000,
+            "ra": 1.0,
+            "dec": 0.3}
+
+            parameters[settings["sampler"]["naive parameter"]] = mass
+            parameters = injection_parameters_add_units(parameters)
+            posterior.append(likelihood(parameters))
+
+        posterior = np.array(posterior)
+        print(posterior)
+        f, ax = plt.subplots(1,1, dpi=300)
+        ax.plot(prior_points, posterior)
+        f.savefig(os.path.join(webdir, "posterior.png"))
+
+    elif settings["sampler"]["sampler"] == "nessai":
         nessai_model = NessaiSampler(
             likelihood,
             priors,
-            injection_parameters_add_units(other_settings["injection"]["parameters"]),
+            injection_parameters_add_units(
+                other_settings["injection"]["parameters"]),
         )
 
         fp = FlowSampler(
@@ -145,14 +202,18 @@ def heron_inference(settings):
             ),
             output=settings["name"],
             resume=settings.get("sampler", {}).get("resume", True),
-            checkpointing=settings.get("sampler", {}).get("checkpointing", True),
+            checkpointing=settings.get(
+                "sampler", {}).get("checkpointing", True),
             checkpoint_interval=settings.get("sampler", {}).get(
                 "checkpointing interval", 3600
             ),
-            logging_interval=settings.get("sampler", {}).get("logging interval", 10),
-            log_on_iteration=settings.get("sampler", {}).get("log on iteration", True),
+            logging_interval=settings.get(
+                "sampler", {}).get("logging interval", 10),
+            log_on_iteration=settings.get(
+                "sampler", {}).get("log on iteration", True),
             seed=settings.get("sampler", {}).get("seed", 1234),
-            flow_class=settings.get("sampler", {}).get("flow class", "GWFlowProposal"),
+            flow_class=settings.get("sampler", {}).get(
+                "flow class", "GWFlowProposal"),
             signal_handling=True,
         )
 

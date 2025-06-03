@@ -51,7 +51,7 @@ class LALSimulationPSD(PSDApproximant):
         data = np.array(psd.data)
 
         return np.vstack([frequencies, data]).T
-    
+
     def covariance_matrix(self, times):
         """
         Return a time-domain representation of this power spectral density.
@@ -88,23 +88,24 @@ class LALSimulationPSD(PSDApproximant):
 
         dt = times[1] - times[0]
         N = len(times)
-        print(N)
         T = times[-1] - times[0]
         df = 1 / T
         frequencies = torch.arange(len(times) // 2 + 1) * df
-        reals = np.random.randn(len(frequencies))
-        imags = np.random.randn(len(frequencies))
-
+        reals = np.random.randn(len(frequencies)) * 0.5 * T**0.5
+        imags = np.random.randn(len(frequencies)) * 0.5 * T**0.5
+        print("N", N, "T", T)
         psd = self.frequency_domain(frequencies=frequencies)
 
-        S = 0.5 * np.sqrt(psd.value * T)  # np.sqrt(N * N / 4 / (T) * psd.value)
+        S = np.sqrt(psd.value)  # np.sqrt(N * N / 4 / (T) * psd.value)
 
         noise_r = S * (reals)
         noise_i = S * (imags)
 
-        noise_f = noise_r + 1j * noise_i
 
-        return TimeSeries(data=np.fft.irfft(noise_f, n=(N)), times=times)
+        noise_f = noise_r + 1j * noise_i
+        noise_t = np.fft.irfft(noise_f, n=(N)) * N
+        print(noise_t)
+        return TimeSeries(data=noise_t, times=times)
 
 
 class AdvancedLIGODesignSensitivity2018(LALSimulationPSD):
@@ -114,5 +115,15 @@ class AdvancedLIGODesignSensitivity2018(LALSimulationPSD):
 class AdvancedLIGO(AdvancedLIGODesignSensitivity2018):
     pass
 
+class ZeroNoise(AdvancedLIGO):
+    def zeros(self, x, flow=None):
+        return np.ones(len(x.data.data))
+    psd_function = zeros
 
-KNOWN_PSDS = {"AdvancedLIGO": AdvancedLIGO}
+    def time_series(self, times):
+        return np.zeros(len(times))
+
+
+KNOWN_PSDS = {"AdvancedLIGO": AdvancedLIGO,
+    "ZeroNoise": ZeroNoise,
+}

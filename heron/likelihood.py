@@ -26,14 +26,14 @@ class Likelihood(LikelihoodBase):
 
     array = np.array
     device = "cpu"
-    
+
     def logdet(self, K):
         (sign, logabsdet) = np.linalg.slogdet(K)
         return logabsdet
 
     def det(self, A):
         return np.linalg.det(A)
-    
+
     def inverse(self, A):
         return np.linalg.inv(A)
 
@@ -97,9 +97,9 @@ class TimeDomainLikelihood(Likelihood):
         N = len(self.times)
         w = self.array(waveform.data, device=self.device)
         h_h = (
-            (w.T @ self.solve(self.C, w)) 
+            (w.T @ self.solve(self.C, w))
         ) / len(w)**2
-        
+
         return np.sqrt(2*np.abs(h_h))
 
     def log_likelihood(self, waveform, norm=True):
@@ -111,11 +111,11 @@ class TimeDomainLikelihood(Likelihood):
         residual = self.array(self.data.data[a[0]:a[1]]) - self.array(waveform.data[b[0]:b[1]])
         residual = self.to_device(residual, self.device)
         weighted_residual = (
-            (residual) @ self.solve(self.C[a[0]:a[1],b[0]:b[1]], residual) / len(residual)**2
+            (residual) @ self.solve(self.C[a[0]:a[1],b[0]:b[1]], residual) #/ len(residual)**2
         )
         N = len(residual)
         normalisation = N * self.log(2*np.pi) + self.logdet(self.C[a[0]:a[1],b[0]:b[1]]) if norm else 0
-        return - 0.5 * weighted_residual - 0.5 * normalisation
+        return   0.5 * weighted_residual - 0.5 * normalisation
 
     def __call__(self, parameters):
         self.logger.info(parameters)
@@ -136,15 +136,21 @@ class TimeDomainLikelihood(Likelihood):
 
 class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
 
-    def __init__(self, data, psd, waveform=None, detector=None):
-        super().__init__(data, psd, waveform, detector)
+    def __init__(self,
+    data,
+    psd,
+    fixed_parameters={},
+    timing_basis=None,
+    waveform=None,
+    detector=None):
+        super().__init__(data, psd, waveform, detector, fixed_parameters=fixed_parameters, timing_basis=timing_basis)
 
-        self.norm_factor_2 = np.max(self.C)
-        self.norm_factor = np.sqrt(self.norm_factor_2)
+        #self.norm_factor_2 = np.max(self.C)
+        #self.norm_factor = np.sqrt(self.norm_factor_2)
 
     def log_likelihood(self, waveform, norm=True):
         a, b = self.timeseries.determine_overlap(self, waveform)
-        
+
         wf = self.to_device(self.array(waveform.data), self.device)[b[0]:b[1]]
         data = self.data[a[0]:a[1]]
 
@@ -174,4 +180,3 @@ class MultiDetector:
             out += detector(parameters)
 
         return out
-

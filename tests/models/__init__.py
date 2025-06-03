@@ -73,6 +73,7 @@ class _GenericWaveform(unittest.TestCase):
         epoch = 4000
         time_domain = self.model.time_domain(parameters={"m1": 10 * u.solMass, "m2": 10 * u.solMass, "gpstime": epoch,
                                                          "time": {"upper": 4000.01, "lower": 3999.95, "number": 150}})
+        print(np.min(np.abs(time_domain['plus'].times.value - epoch)))
         self.assertTrue(np.min(np.abs(time_domain['plus'].times.value - epoch)) < 0.001)
         # Test that the epoch isn't at the start of the timeseries
         self.assertTrue(np.argmin(np.abs(time_domain['plus'].times.value - epoch)) > 10)        

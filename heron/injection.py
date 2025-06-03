@@ -2,6 +2,8 @@
 Code to create injections using the various models supported by heron.
 """
 
+import os
+
 import logging
 
 import click
@@ -28,19 +30,27 @@ def make_injection(
         detectors=None,
         framefile=None,
         psdfile=None,
+        webdir="pages"
 ):
 
-    parameters = {"ra": 0, "dec": 0, "psi": 0, "theta_jn": 0, "phase": 0}
+    parameters = {"ra": 0, "dec": 0, "psi": 0, "theta_jn": 0, "phase": 0, "gpstime": 4000}
     parameters.update(injection_parameters)
-
     waveform = waveform()
 
     # if times is None:
     #     times = np.linspace(parameters['gpstime']-duration+2, parameters['gpstime']+2, int(duration * sample_rate))
+    #
+    print(f"Making a waveform from {times[0]} to {times[-1]}")
     waveform = waveform.time_domain(
         parameters,
         times=times,
     )
+
+    import matplotlib
+    matplotlib.use("agg")
+    from gwpy.plot import Plot
+    f = Plot(waveform['plus'], waveform['cross'], separate=True)
+    f.savefig(os.path.join(webdir, f"injected_waveform_sep.png"))
 
     injections = {}
     for detector, psd_model in detectors.items():
@@ -51,20 +61,20 @@ def make_injection(
         if times is None:
             times = waveform['plus'].times.value
         data = psd_model.time_series(times)
-
         channel = f"{detector.abbreviation}:Injection"
 
         print("Projecting the waveform")
         injection = data + waveform.project(detector)
         injection.channel = channel
         injections[detector.abbreviation] = injection
-        # likelihood = TimeDomainLikelihood(injection, psd=psd_model)
-        # snr = likelihood.snr(waveform.project(detector))
 
-        #logger.info(f"Optimal Filter SNR: {snr}")
+        f = Plot(data, waveform.project(detector), injection, separate=True)
+        f.savefig(os.path.join(webdir, f"{detector.abbreviation}_injected_waveform.png"))
 
         if framefile:
             filename = f"{detector.abbreviation}_{framefile}.gwf"
+            f = Plot(injection)
+            f.savefig(os.path.join(webdir, f"{detector.abbreviation}_{framefile}.png"))
             logger.info(f"Saving framefile to {filename}")
             injection.write(filename, format="gwf")
 
@@ -72,7 +82,7 @@ def make_injection(
             # Write the PSD file to an ascii file
             filename = f"{detector.abbreviation}_{psdfile}.dat"
             psd_model.to_file(filename)
-            
+
     return injections
 
 
@@ -104,11 +114,12 @@ def make_injection_zero_noise(
         psd_model = KNOWN_PSDS[psd_model]()
         #data = psd_model.time_series(times)
 
-        # import matplotlib
-        # matplotlib.use("agg")
-        # from gwpy.plot import Plot
-        # f = Plot(data, waveform.project(detector), data+waveform.project(detector), separate=False)
-        # f.savefig(f"{detector.abbreviation}_injected_waveform.png")
+        import matplotlib
+        matplotlib.use("agg")
+        from gwpy.plot import Plot
+        webdir = settings['pages directory']
+        f = Plot(data, waveform.project(detector), data+waveform.project(detector), separate=False)
+        f.savefig(os.path.join(webdir, f"{detector.abbreviation}_injected_waveform.png"))
 
         injection = waveform.project(detector)
         injection.channel = channel
@@ -138,7 +149,7 @@ def injection_parameters_add_units(parameters):
 def injection(settings):
 
     click.echo("Preparing an injection")
-    
+
     settings = load_yaml(settings)
 
     if "logging" in settings:
@@ -152,11 +163,11 @@ def injection(settings):
         }
 
         logging.basicConfig(level=LOGGER_LEVELS[level])
-
+    webdir = settings['pages directory']
     settings = settings["injection"]
 
     print(settings)
-    
+
     parameters = injection_parameters_add_units(settings["parameters"])
 
     detector_dict = {
@@ -165,14 +176,21 @@ def injection(settings):
     }
 
     click.echo("Making injections")
-    
+    t0 = settings['parameters']['gpstime']
+    duration = settings["duration"]
+    srate = settings["sample rate"]
+
+    times = np.linspace(t0-(duration-2), t0+2, duration*srate)
+
     injections = make_injection(
         waveform=IMRPhenomPv2,
         duration=settings["duration"],
+        times=times,
         sample_rate=settings["sample rate"],
         injection_parameters=parameters,
         detectors=detector_dict,
         framefile="injection",
         psdfile="psd",
+        webdir=webdir,
     )
     data = injections
