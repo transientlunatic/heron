@@ -14,7 +14,7 @@ from nessai.flowsampler import FlowSampler
 
 from heron.detector import KNOWN_IFOS
 from heron.models.lalnoise import KNOWN_PSDS
-from heron.likelihood import TimeDomainLikelihood, MultiDetector
+from heron.likelihood import TimeDomainLikelihood, MultiDetector, TimeDomainLikelihoodModelUncertainty
 import heron.priors
 
 from heron.sampling import NessaiSampler
@@ -33,9 +33,11 @@ logger = logging.getLogger("heron.inference")
 
 KNOWN_LIKELIHOODS = {
     "TimeDomainLikelihood": TimeDomainLikelihood,
+    "TimeDomainUncertaintyLikelihood": TimeDomainLikelihoodModelUncertainty,
 }
 KNOWN_WAVEFORMS = {
     "IMRPhenomPv2": IMRPhenomPv2,
+    "IMRPhenomPv2_FakeUncertainty": IMRPhenomPv2_FakeUncertainty,
 }
 
 
@@ -60,6 +62,7 @@ def parse_dict(settings):
 def heron_inference(settings):
 
     settings = load_yaml(settings)
+    webdir = settings['pages directory']
     settings, other_settings = parse_dict(settings)
 
     if "logging" in other_settings:
@@ -85,7 +88,7 @@ def heron_inference(settings):
     data = {}
 
     report = otter.Otter(os.path.join(
-        other_settings.get('pages directory', 'pages'),
+        webdir,
         "inference.html"),
         author="Heron",
         title="Heron Inference"
@@ -148,12 +151,42 @@ def heron_inference(settings):
                     ),
                 )
             )
+            print(likelihoods[-1])
         likelihood = MultiDetector(*likelihoods)
 
     priors = heron.priors.PriorDict()
     priors.from_dictionary(settings["priors"])
 
-    if settings["sampler"]["sampler"] == "nessai":
+    if settings["sampler"]["sampler"] == "naive":
+        import numpy as np
+        import matplotlib.pyplot as plt
+        # Just draw 100 points across mass ratio space
+        #prior_points = np.linspace(50, 70, 100)
+        #prior_points = np.linspace(50, 150, 100)
+        posterior = []
+        prior_points = np.linspace(settings["sampler"]["naive range"][0],
+            settings["sampler"]["naive range"][1],
+            100)
+        for mass in prior_points:
+            parameters = {
+            "total_mass": 60,#mass * u.solMass,
+            "mass_ratio": 1.0,
+            "luminosity_distance": 100,
+            "gpstime": 4000,
+            "ra": 1.0,
+            "dec": 0.3}
+
+            parameters[settings["sampler"]["naive parameter"]] = mass
+            parameters = injection_parameters_add_units(parameters)
+            posterior.append(likelihood(parameters))
+
+        posterior = np.array(posterior)
+        print(posterior)
+        f, ax = plt.subplots(1,1, dpi=300)
+        ax.plot(prior_points, posterior)
+        f.savefig(os.path.join(webdir, "posterior.png"))
+
+    elif settings["sampler"]["sampler"] == "nessai":
         nessai_model = NessaiSampler(
             likelihood,
             priors,
