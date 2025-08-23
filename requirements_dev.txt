@@ -3,7 +3,7 @@ scipy
 progressbar
 emcee
 pyyaml
-jinja2
+jinja2==3.1.4
 cython
 george
 nestle
