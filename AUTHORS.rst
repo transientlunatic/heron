@@ -5,7 +5,7 @@ Credits
 Development Lead
 ----------------
 
-* Daniel Williams <d.williams.2@research.gla.ac.uk>
+* Daniel Williams <daniel.williams@glasgow.ac.uk>
 
 Contributors
 ------------
