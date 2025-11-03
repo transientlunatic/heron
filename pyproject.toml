@@ -1,0 +1,80 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools_scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "heron-model"
+description = "Heron is a toolkit for making machine learning-based gravitational waveform models in python."
+readme = "README.rst"
+requires-python = ">=3.8"
+license = {text = "ISC License (ISCL)"}
+authors = [
+    {name = "Daniel Williams", email = "daniel.williams@ligo.org"}
+]
+keywords = ["heron"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: ISC License (ISCL)",
+    "Natural Language :: English",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+]
+dependencies = [
+    "matplotlib==3.9.3",
+    "numpy==2.2.0",
+    "bilby",
+    "scipy",
+    "progressbar",
+    "emcee",
+    "pyyaml",
+    "jinja2",
+    "cython",
+    "george",
+    "nestle",
+    "lalsuite",
+    "h5py",
+    "click",
+    "asimov",
+    "pesummary",
+    "nessai",
+    "gpytorch==1.0.1",
+    "torch==2.5.1",
+    "torchvision==0.5.0",
+    "bilby_pipe",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/transientlunatic/heron"
+
+[project.optional-dependencies]
+test = [
+    "hypothesis",
+]
+dev = [
+    "pytest>=7.0",
+    "black>=22.0",
+    "flake8>=4.0",
+    "hypothesis",
+]
+
+[project.scripts]
+heron = "heron.cli:heron"
+
+[project.entry-points."asimov.pipelines"]
+heron = "heron.asimov:Pipeline"
+"heron injection" = "heron.asimov:InjectionPipeline"
+
+[tool.setuptools]
+packages = ["heron"]
+include-package-data = true
+zip-safe = true
+
+[tool.setuptools_scm]
+local_scheme = "no-local-version"
+
+[tool.flake8]
+exclude = ["docs"]
