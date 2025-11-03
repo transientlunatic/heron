@@ -23,8 +23,8 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
 ]
 dependencies = [
-    "matplotlib==3.9.3",
-    "numpy==2.2.0",
+    "matplotlib>=3.9.3",
+    "numpy>=2.2.0",
     "bilby",
     "scipy",
     "progressbar",
@@ -40,10 +40,11 @@ dependencies = [
     "asimov",
     "pesummary",
     "nessai",
-    "gpytorch==1.0.1",
-    "torch==2.5.1",
-    "torchvision==0.5.0",
+    "gpytorch",
+    "torch",
+    "torchvision",
     "bilby_pipe",
+    "astropy>=5.0",
 ]
 dynamic = ["version"]
 

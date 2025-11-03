@@ -125,6 +125,23 @@ class WaveformDict:
     def __getitem__(self, item):
         return self.waveforms[item]
 
+    def __repr__(self):
+        return f"<WaveformDict with components: {list(self.waveforms.keys())}>"
+
+    def __array__(self):
+        # Default to 'plus' component for array conversion
+        list_of_arrays = [waveform for waveform in self.waveforms.values()]
+        return array_library.vstack(list_of_arrays).T
+
+    @property
+    def times(self):
+        # Default to 'plus' component for times
+        if "plus" in self.waveforms:
+            return self.waveforms["plus"].times
+        else:
+            first_key = list(self.waveforms.keys())[0]
+            return self.waveforms[first_key].times
+
     @property
     def parameters(self):
         return self._parameters
@@ -157,9 +174,17 @@ class WaveformDict:
         detector : `heron.detectors.Detector`
           The detector onto which the waveform should be projected.
         ra : float, optional
-          The roght ascension of the signal source
+          The right ascension of the signal source
         dec : float, optional
           The declination of the signal source.
+        psi : float, optional
+          The polarisation angle of the signal.
+        time : `astropy.time.Time`, optional
+          The time at which to project the waveform. If not specified, the epoch of the waveform is used.
+        iota : float, optional
+          The inclination angle of the source.
+        phi_0 : float, optional
+          The initial phase of the source.
         """
 
         if not time:

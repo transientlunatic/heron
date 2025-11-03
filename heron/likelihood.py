@@ -65,6 +65,38 @@ class TimeDomainLikelihood(Likelihood):
         fixed_parameters={},
         timing_basis=None,
     ):
+        """
+        A time-domain matched filtering likelihood function.
+
+        Parameters
+        ----------
+        data : heron.timeseries.TimeSeries
+            The time series data to be used in the likelihood.
+        psd : heron.psd.PSD
+            The PSD object used to compute the noise covariance matrix.
+        waveform : heron.waveform.Waveform, optional
+            The waveform model to be used in the likelihood. If not provided,
+            it must be provided when calling the likelihood.
+        detector : heron.detector.Detector, optional
+            The detector to be used in the likelihood. If not provided,
+            it must be provided when calling the likelihood.
+        fixed_parameters : dict, optional
+            A dictionary of parameters to be held fixed in the likelihood.
+        timing_basis : str, optional
+            The timing basis to be used (e.g., 'geocentre_time').
+
+        Examples
+        --------
+        >>> from heron.timeseries import TimeSeries
+        >>> from heron.psd import FlatPSD
+        >>> from heron.waveform.lalsimulation import IMRPhenomPv2
+        >>> from heron.detector import LIGOHanford
+        >>> data = TimeSeries(...) 
+        >>> psd = FlatPSD()
+        >>> waveform = IMRPhenomPv2()
+        >>> detector = LIGOHanford()
+        >>> likelihood = TimeDomainLikelihood(data, psd, waveform, detector)
+        """
         self.psd = psd
         self.timeseries = data
         self.data = self.array(data.data)
@@ -108,14 +140,14 @@ class TimeDomainLikelihood(Likelihood):
             (a,b) = w
         else:
             return -np.inf
-        residual = self.array(self.data.data[a[0]:a[1]]) - self.array(waveform.data[b[0]:b[1]])
+        residual = 1e21*self.array(self.data.data[a[0]:a[1]]) - 1e21*self.array(waveform.data[b[0]:b[1]])
         residual = self.to_device(residual, self.device)
         weighted_residual = (
             (residual) @ self.solve(self.C[a[0]:a[1],b[0]:b[1]], residual) #/ len(residual)**2
         )
         N = len(residual)
         normalisation = N * self.log(2*np.pi) + self.logdet(self.C[a[0]:a[1],b[0]:b[1]]) if norm else 0
-        return   0.5 * weighted_residual - 0.5 * normalisation
+        return   (- 0.5 * weighted_residual - 0.5 * normalisation)/1e21
 
     def __call__(self, parameters):
         self.logger.info(parameters)
