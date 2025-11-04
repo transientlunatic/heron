@@ -205,11 +205,15 @@ class IMRPhenomPv2_FakeUncertainty(IMRPhenomPv2):
 
     def time_domain(self, parameters, times=None):
         waveform_dict = super().time_domain(parameters, times)
+
+        if times is None:
+            times = waveform_dict["plus"].times 
+
         covariance =  np.exp(
             -0.5 * scipy.spatial.distance.cdist(np.expand_dims(times, 1),
                                                 np.expand_dims(times, 1), 'sqeuclidean')
 
-        ) * self.covariance
+        ) * self.covariance**0.5
         #covariance = np.eye((len(waveform_dict["plus"].times))) * self.covariance**2
         for wave in waveform_dict.waveforms.values():
             # Artificially add a covariance function to each of these

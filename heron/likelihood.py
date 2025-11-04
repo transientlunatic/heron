@@ -142,12 +142,19 @@ class TimeDomainLikelihood(Likelihood):
             return -np.inf
         residual = 1e21*self.array(self.data.data[a[0]:a[1]]) - 1e21*self.array(waveform.data[b[0]:b[1]])
         residual = self.to_device(residual, self.device)
-        weighted_residual = (
-            (residual) @ self.solve(self.C[a[0]:a[1],b[0]:b[1]], residual) #/ len(residual)**2
-        )
         N = len(residual)
-        normalisation = N * self.log(2*np.pi) + self.logdet(self.C[a[0]:a[1],b[0]:b[1]]) if norm else 0
-        return   (- 0.5 * weighted_residual - 0.5 * normalisation)/1e21
+
+        C_scaled = 1e42 * self.C[a[0]:a[1], a[0]:a[1]]
+
+        weighted_residual = (
+            (residual) @ self.solve(C_scaled, residual) #/ len(residual)**2
+        )
+
+        normalisation = N * self.log(2*np.pi) + self.logdet(C_scaled) - 2 * N * self.log(1e21) if norm else 0
+
+        print("W", weighted_residual, " N", normalisation)
+
+        return   (- 0.5 * weighted_residual * 1e42 - 0.5 * normalisation)
 
     def __call__(self, parameters):
         self.logger.info(parameters)
@@ -183,16 +190,19 @@ class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
     def log_likelihood(self, waveform, norm=True):
         a, b = self.timeseries.determine_overlap(self, waveform)
 
-        wf = self.to_device(self.array(waveform.data), self.device)[b[0]:b[1]]
-        data = self.data[a[0]:a[1]]
+        wf = 1e21*self.to_device(self.array(waveform.data), self.device)[b[0]:b[1]]
+        data = 1e21*self.data[a[0]:a[1]]
 
-        C = self.C[a[0]:a[1], a[0]:a[1]]
-        K = self.to_device(self.array(waveform.covariance[b[0]:b[1],b[0]:b[1]]), self.device)
+
+        C = 1e42*self.C[a[0]:a[1], a[0]:a[1]]
+        K = 1e42*self.to_device(self.array(waveform.covariance[b[0]:b[1],b[0]:b[1]]), self.device)
+
         W_0 = self.to_device(self.array(data - wf), device=self.device)
-        N = len(W_0)
-        W = - 0.5 * self.solve((K+C), W_0) @ W_0
-        N = - 0.5 * N*self.log((2*self.pi)) - 0.5 * self.logdet((C+K)) if norm else 0
-        return W + N
+        N_samp = len(W_0)
+        W = 1e42*(- 0.5 * self.solve((K+C), W_0) @ W_0)
+        N = (- 0.5 * N_samp*self.log((2*self.pi)) - 0.5 * self.logdet((C+K)) + N_samp * self.log(1e21)) if norm else 0
+
+        return (W + N)
 
 
 class MultiDetector:

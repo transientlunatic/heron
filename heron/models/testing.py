@@ -39,7 +39,7 @@ class FlatPSD(PSDApproximant):
         N = int(len(frequencies))
         df = float(frequencies[1] - frequencies[0])
         psd_data = np.ones(N)
-        psd_data = self.psd_function(psd_data, flow=lower_frequency)
+        psd_data = self.psd_function(psd_data, flow=lower_frequency) / N
         psd_data[frequencies < mask_below] = psd_data[frequencies > mask_below][0]
         psd = PSD(psd_data, frequencies=frequencies)
         return psd
@@ -49,8 +49,8 @@ class FlatPSD(PSDApproximant):
         Create the covariance matrix for this PSD.
         """
         N = int(len(times))
-        autocovariance = np.exp(-np.arange(N)*0.1)
-        return scipy.linalg.circulant(autocovariance)
+        autocovariance = np.exp(-np.arange(N)*0.01)
+        return scipy.linalg.circulant(autocovariance) / N**2
     
 
 class SineGaussianWaveform(WaveformApproximant):
