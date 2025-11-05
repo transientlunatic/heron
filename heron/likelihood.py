@@ -173,6 +173,38 @@ class TimeDomainLikelihood(Likelihood):
         return self.log_likelihood(projected_waveform)
 
 
+class NumericallyScaled:
+    """
+    Represent a number which has a numerical scaling applied to it.
+    """
+    def __init__(self, 
+                 value: np.ndarray | torch.Tensor, 
+                 scale: float | None = None):
+        
+        self.value = value
+        self.scale = scale if scale is not None else 1./np.min(np.abs(value))
+
+    def __call__(self):
+        return self.scaled
+    
+    def __array__(self):
+        return self.scaled
+    
+    def __sub__(self, other):
+        assert self.scale == other.scale, "Cannot subtract NumericallyScaled with different scales"
+        return self.scaled - other.scaled
+
+    def __add__(self, other):
+        assert self.scale == other.scale, "Cannot add NumericallyScaled with different scales"
+        return self.scaled + other.scaled
+
+    def unscale(self, value):
+        return value / self.scale
+    
+    @property
+    def scaled(self):
+        return self.value * self.scale
+
 class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
 
     def __init__(self,
@@ -190,17 +222,32 @@ class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
     def log_likelihood(self, waveform, norm=True):
         a, b = self.timeseries.determine_overlap(self, waveform)
 
-        wf = 1e21*self.to_device(self.array(waveform.data), self.device)[b[0]:b[1]]
-        data = 1e21*self.data[a[0]:a[1]]
+        wf = NumericallyScaled(self.to_device(self.array(waveform.data), self.device)[b[0]:b[1]])
+        data = NumericallyScaled(self.data[a[0]:a[1]], scale=wf.scale)
 
+        C = NumericallyScaled(self.C[a[0]:a[1], a[0]:a[1]], scale=wf.scale**2)
+        K = NumericallyScaled(
+            self.to_device(self.array(waveform.covariance[b[0]:b[1],b[0]:b[1]]), self.device), 
+            scale=wf.scale**2)
+        total_cov = C.scaled + K.scaled
+        residual = self.to_device(self.array(data.scaled - wf.scaled), device=self.device)
+        N_samp = len(residual)
 
-        C = 1e42*self.C[a[0]:a[1], a[0]:a[1]]
-        K = 1e42*self.to_device(self.array(waveform.covariance[b[0]:b[1],b[0]:b[1]]), self.device)
+        print("C", C.value)
+        print("K", K.value)
+        print("Cs", C.scaled)
+        print("Ks", K.scaled)
 
-        W_0 = self.to_device(self.array(data - wf), device=self.device)
-        N_samp = len(W_0)
-        W = 1e42*(- 0.5 * self.solve((K+C), W_0) @ W_0)
-        N = (- 0.5 * N_samp*self.log((2*self.pi)) - 0.5 * self.logdet((C+K)) + N_samp * self.log(1e21)) if norm else 0
+        self.logger.debug(f"Data scale: {np.mean(np.abs(data.scaled))}")
+        self.logger.debug(f"Residual scale: {np.mean(np.abs(residual))}")
+        self.logger.debug(f"Cov diagonal range: [{np.min(np.diag(total_cov))}, {np.max(np.diag(total_cov))}]")
+        self.logger.debug(f"Condition number: {np.linalg.cond(total_cov)}")
+
+        W = (- 0.5 * self.solve((total_cov), residual) @ residual)
+
+        print("W", W)
+
+        N = (- 0.5 * N_samp*self.log((2*self.pi)) - 0.5 * self.logdet((C+K)) + N_samp * self.log(wf.scale)) if norm else 0
 
         return (W + N)
 

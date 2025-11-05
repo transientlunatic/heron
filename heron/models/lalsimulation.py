@@ -213,7 +213,7 @@ class IMRPhenomPv2_FakeUncertainty(IMRPhenomPv2):
             -0.5 * scipy.spatial.distance.cdist(np.expand_dims(times, 1),
                                                 np.expand_dims(times, 1), 'sqeuclidean')
 
-        ) * self.covariance**0.5
+        ) * self.covariance**2
         #covariance = np.eye((len(waveform_dict["plus"].times))) * self.covariance**2
         for wave in waveform_dict.waveforms.values():
             # Artificially add a covariance function to each of these

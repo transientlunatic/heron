@@ -22,7 +22,7 @@ class LALSimulationPSD(PSDApproximant):
 
     def frequency_domain(
         self,
-        df=1,
+        df: float = 1,
         frequencies=None,
         lower_frequency=20,
         upper_frequency=1024,
@@ -84,28 +84,50 @@ class LALSimulationPSD(PSDApproximant):
         -----
         In order to follow with the conventions in lalsuite this has been
         adapted from the code in lalnoise.
+        
+        Normalization follows standard one-sided PSD conventions:
+        - Interior frequency bins (k=1..N/2-1): X_k = sqrt(S1(f_k) * fs / 2) * (a_k + i b_k)
+        - DC bin (k=0): X_0 = 0 (no offset)
+        - Nyquist bin (k=N/2, when N even): X_{N/2} = sqrt(S1(f_{N/2}) * fs) * a_{N/2} (real)
+        - Before applying the inverse real FFT, the frequency-domain noise is scaled by sqrt(N/2) to compensate for numpy's normalization.
         """
 
-        dt = times[1] - times[0]
+        times = np.asarray(times)
         N = len(times)
-        T = times[-1] - times[0]
-        df = 1 / T
-        frequencies = torch.arange(len(times) // 2 + 1) * df
-        reals = np.random.randn(len(frequencies)) * 0.5 * T**0.5
-        imags = np.random.randn(len(frequencies)) * 0.5 * T**0.5
-        print("N", N, "T", T)
-        psd = self.frequency_domain(frequencies=frequencies)
+        dt = float(times[1] - times[0])
+        sample_rate = 1.0 / dt
+        
+        df = sample_rate / N
+        freqs = np.arange(0, N // 2 + 1) * df
 
-        S = np.sqrt(psd.value)  # np.sqrt(N * N / 4 / (T) * psd.value)
+        # One-sided PSD sampled on our frequency grid
+        psd = np.asarray(self.frequency_domain(df=df, frequencies=freqs).data)
+        if len(psd) > 1:
+            psd[-1] = psd[-2]  # avoid edge artifacts at Nyquist
 
-        noise_r = S * (reals)
-        noise_i = S * (imags)
+        # Random Gaussian draws
+        reals = np.random.randn(len(freqs))
+        imags = np.random.randn(len(freqs))
 
+        # Construct one-sided frequency-domain noise
+        noise_f = np.zeros(len(freqs), dtype=np.complex128)
+        if len(freqs) > 2:
+            amp_mid = np.sqrt(psd[1:-1] * sample_rate / 2.0)
+            noise_f[1:-1] = amp_mid * (reals[1:-1] + 1j * imags[1:-1])
 
-        noise_f = noise_r + 1j * noise_i
-        noise_t = np.fft.irfft(noise_f, n=(N)) * N
-        print(noise_t)
-        return TimeSeries(data=noise_t, times=times)
+        # DC = 0 to avoid mean offset
+        noise_f[0] = 0.0 + 0.0j
+
+        # Nyquist bin is purely real with full factor (no 1/2)
+        if N % 2 == 0:
+            noise_f[-1] = np.sqrt(psd[-1] * sample_rate) * reals[-1]
+
+        # Compensate for numpy's 1/N inverse FFT normalization
+        noise_f *= np.sqrt(N / 2.0)
+
+        # Inverse real FFT; numpy uses backward normalization so this is consistent
+        data = np.fft.irfft(noise_f, n=N)
+        return TimeSeries(data=data, times=times)
 
 
 class AdvancedLIGODesignSensitivity2018(LALSimulationPSD):
