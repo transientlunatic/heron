@@ -53,6 +53,38 @@ class Likelihood(LikelihoodBase):
     def pi(self):
         return np.pi
 
+class NumericallyScaled:
+    """
+    Represent a number which has a numerical scaling applied to it.
+    """
+    def __init__(self, 
+                 value: np.ndarray | torch.Tensor, 
+                 scale: float | None = None):
+        
+        self.value = value
+        self.scale = scale if scale is not None else 1./np.min(np.diag(value))
+
+    def __call__(self):
+        return self.scaled
+    
+    def __array__(self):
+        return self.scaled
+    
+    def __sub__(self, other):
+        assert self.scale == other.scale, "Cannot subtract NumericallyScaled with different scales"
+        return self.scaled - other.scaled
+
+    def __add__(self, other):
+        assert self.scale == other.scale, "Cannot add NumericallyScaled with different scales"
+        return self.scaled + other.scaled
+
+    def unscale(self, value):
+        return value / self.scale
+    
+    @property
+    def scaled(self):
+        return self.value * self.scale
+
 
 class TimeDomainLikelihood(Likelihood):
 
@@ -101,8 +133,11 @@ class TimeDomainLikelihood(Likelihood):
         self.timeseries = data
         self.data = self.array(data.data)
         self.times = data.times
-        self.C = self.psd.covariance_matrix(times=self.times)
-        self.inverse_C = self.inverse(self.C)
+        self.C = NumericallyScaled(self.psd.covariance_matrix(times=self.times))
+        self.C_scaled = self.C.scaled
+        self.data = NumericallyScaled(self.data.data, scale=np.sqrt(self.C.scale))
+        self.data_scaled = self.data.scaled
+        # self.inverse_C = self.inverse(self.C)
 
         self.dt = (self.times[1] - self.times[0]).value
         self.N = len(self.times)
@@ -127,12 +162,13 @@ class TimeDomainLikelihood(Likelihood):
         """
         dt = (self.times[1] - self.times[0]).value
         N = len(self.times)
-        w = self.array(waveform.data, device=self.device)
+        w = self.array(waveform.data)
+        w = self.to_device(w, self.device)
         h_h = (
             (w.T @ self.solve(self.C, w))
-        ) / len(w)**2
+        )
 
-        return np.sqrt(2*np.abs(h_h))
+        return np.sqrt(h_h)
 
     def log_likelihood(self, waveform, norm=True):
         w = self.timeseries.determine_overlap(self, waveform)
@@ -140,21 +176,22 @@ class TimeDomainLikelihood(Likelihood):
             (a,b) = w
         else:
             return -np.inf
-        residual = 1e21*self.array(self.data.data[a[0]:a[1]]) - 1e21*self.array(waveform.data[b[0]:b[1]])
-        residual = self.to_device(residual, self.device)
+
+        wf = NumericallyScaled(self.array(waveform.data[b[0]:b[1]]), scale=np.sqrt(self.C.scale))
+        data = self.array(self.data_scaled[a[0]:a[1]])
+
+        residual = self.to_device(data-wf, self.device)
         N = len(residual)
 
-        C_scaled = 1e42 * self.C[a[0]:a[1], a[0]:a[1]]
+        C_scaled = self.C_scaled[a[0]:a[1], a[0]:a[1]]
 
         weighted_residual = (
-            (residual) @ self.solve(C_scaled, residual) #/ len(residual)**2
+            (residual) @ self.solve(C_scaled, residual)
         )
 
-        normalisation = N * self.log(2*np.pi) + self.logdet(C_scaled) - 2 * N * self.log(1e21) if norm else 0
+        normalisation = N * self.log(2*np.pi) + self.logdet(C_scaled) - 2 * N * self.log(wf.scale) if norm else 0
 
-        print("W", weighted_residual, " N", normalisation)
-
-        return   (- 0.5 * weighted_residual * 1e42 - 0.5 * normalisation)
+        return   (- 0.5 * weighted_residual - 0.5 * normalisation)
 
     def __call__(self, parameters):
         self.logger.info(parameters)
@@ -172,38 +209,6 @@ class TimeDomainLikelihood(Likelihood):
         projected_waveform = test_waveform.project(self.detector)
         return self.log_likelihood(projected_waveform)
 
-
-class NumericallyScaled:
-    """
-    Represent a number which has a numerical scaling applied to it.
-    """
-    def __init__(self, 
-                 value: np.ndarray | torch.Tensor, 
-                 scale: float | None = None):
-        
-        self.value = value
-        self.scale = scale if scale is not None else 1./np.min(np.abs(value))
-
-    def __call__(self):
-        return self.scaled
-    
-    def __array__(self):
-        return self.scaled
-    
-    def __sub__(self, other):
-        assert self.scale == other.scale, "Cannot subtract NumericallyScaled with different scales"
-        return self.scaled - other.scaled
-
-    def __add__(self, other):
-        assert self.scale == other.scale, "Cannot add NumericallyScaled with different scales"
-        return self.scaled + other.scaled
-
-    def unscale(self, value):
-        return value / self.scale
-    
-    @property
-    def scaled(self):
-        return self.value * self.scale
 
 class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
 

@@ -52,7 +52,7 @@ class FlatPSD(PSDApproximant):
         # autocovariance = 1e-42*np.exp(-np.arange(N)*0.01)
         autocovariance = np.zeros(N)
         autocovariance[0] = 1.0
-        return scipy.linalg.circulant(autocovariance) / N**2
+        return scipy.linalg.circulant(autocovariance)
     
 
 class SineGaussianWaveform(WaveformApproximant):
@@ -66,15 +66,17 @@ class SineGaussianWaveform(WaveformApproximant):
             "width": 0.02 * u.second,
             "frequency": 500 * u.Hertz,
             "segment length": 1 * u.second,
+            "amplitude": 1.0,
         }
 
     def time_domain(self, parameters, times=None, sample_rate=1024*u.Hertz):
         epoch = parameters.get("gpstime", parameters.get("epoch", 0))
+        amplitude = parameters.get("amplitude", self._args["amplitude"])
         self._args.update(parameters)
         width = self._args['width']
         length = self._args['segment length']
         times = np.linspace(-length/2, length/2, int((length*sample_rate).value))
-        envelope = np.exp(
+        envelope = amplitude * np.exp(
             (- (times - epoch)**2/(2*width**2)).value
         ) / np.sqrt(2*np.pi*width**2)
 
