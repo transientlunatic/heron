@@ -49,7 +49,9 @@ class FlatPSD(PSDApproximant):
         Create the covariance matrix for this PSD.
         """
         N = int(len(times))
-        autocovariance = 1e-42*np.exp(-np.arange(N)*0.01)
+        # autocovariance = 1e-42*np.exp(-np.arange(N)*0.01)
+        autocovariance = np.zeros(N)
+        autocovariance[0] = 1.0
         return scipy.linalg.circulant(autocovariance) / N**2
     
 
