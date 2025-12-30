@@ -130,9 +130,9 @@ class TimeDomainLikelihood(Likelihood):
         w = self.array(waveform.data, device=self.device)
         h_h = (
             (w.T @ self.solve(self.C, w))
-        ) / len(w)**2
+        ) 
 
-        return np.sqrt(2*np.abs(h_h))
+        return np.sqrt(np.abs(h_h))
 
     def log_likelihood(self, waveform, norm=True):
         w = self.timeseries.determine_overlap(self, waveform)
@@ -152,7 +152,7 @@ class TimeDomainLikelihood(Likelihood):
 
         normalisation = N * self.log(2*np.pi) + self.logdet(C_scaled) - 2 * N * self.log(1e21) if norm else 0
 
-        print("W", weighted_residual, " N", normalisation)
+        #print("W", weighted_residual, " N", normalisation)
 
         return   (- 0.5 * weighted_residual * 1e42 - 0.5 * normalisation)
 
