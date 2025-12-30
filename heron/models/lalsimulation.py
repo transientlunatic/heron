@@ -168,8 +168,8 @@ class LALSimulationApproximant(WaveformApproximant):
                 spl_hx = CubicSpline(times_wf, hx.data.data)
                 hp_data = spl_hp(times)
                 hx_data = spl_hx(times)
-                hp_ts = Waveform(data=hp_data, times=times + epoch)
-                hx_ts = Waveform(data=hx_data, times=times + epoch)
+                hp_ts = Waveform(data=hp_data, times=times)
+                hx_ts = Waveform(data=hx_data, times=times)
                 parameters.pop("time")
 
             else:
@@ -177,7 +177,6 @@ class LALSimulationApproximant(WaveformApproximant):
                 hx_data = hx.data.data
                 hp_ts = Waveform(data=hp_data, dt=hp.deltaT, t0=hp.epoch + epoch)
                 hx_ts = Waveform(data=hx_data, dt=hx.deltaT, t0=hx.epoch + epoch)
-
             self._cache = WaveformDict(parameters=parameters, plus=hp_ts, cross=hx_ts)
         return self._cache
 

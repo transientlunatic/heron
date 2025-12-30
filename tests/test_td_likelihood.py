@@ -105,7 +105,6 @@ class TestTDLikelihoodUncertainty(unittest.TestCase):
         )
 
     def test_evaluate(self):
-
         likelihoods = []
         for w in np.linspace(0.01, 0.19, 100):
         
