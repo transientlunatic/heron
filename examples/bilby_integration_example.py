@@ -103,7 +103,8 @@ def main():
         nlive=500,
         outdir='outdir',
         label='heron_with_uncertainty',
-        conversion_function=bilby.gw.conversion.generate_all_bbh_parameters,
+        # Note: For real BBH waveforms, use bilby.gw.conversion.generate_all_bbh_parameters
+        # For this sine-gaussian example, no conversion is needed
     )
     
     # Make a corner plot

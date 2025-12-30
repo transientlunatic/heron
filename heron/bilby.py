@@ -55,6 +55,12 @@ def read_pickle(filename):
     return output
 
 
+# Constants for likelihood calculations
+# Factor of 4 comes from converting two-sided PSD to one-sided and dt normalization
+# See e.g., Finn & Chernoff (1993) for matched filtering conventions
+MATCHED_FILTER_NORMALIZATION = 4
+
+
 if BILBY_AVAILABLE:
     
     class HeronWaveformGenerator(bilby.gw.waveform_generator.WaveformGenerator):
@@ -183,7 +189,13 @@ if BILBY_AVAILABLE:
                 result['plus_covariance'] = waveform_dict['plus'].covariance
                 result['cross_covariance'] = waveform_dict['cross'].covariance
             
-            if hasattr(waveform_dict['plus'], '_variance'):
+            # Access variance through property if available, otherwise try private attribute
+            # Note: This accesses _variance as a fallback for compatibility with
+            # existing heron waveform implementations
+            if hasattr(waveform_dict['plus'], 'variance') and waveform_dict['plus'].variance is not None:
+                result['plus_variance'] = waveform_dict['plus'].variance
+                result['cross_variance'] = waveform_dict['cross'].variance
+            elif hasattr(waveform_dict['plus'], '_variance'):
                 result['plus_variance'] = waveform_dict['plus']._variance
                 result['cross_variance'] = waveform_dict['cross']._variance
                 
@@ -374,6 +386,12 @@ if BILBY_AVAILABLE:
             cross_cov = waveform_polarizations.get('cross_covariance')
             
             # Get antenna responses
+            # Validate required parameters are present
+            if 'ra' not in self.parameters or 'dec' not in self.parameters:
+                raise KeyError(
+                    "Parameters 'ra' and 'dec' are required for antenna response calculation. "
+                    f"Available parameters: {list(self.parameters.keys())}"
+                )
             antenna_response = ifo.antenna_response(
                 self.parameters['ra'],
                 self.parameters['dec'],
@@ -402,8 +420,13 @@ if BILBY_AVAILABLE:
             # For computational efficiency, we work in frequency domain
             # and assume uncorrelated noise (diagonal PSD)
             
-            # FFT of residual
-            residual_fft = np.fft.rfft(residual) * ifo.strain_data.duration / len(residual)
+            # Helper function for FFT normalization (extracted to avoid duplication)
+            def fft_normalize(data, duration, length):
+                """Normalize FFT output for matched filtering."""
+                return np.fft.rfft(data) * duration / length
+            
+            # FFT of residual with proper normalization
+            residual_fft = fft_normalize(residual, ifo.strain_data.duration, len(residual))
             
             # In frequency domain, noise covariance is diagonal with PSD
             # Total covariance = noise + signal uncertainty (need to FFT signal_cov)
@@ -416,13 +439,24 @@ if BILBY_AVAILABLE:
             delta_f = 1.0 / ifo.strain_data.duration
             
             # Compute <d-h|d-h> inner product weighted by inverse PSD
-            inner_product = 4 * delta_f * np.sum(
+            # The factor of 4 = MATCHED_FILTER_NORMALIZATION accounts for:
+            # - Converting two-sided PSD to one-sided (factor of 2)
+            # - dt normalization in matched filtering (factor of 2)
+            # See Finn & Chernoff (1993), Cutler & Flanagan (1994)
+            inner_product = MATCHED_FILTER_NORMALIZATION * delta_f * np.sum(
                 np.abs(residual_fft)**2 / psd[:len(residual_fft)]
             ).real
             
             # Add correction for model uncertainty
-            # This is approximate - proper treatment would require full covariance inversion
-            # For now, add variance contribution
+            # This is an approximation: we add the model variance as an effective
+            # increase in noise power. A more rigorous treatment would perform
+            # full covariance inversion: (C_n + C_h)^{-1}, but this is
+            # computationally expensive for large matrices.
+            # 
+            # Physical interpretation: regions of high model uncertainty contribute
+            # less to the likelihood (are weighted down) similar to high-noise regions.
+            # The normalization by median PSD puts the uncertainty on the same scale
+            # as the detector noise.
             if signal_cov.ndim == 2:
                 uncertainty_var = np.diag(signal_cov)
             else:
@@ -454,11 +488,17 @@ if BILBY_AVAILABLE:
             residual = ifo.time_domain_strain - signal
             
             # Use bilby's built-in matched filter calculation
-            residual_fft = np.fft.rfft(residual) * ifo.strain_data.duration / len(residual)
+            # Helper function for FFT normalization (same as in _log_likelihood_with_uncertainty)
+            def fft_normalize(data, duration, length):
+                """Normalize FFT output for matched filtering."""
+                return np.fft.rfft(data) * duration / length
+            
+            residual_fft = fft_normalize(residual, ifo.strain_data.duration, len(residual))
             psd = ifo.power_spectral_density_array
             delta_f = 1.0 / ifo.strain_data.duration
             
-            inner_product = 4 * delta_f * np.sum(
+            # Use the same normalization constant for consistency
+            inner_product = MATCHED_FILTER_NORMALIZATION * delta_f * np.sum(
                 np.abs(residual_fft)**2 / psd[:len(residual_fft)]
             ).real
             
