@@ -80,10 +80,7 @@ The implementation correctly propagates uncertainty through several steps:
 
 1. **GP Prediction**: The heron waveform model provides both mean waveform and uncertainty (covariance matrix)
 
-2. **Antenna Response Projection**: When projecting waveforms onto detectors:
-   ```
-   Var(F+ * h+ + Fx * hx) = F+^2 * Var(h+) + Fx^2 * Var(hx)
-   ```
+2. **Antenna Response Projection**: When projecting waveforms onto detectors, the full variance propagation for potentially correlated plus and cross polarizations is
 
 3. **FFT Operations**: Proper normalization is maintained through Fourier transforms
 
@@ -102,23 +99,23 @@ The implementation correctly propagates uncertainty through several steps:
 
 **File:** `tests/test_bilby.py`
 
-Comprehensive test suite including:
+Current unit tests cover:
 
-1. **Waveform Generation Tests**
+1. **Waveform Generation Tests** (implemented)
    - Initialization and configuration
    - Time-domain waveform generation
    - Uncertainty propagation
    - Waveform shape validation
 
-2. **Scientific Accuracy Tests**
+2. **Scientific Accuracy Tests** (implemented)
    - Waveform normalization
    - Finite values check
    - Positive semi-definite covariance validation
 
-3. **Placeholder Tests**
-   - Full likelihood evaluation (requires bilby installation)
-   - SNR calculations
-   - Comparison with/without uncertainty
+3. **Planned Likelihood Tests** (placeholders only, currently skipped)
+   - Full likelihood evaluation (requires bilby installation and is not yet implemented)
+   - SNR calculations (placeholder tests only; no active coverage)
+   - Comparison with/without uncertainty (placeholder tests only; no active coverage)
 
 **Running Tests:**
 ```bash
