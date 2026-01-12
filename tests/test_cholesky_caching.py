@@ -356,8 +356,8 @@ class TestCholeskyPerformance(unittest.TestCase):
 
         time_per_eval = elapsed / (n_evals * len(self.test_waveforms))
 
-        print(f"\nCurrent implementation: {time_per_eval*1000:.2f} ms per likelihood evaluation")
-        print(f"Data size: {len(self.data)} samples")
+        # print(f"\nCurrent implementation: {time_per_eval*1000:.2f} ms per likelihood evaluation")
+        # print(f"Data size: {len(self.data)} samples")
 
         # Store for future comparison (when Cholesky is implemented)
         # After optimization, we expect ~2-3x speedup
@@ -382,7 +382,7 @@ class TestCholeskyPerformance(unittest.TestCase):
         # Time direct solve
         start = time.time()
         for _ in range(10):
-            x = np.linalg.solve(C, b)
+            np.linalg.solve(C, b)
         solve_time = (time.time() - start) / 10
 
         # Time Cholesky decomposition (one-time cost)
@@ -397,11 +397,11 @@ class TestCholeskyPerformance(unittest.TestCase):
             x = np.linalg.solve(L.T, y)
         cholesky_solve_time = (time.time() - start) / 10
 
-        print(f"\nMatrix operation timing (N={N}):")
-        print(f"  Direct solve: {solve_time*1000:.2f} ms")
-        print(f"  Cholesky decomposition (one-time): {cholesky_time*1000:.2f} ms")
-        print(f"  Cholesky solve (per-eval): {cholesky_solve_time*1000:.2f} ms")
-        print(f"  Expected speedup: {solve_time/cholesky_solve_time:.1f}x")
+        # print(f"\nMatrix operation timing (N={N}):")
+        # print(f"  Direct solve: {solve_time*1000:.2f} ms")
+        # print(f"  Cholesky decomposition (one-time): {cholesky_time*1000:.2f} ms")
+        # print(f"  Cholesky solve (per-eval): {cholesky_solve_time*1000:.2f} ms")
+        # print(f"  Expected speedup: {solve_time/cholesky_solve_time:.1f}x")
 
         # Cholesky solve should be faster
         self.assertLess(cholesky_solve_time, solve_time,
@@ -454,9 +454,9 @@ class TestCholeskyCorrectnessReference(unittest.TestCase):
             ll = likelihood.log_likelihood(wf)
             reference_values.append(ll)
 
-        print("\n=== REFERENCE VALUES (pre-Cholesky optimization) ===")
+        # print("\n=== REFERENCE VALUES (pre-Cholesky optimization) ===")
         for i, (params, ll) in enumerate(zip(test_params, reference_values)):
-            print(f"Test case {i+1}: width={params['width']:.3f}, log_L={ll:.10e}")
+            # print(f"Test case {i+1}: width={params['width']:.3f}, log_L={ll:.10e}")
 
         # Store these values - after Cholesky implementation, verify they match
         self.reference_log_likelihoods = reference_values

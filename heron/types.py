@@ -131,9 +131,9 @@ class Waveform(WaveformBase):
         self._variance = variance
         super(Waveform, self).__init__(*args, **kwargs)
 
-    def __new__(self, variance=None, covariance=None, covariance_gpu=None,
+    def __new__(cls, variance=None, covariance=None, covariance_gpu=None,
                 output_scale=1.0, distance_factor=1.0, *args, **kwargs):
-        waveform = super(Waveform, self).__new__(TimeSeries, *args, **kwargs)
+        waveform = super(Waveform, cls).__new__(TimeSeries, *args, **kwargs)
         waveform._covariance = covariance
         waveform._covariance_gpu = covariance_gpu
         waveform._output_scale = output_scale

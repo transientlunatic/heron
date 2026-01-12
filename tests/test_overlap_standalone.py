@@ -126,8 +126,8 @@ class TestOverlapCorrectness(unittest.TestCase):
 
         self.assertIsNotNone(result_opt)
 
-        (sa_opt, ea_opt), (sb_opt, eb_opt) = result_opt
-        (sa_orig, ea_orig), (sb_orig, eb_orig) = result_orig
+        (sa_opt, ea_opt), _ = result_opt
+        (sa_orig, ea_orig), _ = result_orig
 
         # Should be very close
         self.assertLess(abs(sa_opt - sa_orig), 2)
@@ -159,8 +159,8 @@ class TestOverlapCorrectness(unittest.TestCase):
 
         self.assertIsNotNone(result_opt)
 
-        (sa_opt, ea_opt), (sb_opt, eb_opt) = result_opt
-        (sa_orig, ea_orig), (sb_orig, eb_orig) = result_orig
+        (sa_opt, ea_opt), _ = result_opt
+        (sa_orig, ea_orig), _ = result_orig
 
         # Should match closely
         self.assertLess(abs(sa_opt - sa_orig), 2)
@@ -186,22 +186,22 @@ class TestOverlapPerformance(unittest.TestCase):
         n_iter = 1000
         start = time.time()
         for _ in range(n_iter):
-            result_opt = optimized_determine_overlap(times_a, times_b)
+            _ = optimized_determine_overlap(times_a, times_b)
         time_opt = (time.time() - start) / n_iter
 
         # Time original version
         start = time.time()
         for _ in range(n_iter):
-            result_orig = original_determine_overlap(times_a, times_b)
+            _ = original_determine_overlap(times_a, times_b)
         time_orig = (time.time() - start) / n_iter
 
         speedup = time_orig / time_opt
 
-        print(f"\n=== Overlap Detection Performance ===")
-        print(f"Array size: {n_samples} samples")
-        print(f"Original (argmin): {time_orig*1000:.4f} ms")
-        print(f"Optimized (searchsorted): {time_opt*1000:.4f} ms")
-        print(f"Speedup: {speedup:.1f}x")
+        # print(f"\n=== Overlap Detection Performance ===")
+        # print(f"Array size: {n_samples} samples")
+        # print(f"Original (argmin): {time_orig*1000:.4f} ms")
+        # print(f"Optimized (searchsorted): {time_opt*1000:.4f} ms")
+        # print(f"Speedup: {speedup:.1f}x")
 
         # Should be significantly faster (2x is already great!)
         self.assertGreater(speedup, 2,
@@ -216,22 +216,22 @@ class TestOverlapPerformance(unittest.TestCase):
         n_iter = 10000
         start = time.time()
         for _ in range(n_iter):
-            idx = np.searchsorted(times, target)
+            _ = np.searchsorted(times, target)
         time_searchsorted = (time.time() - start) / n_iter
 
         # Time argmin
         start = time.time()
         for _ in range(n_iter):
-            idx = np.argmin(np.abs(times - target))
+            _ = np.argmin(np.abs(times - target))
         time_argmin = (time.time() - start) / n_iter
 
         speedup = time_argmin / time_searchsorted
 
-        print(f"\n=== Direct Method Comparison ===")
-        print(f"Array size: 16384")
-        print(f"argmin: {time_argmin*1e6:.2f} µs")
-        print(f"searchsorted: {time_searchsorted*1e6:.2f} µs")
-        print(f"Speedup: {speedup:.1f}x")
+        # print(f"\n=== Direct Method Comparison ===")
+        # print(f"Array size: 16384")
+        # print(f"argmin: {time_argmin*1e6:.2f} µs")
+        # print(f"searchsorted: {time_searchsorted*1e6:.2f} µs")
+        # print(f"Speedup: {speedup:.1f}x")
 
         self.assertGreater(speedup, 5,
                           f"searchsorted should be >5x faster, got {speedup:.1f}x")
@@ -270,7 +270,7 @@ class TestOverlapEdgeCases(unittest.TestCase):
         result = optimized_determine_overlap(times_a, times_b)
 
         self.assertIsNotNone(result)
-        (sa, ea), (sb, eb) = result
+        (sa, ea), _ = result
 
         # Verify overlap makes sense
         self.assertGreater(times_a[sa], 0.49)

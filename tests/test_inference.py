@@ -13,12 +13,11 @@ import unittest
 
 import numpy as np
 import astropy.units as u
-import bilby.gw.prior
 
-from heron.models.lalsimulation import SEOBNRv3, IMRPhenomPv2, IMRPhenomPv2_FakeUncertainty
+from heron.models.lalsimulation import IMRPhenomPv2, IMRPhenomPv2_FakeUncertainty
 from heron.models.lalnoise import AdvancedLIGO
 from heron.injection import make_injection, make_injection_zero_noise
-from heron.detector import Detector, AdvancedLIGOHanford, AdvancedLIGOLivingston, AdvancedVirgo
+from heron.detector import AdvancedLIGOHanford
 from heron.likelihood import MultiDetector, TimeDomainLikelihood, TimeDomainLikelihoodModelUncertainty, TimeDomainLikelihoodPyTorch
 #, TimeDomainLikelihoodModelUncertaintyPyTorch
 

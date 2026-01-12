@@ -4,7 +4,6 @@ These tests are designed to test the GPyTorch-based models in heron.
 
 import unittest
 import warnings
-from unittest.mock import patch, MagicMock
 
 import astropy.units as u
 import torch

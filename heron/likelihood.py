@@ -188,7 +188,7 @@ class TimeDomainLikelihood(Likelihood):
         psd,
         waveform=None,
         detector=None,
-        fixed_parameters={},
+        fixed_parameters=None,
         timing_basis=None,
     ):
         """
@@ -257,7 +257,8 @@ class TimeDomainLikelihood(Likelihood):
             self._use_torch_cholesky = False
             self.C_cholesky = None
 
-        self.dt = (self.times[1] - self.times[0]).value
+        dt_diff = self.times[1] - self.times[0]
+        self.dt = dt_diff.value if hasattr(dt_diff, 'value') else dt_diff
         self.N = len(self.times)
 
         if waveform is not None:
@@ -266,7 +267,7 @@ class TimeDomainLikelihood(Likelihood):
         if detector is not None:
             self.detector = detector
 
-        self.fixed_parameters = fixed_parameters
+        self.fixed_parameters = fixed_parameters if fixed_parameters is not None else {}
         if timing_basis is not None:
             self.fixed_parameters["reference_frame"] = timing_basis
 
