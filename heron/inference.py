@@ -130,7 +130,7 @@ def heron_inference(settings):
                 data[ifo] = data[ifo].resample(
                     settings['likelihood']['sampling rate'])
     # elif "injection" in other_settings:
-    #    pass
+    # TODO: implement handling for 'injection' in other_settings if required
 
     # Make Likelihood
     if len(settings["interferometers"]) > 1:

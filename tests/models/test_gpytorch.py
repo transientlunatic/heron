@@ -277,7 +277,7 @@ class TestGPyTorchErrorHandling(unittest.TestCase):
             parameters = {
                 "time": {"lower": -0.1, "upper": 0.05, "number": 100}
             }
-            wf = model.time_domain(parameters=parameters)
+            model.time_domain(parameters=parameters)
 
     def test_time_domain_with_explicit_times(self):
         """Test time_domain method when times are provided explicitly."""

@@ -224,7 +224,7 @@ class TimeDomainLikelihood(Likelihood):
         >>> likelihood = TimeDomainLikelihood(data, psd, waveform, detector)
         """
         # Initialize logger first
-        self.logger = logger = logging.getLogger(
+        self.logger = logging.getLogger(
             "heron.likelihood.TimeDomainLikelihood"
         )
 
