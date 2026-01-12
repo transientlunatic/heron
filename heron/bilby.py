@@ -461,12 +461,19 @@ if BILBY_AVAILABLE:
                 uncertainty_var = np.diag(signal_cov)
             else:
                 uncertainty_var = signal_cov
-            
-            # Penalize uncertainty (increases effective noise)
-            uncertainty_correction = np.sum(uncertainty_var) / np.median(psd[:len(residual_fft)])
-            
+
+            # Convert time-domain variance (strain^2) to an effective, approximately
+            # white PSD (strain^2 / Hz) using the sampling interval. This makes the
+            # correction dimensionally consistent with the detector PSD.
+            delta_t = ifo.strain_data.duration / len(residual)
+            uncertainty_psd = uncertainty_var * delta_t
+
+            # Penalize uncertainty (increases effective noise) by comparing the
+            # effective model PSD to a representative detector PSD scale.
+            median_psd = np.median(psd[:len(residual_fft)])
+            uncertainty_correction = np.sum(uncertainty_psd) / median_psd
+
             log_l = -0.5 * (inner_product + uncertainty_correction)
-            
             return log_l.real
         
         def _log_likelihood_standard(self, ifo, signal):

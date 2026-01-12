@@ -21,7 +21,7 @@ Requirements
 
 import numpy as np
 import bilby
-from bilby.gw.detector import get_empty_interferometer
+
 
 # Import heron modules
 from heron.models.testing import SineGaussianWaveform  # Or use a real heron model
@@ -162,6 +162,10 @@ def compare_with_without_uncertainty():
     
     # Evaluate at a test point
     test_params = {'width': 0.02}
+    
+    # Set the likelihood parameters before evaluating
+    likelihood_with_unc.parameters = test_params
+    likelihood_no_unc.parameters = test_params
     
     log_l_with = likelihood_with_unc.log_likelihood_ratio()
     log_l_without = likelihood_no_unc.log_likelihood_ratio()

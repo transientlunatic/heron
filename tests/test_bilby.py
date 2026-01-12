@@ -8,14 +8,14 @@ import numpy as np
 
 try:
     import bilby
-    import bilby.gw.detector
+
     BILBY_AVAILABLE = True
 except ImportError:
     BILBY_AVAILABLE = False
 
 import heron.bilby
-from heron.models.testing import SineGaussianWaveform, FlatPSD
-from heron.detector import KNOWN_IFOS
+from heron.models.testing import SineGaussianWaveform
+
 
 
 class TestBilbyData(unittest.TestCase):
@@ -92,7 +92,7 @@ class TestHeronWaveformGenerator(unittest.TestCase):
         times = self.wfg.time_array
         waveform_dict = self.wfg._heron_time_domain_model(times, **self.parameters)
         
-        expected_length = int(self.duration * self.sampling_frequency)
+
         # Note: actual length may differ slightly due to heron's internal handling
         self.assertGreater(len(waveform_dict['plus']), 0)
         self.assertGreater(len(waveform_dict['cross']), 0)
