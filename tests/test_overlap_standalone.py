@@ -62,7 +62,7 @@ def original_determine_overlap(times_a, times_b):
     def is_in(time, timeseries):
         diff = np.min(np.abs(timeseries - time))
         dt = timeseries[1] - timeseries[0]
-        return diff < dt  # Result not used but function needs to return something
+        return diff < dt
 
     a_start, a_end = times_a[0], times_a[-1]
     b_start, b_end = times_b[0], times_b[-1]
