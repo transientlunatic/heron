@@ -37,9 +37,8 @@ def make_injection(
     parameters.update(injection_parameters)
     waveform = waveform()
 
-    # if times is None:
-    #     times = np.linspace(parameters['gpstime']-duration+2, parameters['gpstime']+2, int(duration * sample_rate))
-    #
+    # The caller is responsible for providing an appropriate 'times' array
+    # (e.g. a time grid around 'gpstime') before invoking this function.
     print(f"Making a waveform from {times[0]} to {times[-1]}")
     waveform = waveform.time_domain(
         parameters,

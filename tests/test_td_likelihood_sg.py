@@ -9,7 +9,7 @@ import numpy as np
 
 from heron.likelihood import TimeDomainLikelihood, TimeDomainLikelihoodModelUncertainty
 from heron.models.testing import SineGaussianWaveform, FlatPSD
-from heron.detector import AdvancedLIGOHanford, AdvancedLIGOLivingston
+from heron.detector import AdvancedLIGOHanford
 
 from astropy import units as u
 from astropy import coordinates as coords
@@ -17,8 +17,6 @@ from astropy import coordinates as coords
 
 from unittest.mock import Mock
 from heron.likelihood import (
-    TimeDomainLikelihood,
-    TimeDomainLikelihoodModelUncertainty,
     MultiDetector,
     Likelihood
 )
