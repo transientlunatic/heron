@@ -36,48 +36,54 @@ class TimeSeries(TimeSeries):
             return np.diag(self.covariance)
 
     def determine_overlap(self, timeseries_a, timeseries_b):
-        def is_in(time, timeseries):
-            diff = np.min(np.abs(timeseries - time))
-            if diff < (timeseries[1] - timeseries[0]):
-                return True, diff
-            else:
-                return False, diff
+        """
+        Determine the overlap between two timeseries efficiently using binary search.
 
-        overlap = None
-        if (
-            is_in(timeseries_a.times[-1], timeseries_b.times)[0]
-            and is_in(timeseries_b.times[0], timeseries_a.times)[0]
-        ):
-            overlap = timeseries_b.times[0], timeseries_a.times[-1]
-        elif (
-            is_in(timeseries_a.times[0], timeseries_b.times)[0]
-            and is_in(timeseries_b.times[-1], timeseries_a.times)[0]
-        ):
-            overlap = timeseries_a.times[0], timeseries_b.times[-1]
-        elif (
-            is_in(timeseries_b.times[0], timeseries_a.times)[0]
-            and is_in(timeseries_b.times[-1], timeseries_a.times)[0]
-            and not is_in(timeseries_a.times[-1], timeseries_b.times)[0]
-        ):
-            overlap = timeseries_b.times[0], timeseries_b.times[-1]
-        elif (
-            is_in(timeseries_a.times[0], timeseries_b.times)[0]
-            and is_in(timeseries_a.times[-1], timeseries_b.times)[0]
-            and not is_in(timeseries_b.times[-1], timeseries_a.times)[0]
-        ):
-            overlap = timeseries_a.times[0], timeseries_a.times[-1]
-        else:
-            overlap = None
-            #print("No overlap found")
-            #print(timeseries_a.times[0], timeseries_a.times[-1])
-            #print(timeseries_b.times[0], timeseries_b.times[-1])
+        Optimized version: O(log N) instead of O(N) per check.
+        Uses searchsorted for fast index finding instead of argmin.
+        """
+        # Extract time arrays - handle both regular arrays and astropy quantities
+        times_a = timeseries_a.times.value if hasattr(timeseries_a.times, 'value') else timeseries_a.times
+        times_b = timeseries_b.times.value if hasattr(timeseries_b.times, 'value') else timeseries_b.times
+
+        # Get bounds
+        a_start, a_end = times_a[0], times_a[-1]
+        b_start, b_end = times_b[0], times_b[-1]
+
+        # Get sample spacing (assumed uniform)
+        dt_a = times_a[1] - times_a[0]
+        dt_b = times_b[1] - times_b[0]
+        tolerance = max(dt_a, dt_b) * 0.5  # Half a sample for numerical tolerance
+
+        # Quick check: do the time ranges overlap at all?
+        if a_end + tolerance < b_start or b_end + tolerance < a_start:
+            return None  # No overlap
+
+        # Determine overlap region
+        overlap_start = max(a_start, b_start)
+        overlap_end = min(a_end, b_end)
+
+        if overlap_start > overlap_end + tolerance:
+            return None  # No overlap
+
+        # Use binary search (searchsorted) to find indices efficiently
+        # This is O(log N) instead of O(N) from argmin(abs(...))
+        start_a = array_library.searchsorted(times_a, overlap_start, side='left')
+        finish_a = array_library.searchsorted(times_a, overlap_end, side='right') - 1
+
+        start_b = array_library.searchsorted(times_b, overlap_start, side='left')
+        finish_b = array_library.searchsorted(times_b, overlap_end, side='right') - 1
+
+        # Clamp to valid indices
+        start_a = max(0, min(start_a, len(times_a) - 1))
+        finish_a = max(0, min(finish_a, len(times_a) - 1))
+        start_b = max(0, min(start_b, len(times_b) - 1))
+        finish_b = max(0, min(finish_b, len(times_b) - 1))
+
+        # Verify we have a valid overlap
+        if start_a > finish_a or start_b > finish_b:
             return None
 
-        start_a = np.argmin(np.abs(timeseries_a.times - overlap[0]))
-        finish_a = np.argmin(np.abs(timeseries_a.times - overlap[-1]))
-
-        start_b = np.argmin(np.abs(timeseries_b.times - overlap[0]))
-        finish_b = np.argmin(np.abs(timeseries_b.times - overlap[-1]))
         return (start_a, finish_a), (start_b, finish_b)
 
     def align(self, waveform_b):
@@ -100,21 +106,73 @@ class WaveformBase(TimeSeries):
         super(WaveformBase).__init__()
 
 class Waveform(WaveformBase):
-    def __init__(self, variance=None, covariance=None, *args, **kwargs):
-        # if "covariance" in kwargs:
-        #     self.covariance = kwargs.pop("covariance")
-        self.covariance = covariance
+    def __init__(self, variance=None, covariance=None, covariance_gpu=None,
+                 output_scale=1.0, distance_factor=1.0, *args, **kwargs):
+        """
+        Initialize Waveform with optional lazy GPU covariance loading.
+
+        Parameters
+        ----------
+        variance : array-like, optional
+            Variance of the waveform (diagonal covariance)
+        covariance : array-like, optional
+            Full covariance matrix (CPU)
+        covariance_gpu : torch.Tensor, optional
+            Covariance matrix on GPU (transferred lazily on access)
+        output_scale : float, optional
+            Output scaling factor for lazy GPU transfer
+        distance_factor : float, optional
+            Distance scaling factor for lazy GPU transfer
+        """
+        self._covariance = covariance
+        self._covariance_gpu = covariance_gpu
+        self._output_scale = output_scale
+        self._distance_factor = distance_factor
         self._variance = variance
         super(Waveform, self).__init__(*args, **kwargs)
 
-    def __new__(self, variance=None, covariance=None, *args, **kwargs):
-        # if "covariance" in kwargs:
-        #     self.covariance = kwargs.pop("covariance")
+    def __new__(self, variance=None, covariance=None, covariance_gpu=None,
+                output_scale=1.0, distance_factor=1.0, *args, **kwargs):
         waveform = super(Waveform, self).__new__(TimeSeries, *args, **kwargs)
-        waveform.covariance = covariance
+        waveform._covariance = covariance
+        waveform._covariance_gpu = covariance_gpu
+        waveform._output_scale = output_scale
+        waveform._distance_factor = distance_factor
         waveform._variance = variance
 
         return waveform
+
+    @property
+    def covariance(self):
+        """
+        Get covariance matrix with lazy GPU transfer.
+
+        If covariance was stored on GPU, transfers to CPU on first access.
+        This avoids unnecessary GPU->CPU transfers when covariance is not needed.
+        """
+        if self._covariance is None and self._covariance_gpu is not None:
+            # Lazy transfer from GPU to CPU
+            try:
+                # Handle torch tensors (lazy GPU->CPU transfer)
+                cov_cpu = self._covariance_gpu.cpu()
+                # Apply scaling factors
+                self._covariance = (
+                    cov_cpu.numpy()
+                    / self._output_scale
+                    / self._output_scale
+                    / self._distance_factor**2
+                )
+            except Exception as e:
+                # If transfer fails, return None rather than crashing
+                import warnings
+                warnings.warn(f"Failed to transfer covariance from GPU: {e}")
+                return None
+        return self._covariance
+
+    @covariance.setter
+    def covariance(self, value):
+        """Set covariance matrix directly."""
+        self._covariance = value
 
 
 class WaveformDict:

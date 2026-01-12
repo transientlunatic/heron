@@ -54,16 +54,109 @@ class Likelihood(LikelihoodBase):
     def pi(self):
         return np.pi
 
+
+class TorchLikelihood(LikelihoodBase):
+    """
+    GPU-enabled likelihood using PyTorch for linear algebra operations.
+
+    Maintains same interface as Likelihood but performs computations on GPU.
+    Falls back to CPU if CUDA is not available.
+    """
+
+    def __init__(self, *args, **kwargs):
+        # Check if CUDA is available
+        self._cuda_available = torch.cuda.is_available() and not disable_cuda
+        self.device = "cuda" if self._cuda_available else "cpu"
+        super().__init__(*args, **kwargs)
+
+    def array(self, A):
+        """Convert input to torch tensor."""
+        if isinstance(A, torch.Tensor):
+            return A
+        return torch.as_tensor(A, dtype=torch.float64)
+
+    def logdet(self, K):
+        """Compute log determinant using torch."""
+        K_tensor = self.to_device(self.array(K), self.device)
+        sign, logabsdet = torch.linalg.slogdet(K_tensor)
+        return logabsdet.cpu().item() if self.device == "cuda" else logabsdet.item()
+
+    def det(self, A):
+        """Compute determinant using torch."""
+        A_tensor = self.to_device(self.array(A), self.device)
+        result = torch.linalg.det(A_tensor)
+        return result.cpu().item() if self.device == "cuda" else result.item()
+
+    def inverse(self, A):
+        """Compute matrix inverse using torch."""
+        A_tensor = self.to_device(self.array(A), self.device)
+        result = torch.linalg.inv(A_tensor)
+        return result.cpu().numpy() if self.device == "cuda" else result.numpy()
+
+    def solve(self, A, B):
+        """Solve linear system using torch."""
+        A_tensor = self.to_device(self.array(A), self.device)
+        B_tensor = self.to_device(self.array(B), self.device)
+        result = torch.linalg.solve(A_tensor, B_tensor)
+        return result.cpu().numpy() if self.device == "cuda" else result.numpy()
+
+    def eye(self, N, *args, **kwargs):
+        """Create identity matrix using torch."""
+        result = torch.eye(N, dtype=torch.float64, device=self.device)
+        return result
+
+    def log(self, A):
+        """Compute logarithm using torch."""
+        if isinstance(A, (int, float, np.number)):
+            return np.log(A)  # Scalars stay with numpy
+        A_tensor = self.to_device(self.array(A), self.device)
+        result = torch.log(A_tensor)
+        return result.cpu().numpy() if self.device == "cuda" else result.numpy()
+
+    def to_device(self, A, device):
+        """Transfer tensor to specified device."""
+        if isinstance(A, torch.Tensor):
+            return A.to(device)
+        elif isinstance(A, np.ndarray):
+            return torch.as_tensor(A, dtype=torch.float64, device=device)
+        else:
+            return torch.as_tensor(A, dtype=torch.float64, device=device)
+
+    @property
+    def pi(self):
+        return np.pi
+
+
 class NumericallyScaled:
     """
     Represent a number which has a numerical scaling applied to it.
+
+    Applies numerical scaling to improve condition number for matrix operations,
+    particularly important for gravitational wave data at ~1e-22 scales.
     """
-    def __init__(self, 
-                 value: np.ndarray | torch.Tensor, 
+    def __init__(self,
+                 value: np.ndarray | torch.Tensor,
                  scale: float | None = None):
-        
+
         self.value = value
-        self.scale = scale if scale is not None else 1./np.min(np.diag(value))
+
+        if scale is not None:
+            self.scale = scale
+        else:
+            # Compute scale from minimum diagonal element
+            # Add numerical stability guards to prevent overflow/underflow
+            min_diag = np.min(np.diag(value))
+
+            # Clip to prevent extreme scaling factors
+            # This prevents 1/min_diag from overflowing or underflowing
+            if min_diag == 0:
+                # Degenerate case - use identity scaling
+                self.scale = 1.0
+            else:
+                # Compute scale with clipping
+                raw_scale = 1.0 / min_diag
+                # Clip to reasonable range [1e-10, 1e10]
+                self.scale = np.clip(raw_scale, 1e-10, 1e10)
 
     def __call__(self):
         return self.scaled
@@ -147,12 +240,21 @@ class TimeDomainLikelihood(Likelihood):
         # Pre-compute and cache Cholesky decomposition for performance
         # This is done once at initialization rather than on every likelihood call
         try:
-            self.C_cholesky = np.linalg.cholesky(self.C_scaled)
+            # Use backend-specific Cholesky computation
+            if isinstance(self, TorchLikelihood):
+                C_tensor = self.to_device(self.array(self.C_scaled), self.device)
+                self.C_cholesky = torch.linalg.cholesky(C_tensor)
+                self._use_torch_cholesky = True
+            else:
+                self.C_cholesky = np.linalg.cholesky(self.C_scaled)
+                self._use_torch_cholesky = False
+
             self._use_cholesky = True
-            self.logger.info(f"Cholesky decomposition cached for covariance matrix (N={len(self.times)})")
-        except np.linalg.LinAlgError as e:
+            self.logger.info(f"Cholesky decomposition cached for covariance matrix (N={len(self.times)}, device={self.device})")
+        except (np.linalg.LinAlgError, RuntimeError) as e:
             self.logger.warning(f"Cholesky decomposition failed: {e}. Falling back to direct solve.")
             self._use_cholesky = False
+            self._use_torch_cholesky = False
             self.C_cholesky = None
 
         self.dt = (self.times[1] - self.times[0]).value
@@ -179,14 +281,30 @@ class TimeDomainLikelihood(Likelihood):
 
         if self._use_cholesky:
             # Use cached Cholesky decomposition: solve L @ (L.T @ x) = w
-            # First solve L @ y = w
-            y = scipy_linalg.solve_triangular(self.C_cholesky, w, lower=True)
-            # Then solve L.T @ x = y
-            x = scipy_linalg.solve_triangular(self.C_cholesky.T, y, lower=False)
-            h_h = w.T @ x
+            if self._use_torch_cholesky:
+                # PyTorch implementation
+                if w.dim() == 1:
+                    w = w.unsqueeze(1)  # Make 2D for solve_triangular
+                y = torch.linalg.solve_triangular(self.C_cholesky, w, upper=False)
+                x = torch.linalg.solve_triangular(self.C_cholesky.T, y, upper=True)
+                h_h = (w.T @ x).squeeze()
+                if self.device == "cuda":
+                    h_h = h_h.cpu().item()
+                else:
+                    h_h = h_h.item()
+            else:
+                # NumPy/SciPy implementation
+                y = scipy_linalg.solve_triangular(self.C_cholesky, w, lower=True)
+                x = scipy_linalg.solve_triangular(self.C_cholesky.T, y, lower=False)
+                h_h = w.T @ x
         else:
             # Fallback to direct solve
-            h_h = (w.T @ self.solve(self.C_scaled, w))
+            h_h_result = self.solve(self.C_scaled, w)
+            if isinstance(h_h_result, torch.Tensor):
+                h_h = (w.T @ self.to_device(self.array(h_h_result), self.device)).squeeze()
+                h_h = h_h.cpu().item() if self.device == "cuda" else h_h.item()
+            else:
+                h_h = (w.T @ h_h_result)
 
         return np.sqrt(h_h)
 
@@ -209,16 +327,35 @@ class TimeDomainLikelihood(Likelihood):
         if self._use_cholesky and a[0] == 0 and a[1] == len(self.times):
             # Full overlap - use cached Cholesky decomposition
             # Solve L @ (L.T @ x) = residual using cached L
-            y = scipy_linalg.solve_triangular(self.C_cholesky, residual, lower=True)
-            x = scipy_linalg.solve_triangular(self.C_cholesky.T, y, lower=False)
-            weighted_residual = residual @ x
+            if self._use_torch_cholesky:
+                # PyTorch implementation
+                if residual.dim() == 1:
+                    residual = residual.unsqueeze(1)
+                y = torch.linalg.solve_triangular(self.C_cholesky, residual, upper=False)
+                x = torch.linalg.solve_triangular(self.C_cholesky.T, y, upper=True)
+                weighted_residual = (residual.T @ x).squeeze()
 
-            # For normalization, use cached log determinant: 2 * sum(log(diag(L)))
-            if norm:
-                logdet_C = 2.0 * np.sum(np.log(np.diag(self.C_cholesky)))
-                normalisation = N * self.log(2*np.pi) + logdet_C - 2 * N * self.log(wf.scale)
+                # For normalization, use cached log determinant
+                if norm:
+                    logdet_C = 2.0 * torch.sum(torch.log(torch.diag(self.C_cholesky)))
+                    normalisation = N * np.log(2*np.pi) + logdet_C.cpu().item() - 2 * N * self.log(wf.scale)
+                else:
+                    normalisation = 0
+
+                # Convert result to scalar
+                weighted_residual = weighted_residual.cpu().item() if self.device == "cuda" else weighted_residual.item()
             else:
-                normalisation = 0
+                # NumPy/SciPy implementation
+                y = scipy_linalg.solve_triangular(self.C_cholesky, residual, lower=True)
+                x = scipy_linalg.solve_triangular(self.C_cholesky.T, y, lower=False)
+                weighted_residual = residual @ x
+
+                # For normalization, use cached log determinant: 2 * sum(log(diag(L)))
+                if norm:
+                    logdet_C = 2.0 * np.sum(np.log(np.diag(self.C_cholesky)))
+                    normalisation = N * self.log(2*np.pi) + logdet_C - 2 * N * self.log(wf.scale)
+                else:
+                    normalisation = 0
         else:
             # Partial overlap or Cholesky not available - use direct solve on submatrix
             # For partial overlaps, we need to extract the submatrix
@@ -226,23 +363,52 @@ class TimeDomainLikelihood(Likelihood):
                 # Extract Cholesky factor for the submatrix
                 # Note: This is still more efficient than full solve for small overlaps
                 try:
-                    L_sub = np.linalg.cholesky(C_scaled)
-                    y = scipy_linalg.solve_triangular(L_sub, residual, lower=True)
-                    x = scipy_linalg.solve_triangular(L_sub.T, y, lower=False)
-                    weighted_residual = residual @ x
+                    if self._use_torch_cholesky:
+                        # PyTorch path
+                        C_scaled_tensor = self.to_device(self.array(C_scaled), self.device)
+                        L_sub = torch.linalg.cholesky(C_scaled_tensor)
+                        if residual.dim() == 1:
+                            residual = residual.unsqueeze(1)
+                        y = torch.linalg.solve_triangular(L_sub, residual, upper=False)
+                        x = torch.linalg.solve_triangular(L_sub.T, y, upper=True)
+                        weighted_residual = (residual.T @ x).squeeze()
 
-                    if norm:
-                        logdet_C = 2.0 * np.sum(np.log(np.diag(L_sub)))
-                        normalisation = N * self.log(2*np.pi) + logdet_C - 2 * N * self.log(wf.scale)
+                        if norm:
+                            logdet_C = 2.0 * torch.sum(torch.log(torch.diag(L_sub)))
+                            normalisation = N * np.log(2*np.pi) + logdet_C.cpu().item() - 2 * N * self.log(wf.scale)
+                        else:
+                            normalisation = 0
+
+                        weighted_residual = weighted_residual.cpu().item() if self.device == "cuda" else weighted_residual.item()
                     else:
-                        normalisation = 0
-                except np.linalg.LinAlgError:
+                        # NumPy/SciPy path
+                        L_sub = np.linalg.cholesky(C_scaled)
+                        y = scipy_linalg.solve_triangular(L_sub, residual, lower=True)
+                        x = scipy_linalg.solve_triangular(L_sub.T, y, lower=False)
+                        weighted_residual = residual @ x
+
+                        if norm:
+                            logdet_C = 2.0 * np.sum(np.log(np.diag(L_sub)))
+                            normalisation = N * self.log(2*np.pi) + logdet_C - 2 * N * self.log(wf.scale)
+                        else:
+                            normalisation = 0
+                except (np.linalg.LinAlgError, RuntimeError):
                     # Fall back to direct solve if Cholesky fails on submatrix
-                    weighted_residual = (residual) @ self.solve(C_scaled, residual)
+                    solve_result = self.solve(C_scaled, residual)
+                    if isinstance(solve_result, torch.Tensor):
+                        weighted_residual = (residual.T @ self.to_device(self.array(solve_result), self.device)).squeeze()
+                        weighted_residual = weighted_residual.cpu().item() if self.device == "cuda" else weighted_residual.item()
+                    else:
+                        weighted_residual = (residual) @ solve_result
                     normalisation = N * self.log(2*np.pi) + self.logdet(C_scaled) - 2 * N * self.log(wf.scale) if norm else 0
             else:
                 # Direct solve fallback
-                weighted_residual = (residual) @ self.solve(C_scaled, residual)
+                solve_result = self.solve(C_scaled, residual)
+                if isinstance(solve_result, torch.Tensor):
+                    weighted_residual = (residual.T @ self.to_device(self.array(solve_result), self.device)).squeeze()
+                    weighted_residual = weighted_residual.cpu().item() if self.device == "cuda" else weighted_residual.item()
+                else:
+                    weighted_residual = (residual) @ solve_result
                 normalisation = N * self.log(2*np.pi) + self.logdet(C_scaled) - 2 * N * self.log(wf.scale) if norm else 0
 
         return (- 0.5 * weighted_residual - 0.5 * normalisation)
@@ -321,3 +487,39 @@ class MultiDetector:
             out += detector(parameters)
 
         return out
+
+
+# GPU-enabled likelihood classes
+class TimeDomainLikelihoodGPU(TorchLikelihood, TimeDomainLikelihood):
+    """
+    GPU-accelerated TimeDomainLikelihood using PyTorch.
+
+    This class combines TorchLikelihood and TimeDomainLikelihood to provide
+    GPU-accelerated matched filtering likelihood computation.
+
+    Automatically falls back to CPU if CUDA is not available.
+
+    Examples
+    --------
+    >>> from heron.likelihood import TimeDomainLikelihoodGPU
+    >>> likelihood = TimeDomainLikelihoodGPU(data, psd, waveform, detector)
+    >>> # Computation will run on GPU if available, otherwise CPU
+    """
+    pass
+
+
+class TimeDomainLikelihoodModelUncertaintyGPU(TorchLikelihood, TimeDomainLikelihoodModelUncertainty):
+    """
+    GPU-accelerated TimeDomainLikelihoodModelUncertainty using PyTorch.
+
+    This class provides GPU acceleration for likelihood computation with
+    waveform model uncertainty.
+
+    Automatically falls back to CPU if CUDA is not available.
+
+    Examples
+    --------
+    >>> from heron.likelihood import TimeDomainLikelihoodModelUncertaintyGPU
+    >>> likelihood = TimeDomainLikelihoodModelUncertaintyGPU(data, psd, waveform, detector)
+    """
+    pass
