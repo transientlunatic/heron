@@ -257,10 +257,10 @@ class TestCholeskyPerformanceBasic(unittest.TestCase):
             x = scipy_linalg.solve_triangular(L.T, y, lower=False)
         cholesky_time = (time.time() - start) / 10
 
-        print(f"\nPerformance comparison (N={N}):")
-        print(f"  Direct solve: {direct_time*1000:.2f} ms")
-        print(f"  Cholesky solve: {cholesky_time*1000:.2f} ms")
-        print(f"  Speedup: {direct_time/cholesky_time:.1f}x")
+        # print(f"\nPerformance comparison (N={N}):")
+        # print(f"  Direct solve: {direct_time*1000:.2f} ms")
+        # print(f"  Cholesky solve: {cholesky_time*1000:.2f} ms")
+        # print(f"  Speedup: {direct_time/cholesky_time:.1f}x")
 
         # Cholesky should be faster
         self.assertLess(cholesky_time, direct_time,

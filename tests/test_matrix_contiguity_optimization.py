@@ -50,12 +50,12 @@ class TestContiguityImpact(unittest.TestCase):
             L = np.linalg.cholesky(submat_copy)
         copy_time = (time.time() - start_time) / n_iter
 
-        print(f"\n=== Cholesky Contiguity Impact ===")
-        print(f"Non-contiguous view: {view_time*1000:.3f} ms")
-        print(f"Contiguous (ascontiguousarray): {contig_time*1000:.3f} ms")
-        print(f"Plain copy: {copy_time*1000:.3f} ms")
-        print(f"View vs Contig speedup: {view_time/contig_time:.2f}x")
-        print(f"Contig vs Copy: {abs(contig_time-copy_time)*1000:.3f} ms diff")
+        # print(f"\n=== Cholesky Contiguity Impact ===")
+        # print(f"Non-contiguous view: {view_time*1000:.3f} ms")
+        # print(f"Contiguous (ascontiguousarray): {contig_time*1000:.3f} ms")
+        # print(f"Plain copy: {copy_time*1000:.3f} ms")
+        # print(f"View vs Contig speedup: {view_time/contig_time:.2f}x")
+        # print(f"Contig vs Copy: {abs(contig_time-copy_time)*1000:.3f} ms diff")
 
     def test_solve_triangular_contiguity(self):
         """Test solve_triangular with different memory layouts."""
@@ -93,10 +93,10 @@ class TestContiguityImpact(unittest.TestCase):
             _ = scipy_linalg.solve_triangular(L_contig, b_contig, lower=True)
         contig_time = (time.time() - start_time) / n_iter
 
-        print(f"\n=== solve_triangular Contiguity Impact ===")
-        print(f"View: {view_time*1000:.3f} ms")
-        print(f"Contiguous: {contig_time*1000:.3f} ms")
-        print(f"Speedup: {view_time/contig_time:.2f}x")
+        # print(f"\n=== solve_triangular Contiguity Impact ===")
+        # print(f"View: {view_time*1000:.3f} ms")
+        # print(f"Contiguous: {contig_time*1000:.3f} ms")
+        # print(f"Speedup: {view_time/contig_time:.2f}x")
 
     def test_realistic_likelihood_pattern(self):
         """Test the exact pattern used in likelihood with realistic sizes."""
@@ -105,8 +105,8 @@ class TestContiguityImpact(unittest.TestCase):
         duration = 4  # seconds
         overlap_fraction = 0.75  # Typical overlap
 
-        print(f"\n=== Realistic Likelihood Scenarios ===")
-        print(f"{'Sample Rate':<12} {'Matrix Size':<12} {'Overlap Size':<12} "
+        # print(f"\n=== Realistic Likelihood Scenarios ===")
+        # print(f"{'Sample Rate':<12} {'Matrix Size':<12} {'Overlap Size':<12} "
               f"{'View Time':<12} {'Contig Time':<12} {'Speedup'}")
 
         for sr in sample_rates:
@@ -162,7 +162,7 @@ class TestContiguityImpact(unittest.TestCase):
 
             speedup = view_time / contig_time if contig_time > 0 else 1.0
 
-            print(f"{sr:<12} {N:<12} {overlap_size:<12} "
+            # print(f"{sr:<12} {N:<12} {overlap_size:<12} "
                   f"{view_time*1000:>10.2f} ms {contig_time*1000:>10.2f} ms  {speedup:>6.2f}x")
 
 
@@ -244,13 +244,13 @@ class TestPracticalOptimization(unittest.TestCase):
             self.assertTrue(np.isfinite(residual @ x))
         cached_time = (time.time() - start_time) / n_iter
 
-        print(f"\n=== Full Likelihood Pattern Comparison ===")
-        print(f"Data size: {N_data}, Overlap size: {N_overlap}")
-        print(f"Current (view): {current_time*1000:.3f} ms")
-        print(f"With ascontiguousarray: {contig_time*1000:.3f} ms")
-        print(f"Cached submatrix Cholesky: {cached_time*1000:.3f} ms")
-        print(f"Current vs Contig speedup: {current_time/contig_time:.2f}x")
-        print(f"Current vs Cached speedup: {current_time/cached_time:.2f}x")
+        # print(f"\n=== Full Likelihood Pattern Comparison ===")
+        # print(f"Data size: {N_data}, Overlap size: {N_overlap}")
+        # print(f"Current (view): {current_time*1000:.3f} ms")
+        # print(f"With ascontiguousarray: {contig_time*1000:.3f} ms")
+        # print(f"Cached submatrix Cholesky: {cached_time*1000:.3f} ms")
+        # print(f"Current vs Contig speedup: {current_time/contig_time:.2f}x")
+        # print(f"Current vs Cached speedup: {current_time/cached_time:.2f}x")
 
 
 if __name__ == '__main__':

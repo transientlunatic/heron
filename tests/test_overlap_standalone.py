@@ -197,11 +197,11 @@ class TestOverlapPerformance(unittest.TestCase):
 
         speedup = time_orig / time_opt
 
-        print(f"\n=== Overlap Detection Performance ===")
-        print(f"Array size: {n_samples} samples")
-        print(f"Original (argmin): {time_orig*1000:.4f} ms")
-        print(f"Optimized (searchsorted): {time_opt*1000:.4f} ms")
-        print(f"Speedup: {speedup:.1f}x")
+        # print(f"\n=== Overlap Detection Performance ===")
+        # print(f"Array size: {n_samples} samples")
+        # print(f"Original (argmin): {time_orig*1000:.4f} ms")
+        # print(f"Optimized (searchsorted): {time_opt*1000:.4f} ms")
+        # print(f"Speedup: {speedup:.1f}x")
 
         # Should be significantly faster (2x is already great!)
         self.assertGreater(speedup, 2,
@@ -227,11 +227,11 @@ class TestOverlapPerformance(unittest.TestCase):
 
         speedup = time_argmin / time_searchsorted
 
-        print(f"\n=== Direct Method Comparison ===")
-        print(f"Array size: 16384")
-        print(f"argmin: {time_argmin*1e6:.2f} µs")
-        print(f"searchsorted: {time_searchsorted*1e6:.2f} µs")
-        print(f"Speedup: {speedup:.1f}x")
+        # print(f"\n=== Direct Method Comparison ===")
+        # print(f"Array size: 16384")
+        # print(f"argmin: {time_argmin*1e6:.2f} µs")
+        # print(f"searchsorted: {time_searchsorted*1e6:.2f} µs")
+        # print(f"Speedup: {speedup:.1f}x")
 
         self.assertGreater(speedup, 5,
                           f"searchsorted should be >5x faster, got {speedup:.1f}x")

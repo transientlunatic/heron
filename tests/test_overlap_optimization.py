@@ -224,10 +224,10 @@ class TestOverlapDetectionPerformance(unittest.TestCase):
 
         time_per_call = (elapsed / n_iterations) * 1000  # ms
 
-        print(f"\nOptimized overlap detection performance:")
-        print(f"  Array size: {n_samples} samples")
-        print(f"  Time per call: {time_per_call:.3f} ms")
-        print(f"  Calls per second: {n_iterations/elapsed:.0f}")
+        # print(f"\nOptimized overlap detection performance:")
+        # print(f"  Array size: {n_samples} samples")
+        # print(f"  Time per call: {time_per_call:.3f} ms")
+        # print(f"  Calls per second: {n_iterations/elapsed:.0f}")
 
         # Should be very fast (< 0.1 ms per call with binary search)
         self.assertLess(time_per_call, 0.5,
@@ -253,10 +253,10 @@ class TestOverlapDetectionPerformance(unittest.TestCase):
 
         speedup = argmin_time / searchsorted_time
 
-        print(f"\nSpeedup analysis:")
-        print(f"  searchsorted: {searchsorted_time*1000:.3f} ms (1000 calls)")
-        print(f"  argmin: {argmin_time*1000:.3f} ms (1000 calls)")
-        print(f"  Speedup: {speedup:.1f}x")
+        # print(f"\nSpeedup analysis:")
+        # print(f"  searchsorted: {searchsorted_time*1000:.3f} ms (1000 calls)")
+        # print(f"  argmin: {argmin_time*1000:.3f} ms (1000 calls)")
+        # print(f"  Speedup: {speedup:.1f}x")
 
         # searchsorted should be much faster
         self.assertGreater(speedup, 5,

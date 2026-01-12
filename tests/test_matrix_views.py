@@ -38,9 +38,9 @@ class TestMatrixViewBehavior(unittest.TestCase):
 
         # Check if it's a view (this might be view but not contiguous)
         shares_mem = np.shares_memory(mat, sliced)
-        print(f"\nColumn slicing shares memory: {shares_mem}")
-        print(f"Column slice is C-contiguous: {sliced.flags['C_CONTIGUOUS']}")
-        print(f"Column slice is F-contiguous: {sliced.flags['F_CONTIGUOUS']}")
+        # print(f"\nColumn slicing shares memory: {shares_mem}")
+        # print(f"Column slice is C-contiguous: {sliced.flags['C_CONTIGUOUS']}")
+        # print(f"Column slice is F-contiguous: {sliced.flags['F_CONTIGUOUS']}")
 
     def test_2d_submatrix_slicing(self):
         """Test that submatrix slicing (both dimensions) creates view."""
@@ -51,12 +51,12 @@ class TestMatrixViewBehavior(unittest.TestCase):
         shares_mem = np.shares_memory(mat, sliced)
         is_view = sliced.base is not None
 
-        print(f"\nSubmatrix slicing:")
-        print(f"  Shares memory: {shares_mem}")
-        print(f"  Is view (has base): {is_view}")
-        print(f"  C-contiguous: {sliced.flags['C_CONTIGUOUS']}")
-        print(f"  F-contiguous: {sliced.flags['F_CONTIGUOUS']}")
-        print(f"  OWNDATA: {sliced.flags['OWNDATA']}")
+        # print(f"\nSubmatrix slicing:")
+        # print(f"  Shares memory: {shares_mem}")
+        # print(f"  Is view (has base): {is_view}")
+        # print(f"  C-contiguous: {sliced.flags['C_CONTIGUOUS']}")
+        # print(f"  F-contiguous: {sliced.flags['F_CONTIGUOUS']}")
+        # print(f"  OWNDATA: {sliced.flags['OWNDATA']}")
 
         # In NumPy, submatrix slicing DOES create a view
         self.assertTrue(is_view, "Submatrix slicing should create a view")
@@ -73,11 +73,11 @@ class TestMatrixViewBehavior(unittest.TestCase):
         is_view = submat.base is not None
         shares_mem = np.shares_memory(mat, submat)
 
-        print(f"\nSymmetric submatrix C[{start}:{end}, {start}:{end}]:")
-        print(f"  Is view: {is_view}")
-        print(f"  Shares memory: {shares_mem}")
-        print(f"  C-contiguous: {submat.flags['C_CONTIGUOUS']}")
-        print(f"  OWNDATA: {submat.flags['OWNDATA']}")
+        # print(f"\nSymmetric submatrix C[{start}:{end}, {start}:{end}]:")
+        # print(f"  Is view: {is_view}")
+        # print(f"  Shares memory: {shares_mem}")
+        # print(f"  C-contiguous: {submat.flags['C_CONTIGUOUS']}")
+        # print(f"  OWNDATA: {submat.flags['OWNDATA']}")
 
         # NumPy creates a view for this pattern
         self.assertTrue(is_view, "Symmetric submatrix should be a view")
@@ -117,11 +117,11 @@ class TestViewPerformance(unittest.TestCase):
             np.linalg.cholesky(submat_copy)
         copy_time = (time.time() - start_time) / n_iter
 
-        print(f"\n=== Cholesky on Submatrix Performance ===")
-        print(f"Submatrix size: {sub_size}x{sub_size}")
-        print(f"View (implicit copy): {view_time*1000:.3f} ms")
-        print(f"Explicit copy: {copy_time*1000:.3f} ms")
-        print(f"Difference: {abs(view_time - copy_time)*1000:.3f} ms")
+        # print(f"\n=== Cholesky on Submatrix Performance ===")
+        # print(f"Submatrix size: {sub_size}x{sub_size}")
+        # print(f"View (implicit copy): {view_time*1000:.3f} ms")
+        # print(f"Explicit copy: {copy_time*1000:.3f} ms")
+        # print(f"Difference: {abs(view_time - copy_time)*1000:.3f} ms")
 
         # They should be very similar
         rel_diff = abs(view_time - copy_time) / view_time
@@ -163,10 +163,10 @@ class TestViewPerformance(unittest.TestCase):
             _ = scipy_linalg.solve_triangular(L_sub, b_sub, lower=True)
         copy_time = (time.time() - start_time) / n_iter
 
-        print(f"\n=== solve_triangular Performance ===")
-        print(f"View: {view_time*1000:.3f} ms")
-        print(f"Copy: {copy_time*1000:.3f} ms")
-        print(f"Speedup with view: {copy_time/view_time:.2f}x")
+        # print(f"\n=== solve_triangular Performance ===")
+        # print(f"View: {view_time*1000:.3f} ms")
+        # print(f"Copy: {copy_time*1000:.3f} ms")
+        # print(f"Speedup with view: {copy_time/view_time:.2f}x")
 
         # Views should be faster (less memory allocation)
         self.assertLess(view_time, copy_time * 1.1,
@@ -190,12 +190,12 @@ class TestLikelihoodSubmatrixPattern(unittest.TestCase):
 
         C_sub = C_scaled[a[0]:a[1], a[0]:a[1]]
 
-        print(f"\n=== Likelihood Submatrix Pattern Analysis ===")
-        print(f"Full matrix: {N_full}x{N_full}")
-        print(f"Submatrix: {a[1]-a[0]}x{a[1]-a[0]}")
-        print(f"Is view: {C_sub.base is not None}")
-        print(f"Shares memory: {np.shares_memory(C_scaled, C_sub)}")
-        print(f"Memory saved if view: {C_sub.nbytes / 1024:.1f} KB")
+        # print(f"\n=== Likelihood Submatrix Pattern Analysis ===")
+        # print(f"Full matrix: {N_full}x{N_full}")
+        # print(f"Submatrix: {a[1]-a[0]}x{a[1]-a[0]}")
+        # print(f"Is view: {C_sub.base is not None}")
+        # print(f"Shares memory: {np.shares_memory(C_scaled, C_sub)}")
+        # print(f"Memory saved if view: {C_sub.nbytes / 1024:.1f} KB")
 
         # Verify correctness
         self.assertTrue(C_sub.base is not None, "Should be a view")
@@ -207,8 +207,8 @@ class TestLikelihoodSubmatrixPattern(unittest.TestCase):
 
         sizes = [(100, 200), (500, 1000), (1000, 2000), (2000, 4000)]
 
-        print(f"\n=== Memory Allocation Overhead ===")
-        print(f"{'Range':<20} {'Copy Time':<15} {'Memory'}")
+        # print(f"\n=== Memory Allocation Overhead ===")
+        # print(f"{'Range':<20} {'Copy Time':<15} {'Memory'}")
 
         for start, end in sizes:
             size = end - start
@@ -222,7 +222,7 @@ class TestLikelihoodSubmatrixPattern(unittest.TestCase):
 
             mem_kb = (size * size * 8) / 1024  # 8 bytes per float64
 
-            print(f"{str((start, end)):<20} {copy_time*1e6:>10.2f} µs   {mem_kb:>8.1f} KB")
+            # print(f"{str((start, end)):<20} {copy_time*1e6:>10.2f} µs   {mem_kb:>8.1f} KB")
 
 
 class TestViewCorrectness(unittest.TestCase):
