@@ -1,9 +1,8 @@
-import importlib
-import pkg_resources
 import os
 import configparser
 import glob
 import shutil
+import sys
 
 import asimov.pipeline
 from asimov import config
@@ -11,17 +10,27 @@ import htcondor
 from asimov.utils import set_directory
 from ..utils import make_metafile
 
+# Handle importlib.resources compatibility across Python versions
+if sys.version_info >= (3, 9):
+    from importlib.resources import files
+else:
+    from importlib_resources import files
+
 class MetaPipeline(asimov.pipeline.Pipeline):
 
-    def build_dag(self, dryrun=False):
+    def build_dag(self, dryrun=False, psds=None, user=None, clobber_psd=False):
         """
         Create a condor submission description.
         """
         name = self.production.name  # meta['name']
         ini = self.production.event.repository.find_prods(name, self.category)[0]
+
+        # Construct the command arguments properly
+        arguments = " ".join(self._pipeline_arguments) + f" {ini}"
+
         description = {
             "executable": f"{os.path.join(config.get('pipelines', 'environment'), 'bin', self._pipeline_command)}",
-            "arguments": f"{self._pipeline_arguments[0]} --settings {ini}",
+            "arguments": arguments,
             "output": f"{name.replace(' ', '_')}.out",
             "error": f"{name.replace(' ', '_')}.err",
             "log": f"{name.replace(' ', '_')}.log",
@@ -35,28 +44,37 @@ class MetaPipeline(asimov.pipeline.Pipeline):
             with open(f"{name}.sub", "w") as subfile:
                 subfile.write(job.__str__())
 
-        with set_directory(self.production.rundir):
-            try:
-                schedulers = htcondor.Collector().locate(
-                    htcondor.DaemonTypes.Schedd, config.get("condor", "scheduler")
-                )
-            except configparser.NoOptionError:
-                schedulers = htcondor.Collector().locate(htcondor.DaemonTypes.Schedd)
-            schedd = htcondor.Schedd(schedulers)
-            with schedd.transaction() as txn:
-                cluster_id = job.queue(txn)
+        if not dryrun:
+            with set_directory(self.production.rundir):
+                try:
+                    schedulers = htcondor.Collector().locate(
+                        htcondor.DaemonTypes.Schedd, config.get("condor", "scheduler")
+                    )
+                except configparser.NoOptionError:
+                    schedulers = htcondor.Collector().locate(htcondor.DaemonTypes.Schedd)
+                schedd = htcondor.Schedd(schedulers)
+                with schedd.transaction() as txn:
+                    cluster_id = job.queue(txn)
 
-        self.production.job_id = int(cluster_id)
-        self.clusterid = cluster_id
+            self.production.job_id = int(cluster_id)
+            self.clusterid = cluster_id
+            self.production.status = "running"
+        else:
+            self.logger.info(f"Dry run: would submit job with description: {description}")
+            self.clusterid = None
 
     def submit_dag(self, dryrun=False):
-        return self.clusterid
+        """Submit the job to the cluster. For MetaPipeline, submission happens in build_dag."""
+        if hasattr(self, 'clusterid') and self.clusterid is not None:
+            return self.clusterid
+        else:
+            return None
 
 class InjectionPipeline(MetaPipeline):
     name = "heron injection"
-    config_template = importlib.resources.files("heron.asimov") / "heron_template.yml"
+    config_template = str(files("heron.asimov") / "heron_template.yml")
     _pipeline_command = "heron"
-    _pipeline_arguments = ["injection"]
+    _pipeline_arguments = ["injection", "--settings"]
 
     def detect_completion(self):
 
@@ -112,10 +130,10 @@ class Pipeline(MetaPipeline):
     """
 
     name = "heron"
-    config_template = importlib.resources.files("heron.asimov") / "heron_template.yml"
+    config_template = str(files("heron.asimov") / "heron_template.yml")
 
     _pipeline_command = "heron"
-    _pipeline_arguments = ["inference"]
+    _pipeline_arguments = ["inference", "--settings"]
 
     def detect_completion(self):
 

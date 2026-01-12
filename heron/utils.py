@@ -7,8 +7,8 @@ import yaml
 
 import numpy as np
 
-# from pesummary.io import read
-# from pesummary.core.file.formats.base_read import SingleAnalysisRead
+from pesummary.io import read
+from pesummary.core.file.formats.base_read import SingleAnalysisRead
 
 
 def load_yaml(filename):
