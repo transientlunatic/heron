@@ -5,6 +5,7 @@ using the waveform models it supports.
 
 import numpy as np
 import torch
+from scipy import linalg as scipy_linalg
 
 import logging
 
@@ -129,6 +130,11 @@ class TimeDomainLikelihood(Likelihood):
         >>> detector = LIGOHanford()
         >>> likelihood = TimeDomainLikelihood(data, psd, waveform, detector)
         """
+        # Initialize logger first
+        self.logger = logger = logging.getLogger(
+            "heron.likelihood.TimeDomainLikelihood"
+        )
+
         self.psd = psd
         self.timeseries = data
         self.data = self.array(data.data)
@@ -137,7 +143,17 @@ class TimeDomainLikelihood(Likelihood):
         self.C_scaled = self.C.scaled
         self.data = NumericallyScaled(self.data.data, scale=np.sqrt(self.C.scale))
         self.data_scaled = self.data.scaled
-        # self.inverse_C = self.inverse(self.C)
+
+        # Pre-compute and cache Cholesky decomposition for performance
+        # This is done once at initialization rather than on every likelihood call
+        try:
+            self.C_cholesky = np.linalg.cholesky(self.C_scaled)
+            self._use_cholesky = True
+            self.logger.info(f"Cholesky decomposition cached for covariance matrix (N={len(self.times)})")
+        except np.linalg.LinAlgError as e:
+            self.logger.warning(f"Cholesky decomposition failed: {e}. Falling back to direct solve.")
+            self._use_cholesky = False
+            self.C_cholesky = None
 
         self.dt = (self.times[1] - self.times[0]).value
         self.N = len(self.times)
@@ -152,10 +168,6 @@ class TimeDomainLikelihood(Likelihood):
         if timing_basis is not None:
             self.fixed_parameters["reference_frame"] = timing_basis
 
-        self.logger = logger = logging.getLogger(
-            "heron.likelihood.TimeDomainLikelihood"
-        )
-
     def snr(self, waveform):
         """
         Calculate the optimal signal to noise ratio for a given waveform.
@@ -164,9 +176,17 @@ class TimeDomainLikelihood(Likelihood):
         N = len(self.times)
         w = self.array(waveform.data)
         w = self.to_device(w, self.device)
-        h_h = (
-            (w.T @ self.solve(self.C, w))
-        )
+
+        if self._use_cholesky:
+            # Use cached Cholesky decomposition: solve L @ (L.T @ x) = w
+            # First solve L @ y = w
+            y = scipy_linalg.solve_triangular(self.C_cholesky, w, lower=True)
+            # Then solve L.T @ x = y
+            x = scipy_linalg.solve_triangular(self.C_cholesky.T, y, lower=False)
+            h_h = w.T @ x
+        else:
+            # Fallback to direct solve
+            h_h = (w.T @ self.solve(self.C_scaled, w))
 
         return np.sqrt(h_h)
 
@@ -185,13 +205,47 @@ class TimeDomainLikelihood(Likelihood):
 
         C_scaled = self.C_scaled[a[0]:a[1], a[0]:a[1]]
 
-        weighted_residual = (
-            (residual) @ self.solve(C_scaled, residual)
-        )
+        # Use Cholesky decomposition if available and applicable
+        if self._use_cholesky and a[0] == 0 and a[1] == len(self.times):
+            # Full overlap - use cached Cholesky decomposition
+            # Solve L @ (L.T @ x) = residual using cached L
+            y = scipy_linalg.solve_triangular(self.C_cholesky, residual, lower=True)
+            x = scipy_linalg.solve_triangular(self.C_cholesky.T, y, lower=False)
+            weighted_residual = residual @ x
 
-        normalisation = N * self.log(2*np.pi) + self.logdet(C_scaled) - 2 * N * self.log(wf.scale) if norm else 0
+            # For normalization, use cached log determinant: 2 * sum(log(diag(L)))
+            if norm:
+                logdet_C = 2.0 * np.sum(np.log(np.diag(self.C_cholesky)))
+                normalisation = N * self.log(2*np.pi) + logdet_C - 2 * N * self.log(wf.scale)
+            else:
+                normalisation = 0
+        else:
+            # Partial overlap or Cholesky not available - use direct solve on submatrix
+            # For partial overlaps, we need to extract the submatrix
+            if self._use_cholesky and (a[0] != 0 or a[1] != len(self.times)):
+                # Extract Cholesky factor for the submatrix
+                # Note: This is still more efficient than full solve for small overlaps
+                try:
+                    L_sub = np.linalg.cholesky(C_scaled)
+                    y = scipy_linalg.solve_triangular(L_sub, residual, lower=True)
+                    x = scipy_linalg.solve_triangular(L_sub.T, y, lower=False)
+                    weighted_residual = residual @ x
 
-        return   (- 0.5 * weighted_residual - 0.5 * normalisation)
+                    if norm:
+                        logdet_C = 2.0 * np.sum(np.log(np.diag(L_sub)))
+                        normalisation = N * self.log(2*np.pi) + logdet_C - 2 * N * self.log(wf.scale)
+                    else:
+                        normalisation = 0
+                except np.linalg.LinAlgError:
+                    # Fall back to direct solve if Cholesky fails on submatrix
+                    weighted_residual = (residual) @ self.solve(C_scaled, residual)
+                    normalisation = N * self.log(2*np.pi) + self.logdet(C_scaled) - 2 * N * self.log(wf.scale) if norm else 0
+            else:
+                # Direct solve fallback
+                weighted_residual = (residual) @ self.solve(C_scaled, residual)
+                normalisation = N * self.log(2*np.pi) + self.logdet(C_scaled) - 2 * N * self.log(wf.scale) if norm else 0
+
+        return (- 0.5 * weighted_residual - 0.5 * normalisation)
 
     def __call__(self, parameters):
         self.logger.info(parameters)
@@ -238,19 +292,12 @@ class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
         residual = self.to_device(self.array(data.scaled - wf.scaled), device=self.device)
         N_samp = len(residual)
 
-        print("C", C.value)
-        print("K", K.value)
-        print("Cs", C.scaled)
-        print("Ks", K.scaled)
-
         self.logger.debug(f"Data scale: {np.mean(np.abs(data.scaled))}")
         self.logger.debug(f"Residual scale: {np.mean(np.abs(residual))}")
         self.logger.debug(f"Cov diagonal range: [{np.min(np.diag(total_cov))}, {np.max(np.diag(total_cov))}]")
         self.logger.debug(f"Condition number: {np.linalg.cond(total_cov)}")
 
         W = (- 0.5 * self.solve((total_cov), residual) @ residual)
-
-        print("W", W)
 
         N = (- 0.5 * N_samp*self.log((2*self.pi)) - 0.5 * self.logdet((C+K)) + N_samp * self.log(wf.scale)) if norm else 0
 
