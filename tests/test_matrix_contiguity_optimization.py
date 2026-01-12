@@ -33,14 +33,14 @@ class TestContiguityImpact(unittest.TestCase):
         start_time = time.time()
         for _ in range(n_iter):
             submat_view = mat[start:end, start:end]
-            L = np.linalg.cholesky(submat_view)
+            np.linalg.cholesky(submat_view)
         view_time = (time.time() - start_time) / n_iter
 
         # Time with contiguous array
         start_time = time.time()
         for _ in range(n_iter):
             submat_contig = np.ascontiguousarray(mat[start:end, start:end])
-            L = np.linalg.cholesky(submat_contig)
+            np.linalg.cholesky(submat_contig)
         contig_time = (time.time() - start_time) / n_iter
 
         # Time with plain copy
@@ -90,7 +90,7 @@ class TestContiguityImpact(unittest.TestCase):
         for _ in range(n_iter):
             L_contig = np.ascontiguousarray(L_full[start:end, start:end])
             b_contig = np.ascontiguousarray(b_full[start:end])
-            x = scipy_linalg.solve_triangular(L_contig, b_contig, lower=True)
+            _ = scipy_linalg.solve_triangular(L_contig, b_contig, lower=True)
         contig_time = (time.time() - start_time) / n_iter
 
         print(f"\n=== solve_triangular Contiguity Impact ===")
@@ -143,8 +143,9 @@ class TestContiguityImpact(unittest.TestCase):
             for _ in range(n_iter):
                 C_sub_view = C_scaled[start_idx:end_idx, start_idx:end_idx]
                 try:
-                    L = np.linalg.cholesky(C_sub_view)
+                    np.linalg.cholesky(C_sub_view)
                 except np.linalg.LinAlgError:
+                    # Expected for ill-conditioned matrices at this scale
                     pass
             view_time = (time.time() - start_time) / n_iter
 
@@ -153,8 +154,9 @@ class TestContiguityImpact(unittest.TestCase):
             for _ in range(n_iter):
                 C_sub_contig = np.ascontiguousarray(C_scaled[start_idx:end_idx, start_idx:end_idx])
                 try:
-                    L = np.linalg.cholesky(C_sub_contig)
+                    np.linalg.cholesky(C_sub_contig)
                 except np.linalg.LinAlgError:
+                    # Expected for ill-conditioned matrices at this scale
                     pass
             contig_time = (time.time() - start_time) / n_iter
 
@@ -177,7 +179,7 @@ class TestPracticalOptimization(unittest.TestCase):
         for i in range(min(N_data-1, 100)):
             C_full[i, i+1] = C_full[i+1, i] = 0.1
 
-        L_full = np.linalg.cholesky(C_full)
+        _ = np.linalg.cholesky(C_full)
 
         start_idx, end_idx = 200, 200 + N_overlap
         data = np.random.randn(N_overlap)
@@ -205,7 +207,7 @@ class TestPracticalOptimization(unittest.TestCase):
         def cached_submatrix_pattern():
             # This would be done once and cached
             C_sub = np.ascontiguousarray(C_full[start_idx:end_idx, start_idx:end_idx])
-            L_sub = np.linalg.cholesky(C_sub)
+            _ = np.linalg.cholesky(C_sub)
 
             # This is done per evaluation
             y = scipy_linalg.solve_triangular(L_sub, residual, lower=True)
@@ -221,13 +223,13 @@ class TestPracticalOptimization(unittest.TestCase):
         n_iter = 100
         start_time = time.time()
         for _ in range(n_iter):
-            result = current_pattern()
+            current_pattern()
         current_time = (time.time() - start_time) / n_iter
 
         # Time contiguous pattern
         start_time = time.time()
         for _ in range(n_iter):
-            result = contiguous_pattern()
+            contiguous_pattern()
         contig_time = (time.time() - start_time) / n_iter
 
         # Time just the solve part (if Cholesky was cached)
@@ -238,7 +240,8 @@ class TestPracticalOptimization(unittest.TestCase):
         for _ in range(n_iter):
             y = scipy_linalg.solve_triangular(L_sub_cached, residual, lower=True)
             x = scipy_linalg.solve_triangular(L_sub_cached.T, y, lower=False)
-            result = residual @ x
+            # Basic sanity check to ensure computation produced a finite value
+            self.assertTrue(np.isfinite(residual @ x))
         cached_time = (time.time() - start_time) / n_iter
 
         print(f"\n=== Full Likelihood Pattern Comparison ===")

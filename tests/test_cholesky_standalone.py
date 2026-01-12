@@ -5,7 +5,6 @@ Standalone test to verify Cholesky caching implementation without LAL dependenci
 import unittest
 import numpy as np
 from unittest.mock import Mock
-import sys
 
 # Test the likelihood module directly
 from heron.likelihood import TimeDomainLikelihood, NumericallyScaled
@@ -246,7 +245,7 @@ class TestCholeskyPerformanceBasic(unittest.TestCase):
         # Time direct solve
         start = time.time()
         for _ in range(10):
-            x = np.linalg.solve(C_scaled, b)
+            np.linalg.solve(C_scaled, b)
         direct_time = (time.time() - start) / 10
 
         # Time Cholesky

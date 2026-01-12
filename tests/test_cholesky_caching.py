@@ -382,7 +382,7 @@ class TestCholeskyPerformance(unittest.TestCase):
         # Time direct solve
         start = time.time()
         for _ in range(10):
-            x = np.linalg.solve(C, b)
+            np.linalg.solve(C, b)
         solve_time = (time.time() - start) / 10
 
         # Time Cholesky decomposition (one-time cost)

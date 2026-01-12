@@ -7,7 +7,6 @@ performance benchmarks, and lazy covariance loading.
 
 import unittest
 import numpy as np
-import sys
 
 # Check torch/CUDA availability
 try:
@@ -22,7 +21,7 @@ except ImportError:
 # Try to import heron components
 try:
     from heron.likelihood import (
-        Likelihood, TorchLikelihood, TimeDomainLikelihood,
+        TorchLikelihood, TimeDomainLikelihood,
         TimeDomainLikelihoodGPU, NumericallyScaled
     )
     from heron.types import Waveform, TimeSeries

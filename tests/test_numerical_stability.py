@@ -180,7 +180,7 @@ class TestNumericallyScaledOperations(unittest.TestCase):
         B = NumericallyScaled(np.eye(5), scale=3.0)
 
         with self.assertRaises(AssertionError):
-            result = A + B
+            A + B
 
     def test_unscale_method(self):
         """Test the unscale method."""

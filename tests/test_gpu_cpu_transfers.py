@@ -10,7 +10,6 @@ evaluation pipeline, focusing on:
 
 import unittest
 import numpy as np
-import sys
 
 # Check if torch/GPU is available
 try:
@@ -145,7 +144,7 @@ class TestDataFlowAnalysis(unittest.TestCase):
             start = time.time()
             for _ in range(n_iter):
                 y = scipy_linalg.solve_triangular(L_cpu, b_cpu, lower=True)
-                x = scipy_linalg.solve_triangular(L_cpu.T, y, lower=False)
+                scipy_linalg.solve_triangular(L_cpu.T, y, lower=False)
             cpu_time = (time.time() - start) / n_iter
 
             # Transfer to GPU
@@ -161,7 +160,7 @@ class TestDataFlowAnalysis(unittest.TestCase):
             start = time.time()
             for _ in range(n_iter):
                 y = torch.linalg.solve_triangular(L_gpu, b_gpu, upper=False)
-                x = torch.linalg.solve_triangular(L_gpu.T, y, upper=True)
+                torch.linalg.solve_triangular(L_gpu.T, y, upper=True)
                 torch.cuda.synchronize()
             gpu_time = (time.time() - start) / n_iter
 

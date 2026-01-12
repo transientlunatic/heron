@@ -8,7 +8,6 @@ matrix operations, and measures the performance impact.
 import unittest
 import numpy as np
 import time
-import sys
 
 
 class TestMatrixViewBehavior(unittest.TestCase):
@@ -108,14 +107,14 @@ class TestViewPerformance(unittest.TestCase):
         start_time = time.time()
         for _ in range(n_iter):
             submat_view = mat[start:end, start:end]
-            L = np.linalg.cholesky(submat_view)
+            np.linalg.cholesky(submat_view)
         view_time = (time.time() - start_time) / n_iter
 
         # Time with explicit copy
         start_time = time.time()
         for _ in range(n_iter):
             submat_copy = mat[start:end, start:end].copy()
-            L = np.linalg.cholesky(submat_copy)
+            np.linalg.cholesky(submat_copy)
         copy_time = (time.time() - start_time) / n_iter
 
         print(f"\n=== Cholesky on Submatrix Performance ===")
@@ -153,7 +152,7 @@ class TestViewPerformance(unittest.TestCase):
         for _ in range(n_iter):
             L_sub = L_full[start:end, start:end]
             b_sub = b_full[start:end]
-            x = scipy_linalg.solve_triangular(L_sub, b_sub, lower=True)
+            scipy_linalg.solve_triangular(L_sub, b_sub, lower=True)
         view_time = (time.time() - start_time) / n_iter
 
         # Time with copies
@@ -161,7 +160,7 @@ class TestViewPerformance(unittest.TestCase):
         for _ in range(n_iter):
             L_sub = L_full[start:end, start:end].copy()
             b_sub = b_full[start:end].copy()
-            x = scipy_linalg.solve_triangular(L_sub, b_sub, lower=True)
+            _ = scipy_linalg.solve_triangular(L_sub, b_sub, lower=True)
         copy_time = (time.time() - start_time) / n_iter
 
         print(f"\n=== solve_triangular Performance ===")
@@ -185,7 +184,6 @@ class TestLikelihoodSubmatrixPattern(unittest.TestCase):
 
         # Partial overlap scenario
         a = (500, 1500)  # Data indices
-        b = (0, 1000)    # Waveform indices
 
         # Current code pattern (line 226 in likelihood.py):
         # C_scaled = self.C_scaled[a[0]:a[1], a[0]:a[1]]
@@ -257,7 +255,7 @@ class TestViewCorrectness(unittest.TestCase):
         submat = mat[2:5, 2:5]
 
         # Operations that create new arrays shouldn't affect parent
-        L = np.linalg.cholesky(submat)
+        np.linalg.cholesky(submat)
 
         np.testing.assert_array_equal(mat, mat_original,
                                      err_msg="Cholesky shouldn't modify parent through view")

@@ -175,11 +175,10 @@ class TestOverlapDetectionCorrectness(unittest.TestCase):
         result = ts_a.determine_overlap(ts_a, ts_b)
 
         self.assertIsNotNone(result, "Should handle different sample rates")
-        (start_a, end_a), (start_b, end_b) = result
+        (start_a, _), _ = result
 
         # Verify overlap region
         times_a = ts_a.times.value
-        times_b = ts_b.times.value
 
         # Overlap should be from 0.5 to 2.0
         self.assertGreater(times_a[start_a], 0.49)
@@ -197,7 +196,7 @@ class TestOverlapDetectionPerformance(unittest.TestCase):
     def create_large_timeseries(self, start, end, n_samples):
         """Create a large mock timeseries."""
         times = np.linspace(start, end, n_samples)
-        ts = self.TimeSeries()
+        ts = self.TimeSeries(data=np.zeros(n_samples))
         ts.times = Mock()
         ts.times.value = times
         ts.times.__getitem__ = lambda self, key: times[key]
@@ -214,13 +213,13 @@ class TestOverlapDetectionPerformance(unittest.TestCase):
 
         # Warm up
         for _ in range(3):
-            result = ts_a.determine_overlap(ts_a, ts_b)
+            ts_a.determine_overlap(ts_a, ts_b)
 
         # Time repeated calls
         n_iterations = 1000
         start_time = time.time()
         for _ in range(n_iterations):
-            result = ts_a.determine_overlap(ts_a, ts_b)
+            ts_a.determine_overlap(ts_a, ts_b)
         elapsed = time.time() - start_time
 
         time_per_call = (elapsed / n_iterations) * 1000  # ms
@@ -243,13 +242,13 @@ class TestOverlapDetectionPerformance(unittest.TestCase):
         # Time the optimized searchsorted approach
         start = time.time()
         for _ in range(1000):
-            idx = np.searchsorted(times, 2.0)
+            _ = np.searchsorted(times, 2.0)
         searchsorted_time = time.time() - start
 
         # Time the old argmin approach (what we replaced)
         start = time.time()
         for _ in range(1000):
-            idx = np.argmin(np.abs(times - 2.0))
+            _ = np.argmin(np.abs(times - 2.0))
         argmin_time = time.time() - start
 
         speedup = argmin_time / searchsorted_time
@@ -274,7 +273,7 @@ class TestOverlapDetectionEdgeCases(unittest.TestCase):
 
     def create_timeseries(self, times_array):
         """Create mock timeseries from array."""
-        ts = self.TimeSeries()
+        ts = self.TimeSeries(data=np.zeros(len(times_array)))
         ts.times = Mock()
         ts.times.value = times_array
         ts.times.__getitem__ = lambda self, key: times_array[key]

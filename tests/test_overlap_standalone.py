@@ -62,7 +62,7 @@ def original_determine_overlap(times_a, times_b):
     def is_in(time, timeseries):
         diff = np.min(np.abs(timeseries - time))
         dt = timeseries[1] - timeseries[0]
-        return diff < dt
+        return diff < dt  # Result not used but function needs to return something
 
     a_start, a_end = times_a[0], times_a[-1]
     b_start, b_end = times_b[0], times_b[-1]
@@ -126,8 +126,8 @@ class TestOverlapCorrectness(unittest.TestCase):
 
         self.assertIsNotNone(result_opt)
 
-        (sa_opt, ea_opt), (sb_opt, eb_opt) = result_opt
-        (sa_orig, ea_orig), (sb_orig, eb_orig) = result_orig
+        (sa_opt, ea_opt), _ = result_opt
+        (sa_orig, ea_orig), _ = result_orig
 
         # Should be very close
         self.assertLess(abs(sa_opt - sa_orig), 2)
@@ -159,8 +159,8 @@ class TestOverlapCorrectness(unittest.TestCase):
 
         self.assertIsNotNone(result_opt)
 
-        (sa_opt, ea_opt), (sb_opt, eb_opt) = result_opt
-        (sa_orig, ea_orig), (sb_orig, eb_orig) = result_orig
+        (sa_opt, ea_opt), _ = result_opt
+        (sa_orig, ea_orig), _ = result_orig
 
         # Should match closely
         self.assertLess(abs(sa_opt - sa_orig), 2)
@@ -186,13 +186,13 @@ class TestOverlapPerformance(unittest.TestCase):
         n_iter = 1000
         start = time.time()
         for _ in range(n_iter):
-            result_opt = optimized_determine_overlap(times_a, times_b)
+            _ = optimized_determine_overlap(times_a, times_b)
         time_opt = (time.time() - start) / n_iter
 
         # Time original version
         start = time.time()
         for _ in range(n_iter):
-            result_orig = original_determine_overlap(times_a, times_b)
+            _ = original_determine_overlap(times_a, times_b)
         time_orig = (time.time() - start) / n_iter
 
         speedup = time_orig / time_opt
@@ -216,13 +216,13 @@ class TestOverlapPerformance(unittest.TestCase):
         n_iter = 10000
         start = time.time()
         for _ in range(n_iter):
-            idx = np.searchsorted(times, target)
+            _ = np.searchsorted(times, target)
         time_searchsorted = (time.time() - start) / n_iter
 
         # Time argmin
         start = time.time()
         for _ in range(n_iter):
-            idx = np.argmin(np.abs(times - target))
+            _ = np.argmin(np.abs(times - target))
         time_argmin = (time.time() - start) / n_iter
 
         speedup = time_argmin / time_searchsorted
@@ -270,7 +270,7 @@ class TestOverlapEdgeCases(unittest.TestCase):
         result = optimized_determine_overlap(times_a, times_b)
 
         self.assertIsNotNone(result)
-        (sa, ea), (sb, eb) = result
+        (sa, ea), _ = result
 
         # Verify overlap makes sense
         self.assertGreater(times_a[sa], 0.49)
