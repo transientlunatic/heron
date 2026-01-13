@@ -45,6 +45,7 @@ dependencies = [
     "torchvision",
     "bilby_pipe",
     "astropy>=5.0",
+    "pykeops",
 ]
 dynamic = ["version"]
 

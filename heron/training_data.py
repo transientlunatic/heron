@@ -121,27 +121,35 @@ def generate_training_data(
     # Generate waveform manifold
     if use_peak_sampling:
         logger.info("Using peak-based sampling")
-        manifold = make_optimal_manifold(
+        # make_optimal_manifold returns (manifold_plus, manifold_cross)
+        manifold_plus, manifold_cross = make_optimal_manifold(
             approximant=approximant,
             fixed=fixed_params,
             varied=varied_params
         )
+        # For peak sampling, we have separate manifolds per polarization
+        manifolds = {'plus': manifold_plus, 'cross': manifold_cross}
+        n_waveforms = len(manifold_plus.data)
     else:
         logger.info("Using regular grid sampling")
+        # make_manifold returns a single manifold with all polarizations
         manifold = make_manifold(
             approximant=approximant,
             fixed=fixed_params,
             varied=varied_params
         )
+        # For regular sampling, use the same manifold for all polarizations
+        manifolds = {'plus': manifold, 'cross': manifold}
+        n_waveforms = len(manifold.data)
 
-    n_waveforms = len(manifold.data)
     logger.info(f"Generated {n_waveforms} waveforms")
 
-    # Create diagnostic plots
+    # Create diagnostic plots (use first manifold for diagnostics)
     logger.info("Creating diagnostic plots")
-    _plot_parameter_space(manifold, plots_dir)
-    _plot_waveform_samples(manifold, plots_dir, n_samples=9)
-    _plot_manifold_heatmap(manifold, plots_dir)
+    diagnostic_manifold = manifolds['plus'] if use_peak_sampling else manifold
+    _plot_parameter_space(diagnostic_manifold, plots_dir)
+    _plot_waveform_samples(diagnostic_manifold, plots_dir, n_samples=9)
+    _plot_manifold_heatmap(diagnostic_manifold, plots_dir)
 
     # Create or open HDF5 file
     if os.path.exists(output_file):
@@ -158,7 +166,10 @@ def generate_training_data(
         logger.info(f"Processing {pol} polarization")
         pol_key = pol  # 'plus' or 'cross'
 
-        for idx, wf_dict in enumerate(manifold.data):
+        # Get the appropriate manifold for this polarization
+        pol_manifold = manifolds[pol_key]
+
+        for idx, wf_dict in enumerate(pol_manifold.data):
             if idx % 10 == 0:
                 logger.info(f"Storing waveform {idx+1}/{n_waveforms}")
 
@@ -171,7 +182,7 @@ def generate_training_data(
 
             # Extract parameters from the WaveformDict
             # The manifold stores parameters in manifold.locations[idx]
-            locations = manifold.locations[idx]
+            locations = pol_manifold.locations[idx]
 
             # Store in HDF5
             data.add_waveform(

@@ -1,0 +1,49 @@
+# Example configuration for generating training data
+# Usage: heron training-data --config training_data_config.yml
+
+name: IMRPhenomPv2_NonSpinning_Test
+
+# Logging
+logging:
+  level: info
+
+# Waveform source - use IMRPhenomPv2 approximant
+waveform_source:
+  type: approximant
+  approximant: IMRPhenomPv2
+
+# Parameter space to sample
+parameter_space:
+  # Fixed parameters (same for all waveforms)
+  fixed:
+    total_mass: 60.0        # Solar masses
+    sample_rate: 4096       # Hz
+    duration: 0.5           # seconds
+
+  # Varied parameters (create grid)
+  varied:
+    mass_ratio:
+      lower: 0.1
+      upper: 1.0
+      step: 0.1             # Creates 10 points: 0.1, 0.2, ..., 1.0
+
+# Which polarizations to include
+polarizations:
+  - plus
+  - cross
+
+# Optimization settings
+optimization:
+  use_peak_sampling: true  # Set to true for inspiral waveforms to reduce data
+
+# Output settings
+output:
+  file: training_data_test.h5
+  group_name: IMR_training_test
+  metadata:
+    description: "Test training data for non-spinning BBH"
+    created_by: heron_training_data
+    approximant: IMRPhenomPv2
+
+# Where to save diagnostic plots
+pages directory: plots_test

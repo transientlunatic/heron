@@ -50,12 +50,30 @@ class TrainingMonitor:
         # Extract hyperparameters
         try:
             # Get lengthscales from the kernel
-            lengthscales = model.covar_module.base_kernel.lengthscale.detach().cpu().numpy()
-            self.lengthscales[polarization].append((iteration, lengthscales))
+            # For product kernels, we need to extract from each component
+            base_kernel = model.covar_module.base_kernel
+
+            # Collect lengthscales from all kernels in the product
+            lengthscales_list = []
+            if hasattr(base_kernel, 'kernels'):
+                # Product kernel - iterate through components
+                for kernel in base_kernel.kernels:
+                    if hasattr(kernel, 'lengthscale') and kernel.lengthscale is not None:
+                        ls = kernel.lengthscale.detach().cpu().numpy().flatten()
+                        lengthscales_list.extend(ls)
+            elif hasattr(base_kernel, 'lengthscale') and base_kernel.lengthscale is not None:
+                # Single kernel
+                ls = base_kernel.lengthscale.detach().cpu().numpy().flatten()
+                lengthscales_list.extend(ls)
+
+            if lengthscales_list:
+                lengthscales = np.array(lengthscales_list)
+                self.lengthscales[polarization].append((iteration, lengthscales))
 
             # Get noise level
-            noise = model.likelihood.noise.detach().cpu().item()
-            self.noise_levels[polarization].append((iteration, noise))
+            if hasattr(model.likelihood, 'noise') and model.likelihood.noise is not None:
+                noise = model.likelihood.noise.detach().cpu().item()
+                self.noise_levels[polarization].append((iteration, noise))
         except Exception as e:
             logger.warning(f"Could not extract hyperparameters: {e}")
 
@@ -199,7 +217,8 @@ def train_gpr_model(
         logger.info(f"{'='*60}")
 
         # Get training data for this polarization
-        pol_char = 'p' if polarization == 'plus' else 'c'
+        # HDF5 stores strings as bytes, so we need to pass byte strings
+        pol_char = b'p' if polarization == 'plus' else b'c'
 
         try:
             xdata, ydata = data.get_training_data(
@@ -213,9 +232,33 @@ def train_gpr_model(
 
         logger.info(f"Training data shape: X={xdata.shape}, Y={ydata.shape}")
 
+        # Check if data is empty
+        if xdata.size == 0 or ydata.size == 0:
+            raise ValueError(f"No training data found for {polarization} polarization in group '{group_name}'")
+
         # Convert to torch tensors
-        train_x = torch.tensor(xdata.T, dtype=torch.float32).to(device)
-        train_y = torch.tensor(ydata, dtype=torch.float32).to(device) * output_scale
+        # Ensure data is contiguous and float type before conversion
+        train_x = torch.from_numpy(np.ascontiguousarray(xdata.T, dtype=np.float32)).to(device)
+
+        # Flatten ydata if it's 2D
+        ydata_flat = ydata.flatten() if ydata.ndim > 1 else ydata
+
+        logger.info(f"Flattened Y data shape: {ydata_flat.shape}")
+
+        # Normalize data for numerical stability
+        # Store the actual scale for later denormalization
+        y_mean = ydata_flat.mean()
+        y_std = ydata_flat.std()
+
+        if y_std == 0:
+            raise ValueError(f"Training data has zero variance for {polarization}")
+
+        ydata_normalized = (ydata_flat - y_mean) / y_std
+
+        logger.info(f"Data statistics: mean={y_mean:.3e}, std={y_std:.3e}")
+        logger.info(f"Normalized data range: [{ydata_normalized.min():.3f}, {ydata_normalized.max():.3f}]")
+
+        train_y = torch.from_numpy(np.ascontiguousarray(ydata_normalized, dtype=np.float32)).to(device)
 
         # Apply time warping
         time_idx = 1  # Assuming time is the second dimension
@@ -240,18 +283,29 @@ def train_gpr_model(
         mll = gpytorch.mlls.ExactMarginalLogLikelihood(model.likelihood, model)
 
         logger.info(f"Starting training loop for {iterations} iterations")
+        logger.info(f"Training data size: {train_x_warped.shape[0]} samples")
 
         # Training loop with diagnostics
         for i in range(iterations):
             optimizer.zero_grad()
-            output = model(train_x_warped)
-            loss = -mll(output, train_y)
+
+            # Use context managers for memory efficiency
+            with gpytorch.settings.max_cholesky_size(2000):
+                output = model(train_x_warped)
+                loss = -mll(output, train_y)
+
             loss.backward()
             optimizer.step()
 
             # Record metrics
             loss_val = loss.item()
             monitor.record(polarization, i, loss_val, model)
+
+            # Check for numerical issues
+            if not np.isfinite(loss_val):
+                logger.error(f"Loss became non-finite at iteration {i}: {loss_val}")
+                logger.error("Training diverged - consider reducing learning rate or checking data")
+                break
 
             # Periodic logging and checkpointing
             if i % checkpoint_frequency == 0:
@@ -271,19 +325,32 @@ def train_gpr_model(
                 except Exception as e:
                     logger.warning(f"Could not save checkpoint: {e}")
 
+                # Force garbage collection to free memory
+                import gc
+                gc.collect()
+                if device.type == 'cuda':
+                    torch.cuda.empty_cache()
+
         # Final evaluation mode
         model.eval()
         model.likelihood.eval()
 
-        # Save final model state
+        # Save final model state with normalization parameters
         logger.info(f"Saving final {polarization} model state")
+        state_to_save = model.state_dict()
+        # Add normalization parameters as tensors so add_state() can handle them
+        state_to_save['y_mean'] = torch.tensor(float(y_mean))
+        state_to_save['y_std'] = torch.tensor(float(y_std))
         data.add_state(
             name=f"{model_name}_{polarization}",
             group=group_name,
-            data=model.state_dict()
+            data=state_to_save
         )
 
         models[polarization] = model
+        # Store normalization params in model for plotting
+        model.y_mean = y_mean
+        model.y_std = y_std
         logger.info(f"Completed training for {polarization} polarization")
 
     # Generate final diagnostic plots
@@ -305,19 +372,42 @@ def _plot_model_predictions(data, group_name, models, plots_dir, output_scale, w
     logger.info("Generating model prediction comparison plots")
 
     for polarization in ['plus', 'cross']:
-        pol_char = 'p' if polarization == 'plus' else 'c'
+        # HDF5 stores strings as bytes, so we need to pass byte strings
+        pol_char = b'p' if polarization == 'plus' else b'c'
 
         try:
-            # Get a subset of training data for visualization
-            xdata, ydata = data.get_training_data(
+            # Get training data for visualization
+            # First get all data to check size
+            xdata_all, ydata_all = data.get_training_data(
                 label=group_name,
                 polarisation=pol_char,
-                size=5000  # Sample for faster plotting
+                size=None
             )
 
+            # Sample if too large
+            if xdata_all.shape[1] > 5000:
+                xdata, ydata = data.get_training_data(
+                    label=group_name,
+                    polarisation=pol_char,
+                    size=5000
+                )
+            else:
+                xdata, ydata = xdata_all, ydata_all
+
             # Convert to torch
-            train_x = torch.tensor(xdata.T, dtype=torch.float32).to(device)
-            train_y = torch.tensor(ydata, dtype=torch.float32).to(device) * output_scale
+            train_x = torch.from_numpy(np.ascontiguousarray(xdata.T, dtype=np.float32)).to(device)
+
+            # Flatten ydata if it's 2D
+            ydata_flat = ydata.flatten() if ydata.ndim > 1 else ydata
+
+            # Get the model
+            model = models[polarization]
+
+            # Normalize using the same parameters as training
+            y_mean = model.y_mean
+            y_std = model.y_std
+            ydata_normalized = (ydata_flat - y_mean) / y_std
+            train_y = torch.from_numpy(np.ascontiguousarray(ydata_normalized, dtype=np.float32)).to(device)
 
             # Warp
             train_x_warped = train_x.clone()
@@ -325,15 +415,15 @@ def _plot_model_predictions(data, group_name, models, plots_dir, output_scale, w
             train_x_warped[train_x[:, time_idx] < 0, time_idx] /= warp_scale
 
             # Get predictions
-            model = models[polarization]
             model.eval()
 
             with torch.no_grad(), gpytorch.settings.fast_pred_var():
                 predictions = model.likelihood(model(train_x_warped))
-                pred_mean = predictions.mean.cpu().numpy() / output_scale
-                pred_std = predictions.stddev.cpu().numpy() / output_scale
+                # Denormalize predictions
+                pred_mean = predictions.mean.cpu().numpy() * y_std + y_mean
+                pred_std = predictions.stddev.cpu().numpy() * y_std
 
-            true_y = ydata
+            true_y = ydata_flat
 
             # Plot predictions vs truth
             fig, axes = plt.subplots(2, 1, figsize=(10, 8))

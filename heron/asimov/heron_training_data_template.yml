@@ -1,0 +1,65 @@
+# Heron Training Data Generation Configuration Template
+# This template is used by asimov to generate training data for GPR models
+
+name: {{ production.name }}
+
+# Logging configuration
+logging:
+  level: info
+
+# Waveform source configuration
+waveform_source:
+  type: {{ production.meta['waveform_source']['type'] }}
+{%- if production.meta['waveform_source']['type'] == 'approximant' %}
+  approximant: {{ production.meta['waveform_source']['approximant'] }}
+{%- elif production.meta['waveform_source']['type'] == 'nr_catalog' %}
+  catalog_path: {{ production.meta['waveform_source']['catalog_path'] }}
+  catalog_type: {{ production.meta['waveform_source']['catalog_type'] }}
+{%- endif %}
+
+# Parameter space definition
+parameter_space:
+  fixed:
+{%- for param_name, param_value in production.meta['parameter_space']['fixed'].items() %}
+    {{ param_name }}: {{ param_value }}
+{%- endfor %}
+  varied:
+{%- for param_name, param_spec in production.meta['parameter_space']['varied'].items() %}
+    {{ param_name }}:
+      lower: {{ param_spec['lower'] }}
+      upper: {{ param_spec['upper'] }}
+{%- if 'step' in param_spec %}
+      step: {{ param_spec['step'] }}
+{%- endif %}
+{%- if 'samples' in param_spec %}
+      samples: {{ param_spec['samples'] }}
+{%- endif %}
+{%- endfor %}
+
+# Polarizations to include
+polarizations: {{ production.meta.get('polarizations', ['plus', 'cross']) }}
+
+# Optimization settings
+{%- if 'optimization' in production.meta %}
+optimization:
+{%- if 'use_peak_sampling' in production.meta['optimization'] %}
+  use_peak_sampling: {{ production.meta['optimization']['use_peak_sampling'] }}
+{%- endif %}
+{%- if 'peak_threshold' in production.meta['optimization'] %}
+  peak_threshold: {{ production.meta['optimization']['peak_threshold'] }}
+{%- endif %}
+{%- endif %}
+
+# Output configuration
+output:
+  file: {{ production.rundir }}/{{ production.name }}_training.h5
+  group_name: {{ production.meta.get('output', {}).get('group_name', 'training') }}
+{%- if 'metadata' in production.meta.get('output', {}) %}
+  metadata:
+{%- for key, value in production.meta['output']['metadata'].items() %}
+    {{ key }}: {{ value }}
+{%- endfor %}
+{%- endif %}
+
+# Pages directory for plots
+pages directory: {{ production.rundir }}/plots

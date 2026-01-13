@@ -1,0 +1,31 @@
+# Heron GPR Training Configuration Template
+# This template is used by asimov to train GPR models from training data
+
+name: {{ production.name }}
+
+# Logging configuration
+logging:
+  level: info
+
+# Training data configuration
+training:
+  # Training data file will be obtained from dependency pipeline
+  data_file: {{ production.meta.get('training', {}).get('data_file', 'training_data.h5') }}
+  group_name: {{ production.meta.get('training', {}).get('group_name', 'training') }}
+
+# Model naming
+model_name: {{ production.meta.get('model_name', 'gpr_model') }}
+
+# Training hyperparameters
+hyperparameters:
+  iterations: {{ production.meta.get('hyperparameters', {}).get('iterations', 1000) }}
+  learning_rate: {{ production.meta.get('hyperparameters', {}).get('learning_rate', 0.05) }}
+  output_scale: {{ production.meta.get('hyperparameters', {}).get('output_scale', 1e27) }}
+  warp_scale: {{ production.meta.get('hyperparameters', {}).get('warp_scale', 2) }}
+  checkpoint_frequency: {{ production.meta.get('hyperparameters', {}).get('checkpoint_frequency', 100) }}
+{%- if 'validation_samples' in production.meta.get('hyperparameters', {}) %}
+  validation_samples: {{ production.meta['hyperparameters']['validation_samples'] }}
+{%- endif %}
+
+# Pages directory for plots
+pages directory: {{ production.rundir }}
