@@ -1,56 +1,69 @@
 # This is a template for the heron pipeline to interact with asimov
-# You should use this in conjuection with the asimov package
+# You should use this in conjunction with the asimov package
 # rather than directly editing this file to set up an analysis.
 # PRODUCTION: {{ production.name }}
 # EVENT: {{ production.event.name }}
 
 name: {{ production.name }}
 
-logging: warning
+logging:
+  level: {{ production.meta.get('logging', {}).get('level', 'warning') }}
 
+pages directory: {{ config['general']['webroot'] }}/{{ production.event.name }}/{{ production.name }}
+
+{% if 'injection' in production.meta %}
 injection:
-  parameters: {{ production.meta['injection'] }}
-  injection model: {{ production.meta['injection']['injection model'] }}
-
-interferometers: {{ production.meta['interferometers'] }}
-
-likelihood:
-  sample rate: {{ production.meta['likelihood']['sample rate'] }}
-
-{% if "noise model" in production.meta %}
-noise model: {{ production.meta['noise model'] }}
+  parameters: {{ production.meta['injection']['parameters'] }}
+  duration: {{ production.meta['injection'].get('duration', 32) }}
+  sample rate: {{ production.meta['injection'].get('sample rate', 4096) }}
+  interferometers: {{ production.meta['interferometers'] }}
+  psds:
+    {% for ifo in production.meta['interferometers'] -%}
+    {{ ifo }}: {{ production.meta['injection']['psds'].get(ifo, 'aLIGOZeroDetHighPower') }}
+    {% endfor %}
 {% endif %}
 
-data: {{ production.meta['data'] }}
+inference:
+  name: {{ production.name }}
 
-psds:
-  {%- for ifo in production.meta['interferometers']  %}
-  {{ ifo }}: {{ production.psds[ifo] }}
-  {%- endfor %}
+  interferometers:
+    {% for ifo in production.meta['interferometers'] -%}
+    {{ ifo }}: {{ ifo }}
+    {% endfor %}
 
-{%- assign priors = production.meta['priors'] %}
-priors:
-{%- if priors.keys() contains "geocentric time" %}{%- assign p = priors['geocentric time'] %}
-   gpstime: {{p['type'] | default: 'Uniform' }}(name="gpstime", minimum={{p['minimum']}}, maximum={{p['maximum']}}, boundary={{p['boundary'] | default: None}})
-{% endif %}
-{%- if priors.keys() contains "total mass" %}{% assign p = priors['total mass'] %}{% else %}{% assign p = None %}{% endif %}
-   total_mass: {{p['type'] | default: "Uniform" }}(name='total_mass', minimum={{p['minimum'] | default: 1}}, maximum={{p['maximum'] | default: 1000}})
-{%- if priors.keys() contains "chirp mass" %}{% assign p = priors['chirp mass'] %}{% else %}{% assign p = None %}{% endif %}
-   chirp_mass: {{p['type'] | default: "Uniform" }}(name='chirp_mass', minimum={{p['minimum'] | default: 1}}, maximum={{p['maximum'] | default: 1000}})
-{%- if priors.keys() contains "mass ratio" %}{% assign p = priors['mass ratio'] %}{% else %}{% assign p = None %}{% endif %}
-   mass_ratio: {{p['type'] | default: "bilby.gw.prior.UniformInComponentsMassRatio" }}(name='mass_ratio', minimum={{p['minimum']}}, maximum={{p['maximum']}})
-{%- if priors.keys() contains "luminosity distance" %}{%- assign p = priors['luminosity distance'] %}
-   luminosity_distance: {{ p['type'] | default: "PowerLaw"}}(name='luminosity_distance', {% for key in p.keys() %}{% if key != "type" %}{{key | replace: " ", "_"}}={{p[key]}},{% endif %} {% endfor %} unit='Mpc')
-{% endif %}
-{%- if priors.keys() contains "theta jn" %}{% assign p = priors['theta jn'] %}{% else %}{% assign p = None %}
-   theta_jn: {{p['type'] | default: "Sine" }}(name='theta_jn', minimum={{p['minimum']}}, maximum={{p['maximum']}})
-{% endif %}
-   azimuth: Uniform(name='azimuth', minimum=0, maximum=2 * np.pi, boundary='periodic')
-   zenith: Sine(name='zenith')
-   psi: Uniform(name='psi', minimum=0, maximum=np.pi, boundary='periodic')
-   phase: Uniform(name='phase', minimum=0, maximum=np.pi, boundary='periodic')
+  psds:
+    {% for ifo in production.meta['interferometers'] -%}
+    {{ ifo }}: {{ production.meta.get('psds', {}).get(ifo, 'aLIGOZeroDetHighPower') }}
+    {% endfor %}
 
-waveform: {{ production.meta['waveform'] }}
+  {% if 'data' in production.meta %}
+  data: {{ production.meta['data'] }}
+  {% endif %}
 
-report:
-  location: {{ config['general']['webroot'] }}/{{ production.event.name }}/{{ production.name }}
+  {% if 'event time' in production.meta %}
+  event time: {{ production.meta['event time'] }}
+  {% endif %}
+
+  {% if 'segment length' in production.meta %}
+  segment length: {{ production.meta['segment length'] }}
+  {% endif %}
+
+  {% if 'after merger' in production.meta %}
+  after merger: {{ production.meta['after merger'] }}
+  {% endif %}
+
+  {% if 'likelihood' in production.meta %}
+  likelihood: {{ production.meta['likelihood'] }}
+  {% endif %}
+
+  {% if 'sampler' in production.meta %}
+  sampler: {{ production.meta['sampler'] }}
+  {% endif %}
+
+  {% if 'priors' in production.meta %}
+  priors: {{ production.meta['priors'] }}
+  {% endif %}
+
+  {% if 'waveform' in production.meta %}
+  waveform: {{ production.meta['waveform'] }}
+  {% endif %}
