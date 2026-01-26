@@ -2,11 +2,20 @@ import os
 import configparser
 import glob
 import shutil
+import warnings
 import sys
 
 import asimov.pipeline
 from asimov import config
-import htcondor
+
+# HTCondor import with fallback support for both htcondor2 and htcondor
+try:
+    warnings.filterwarnings("ignore", module="htcondor2")
+    import htcondor2 as htcondor  # NoQA
+except ImportError:
+    warnings.filterwarnings("ignore", module="htcondor")
+    import htcondor  # NoQA
+
 from asimov.utils import set_directory
 from ..utils import make_metafile
 
@@ -65,6 +74,12 @@ class MetaPipeline(asimov.pipeline.Pipeline):
 
     def submit_dag(self, dryrun=False):
         """Submit the job to the cluster. For MetaPipeline, submission happens in build_dag."""
+        if dryrun:
+            # No additional submission happens here; build_dag has already honored dryrun.
+            if hasattr(self, "logger"):
+                self.logger.info(
+                    "Dry run: submit_dag called, but MetaPipeline submits only in build_dag."
+                )
         if hasattr(self, 'clusterid') and self.clusterid is not None:
             return self.clusterid
         else:
