@@ -4,10 +4,21 @@ import os
 import configparser
 import glob
 import shutil
+import warnings
 
 import asimov.pipeline
 from asimov import config
-import htcondor
+
+# HTCondor import with fallback support for both htcondor2 and htcondor
+try:
+    warnings.filterwarnings("ignore", module="htcondor2")
+    import htcondor2 as htcondor  # NoQA
+    import classad2 as classad  # NoQA
+except ImportError:
+    warnings.filterwarnings("ignore", module="htcondor")
+    import htcondor  # NoQA
+    import classad  # NoQA
+
 from asimov.utils import set_directory
 from ..utils import make_metafile
 
