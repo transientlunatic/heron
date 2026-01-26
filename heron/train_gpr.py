@@ -19,7 +19,8 @@ import torch
 import gpytorch
 
 from heron.training.data import DataWrapper
-from heron.models.gpytorch import ExactGPModelKeOps
+from heron.models.gpytorch import ExactGPModelKeOps, ExactGPModelKeOpsWithMean
+from heron.models.mean_functions import IMRPhenomDMeanFunction
 from heron.utils import load_yaml
 
 logger = logging.getLogger("heron.train_gpr")
@@ -157,7 +158,8 @@ def train_gpr_model(
     warp_scale=2,
     plots_dir="plots",
     checkpoint_frequency=100,
-    validation_samples=None
+    validation_samples=None,
+    mean_function_config=None
 ):
     """
     Train a GPR model from training data.
@@ -184,6 +186,14 @@ def train_gpr_model(
         How often to save checkpoints and diagnostics
     validation_samples : int, optional
         Number of samples for validation (if None, use all)
+    mean_function_config : dict, optional
+        Configuration for mean function. If provided, should contain:
+        - type: str, the mean function type (e.g., 'IMRPhenomD')
+        - total_mass: float, total mass in solar masses
+        - distance: float, luminosity distance in Mpc
+        - delta_t: float, optional, time step (default: 1/4096)
+        - f_lower: float, optional, lower frequency cutoff (default: 20 Hz)
+        - f_ref: float, optional, reference frequency (default: 20 Hz)
 
     Returns
     -------
@@ -197,6 +207,31 @@ def train_gpr_model(
     logger.info(f"Model name: {model_name}")
     logger.info(f"Iterations: {iterations}")
     logger.info(f"Device: {device}")
+
+    # Check if mean function is configured and available
+    use_mean_function = mean_function_config is not None and mean_function_config.get('enabled', True)
+    mean_type = mean_function_config.get('type', 'IMRPhenomD') if use_mean_function else None
+
+    if use_mean_function:
+        logger.info(f"Mean function configured: {mean_type}")
+        if mean_type != 'IMRPhenomD':
+            logger.warning(f"Unknown mean function type: {mean_type}. Using zero mean.")
+            use_mean_function = False
+        else:
+            # Verify that ripple is available before proceeding
+            try:
+                from heron.models.mean_functions import RIPPLE_AVAILABLE
+                if not RIPPLE_AVAILABLE:
+                    raise ImportError("ripple (ripplegw) is not installed")
+                logger.info("Mean function dependencies verified (ripple available)")
+            except ImportError as e:
+                logger.error(f"Mean function requested but dependencies not available: {e}")
+                logger.error("Install with: pip install ripplegw")
+                raise RuntimeError(
+                    f"Mean function '{mean_type}' is enabled in config but required dependency "
+                    f"'ripplegw' is not installed. Either install it with 'pip install ripplegw' "
+                    f"or set mean_function.enabled=false in the config file."
+                )
 
     # Create plots directory
     os.makedirs(plots_dir, exist_ok=True)
@@ -267,9 +302,43 @@ def train_gpr_model(
 
         logger.info(f"Warped time axis with factor {warp_scale}")
 
+        # Create mean function for this polarization if configured
+        mean_function = None
+        if use_mean_function:
+            try:
+                mean_function = IMRPhenomDMeanFunction(
+                    total_mass=mean_function_config['total_mass'],
+                    distance=mean_function_config['distance'],
+                    delta_t=mean_function_config.get('delta_t', 1.0 / 4096),
+                    f_lower=mean_function_config.get('f_lower', 20.0),
+                    f_ref=mean_function_config.get('f_ref', 20.0),
+                    device=device,
+                    y_mean=y_mean,
+                    y_std=y_std,
+                    polarization=polarization,
+                    warp_scale=warp_scale
+                )
+                logger.info(f"Created mean function for {polarization} polarization")
+                logger.info(f"  total_mass={mean_function_config['total_mass']}, distance={mean_function_config['distance']}")
+                logger.info(f"  normalization: y_mean={y_mean:.3e}, y_std={y_std:.3e}")
+                logger.info(f"  warp_scale={warp_scale}")
+            except ImportError as e:
+                logger.warning(f"Could not create IMRPhenomD mean function: {e}")
+                logger.warning("Falling back to zero mean")
+                mean_function = None
+
         # Initialize model
         logger.info("Initializing GPR model")
-        model = ExactGPModelKeOps(train_x_warped, train_y).to(device)
+        if mean_function is not None:
+            logger.info(f"Using ExactGPModelKeOpsWithMean for {polarization} polarization")
+            model = ExactGPModelKeOpsWithMean(
+                train_x_warped,
+                train_y,
+                mean_function=mean_function,
+                polarization=polarization
+            ).to(device)
+        else:
+            model = ExactGPModelKeOps(train_x_warped, train_y).to(device)
         model.likelihood.to(device)
 
         # Set training mode
@@ -341,6 +410,17 @@ def train_gpr_model(
         # Add normalization parameters as tensors so add_state() can handle them
         state_to_save['y_mean'] = torch.tensor(float(y_mean))
         state_to_save['y_std'] = torch.tensor(float(y_std))
+
+        # Save mean function configuration if used
+        if use_mean_function and mean_function_config is not None:
+            state_to_save['mean_function_type'] = torch.tensor(0.0)  # Placeholder for type encoding
+            state_to_save['mean_function_total_mass'] = torch.tensor(float(mean_function_config['total_mass']))
+            state_to_save['mean_function_distance'] = torch.tensor(float(mean_function_config['distance']))
+            state_to_save['mean_function_delta_t'] = torch.tensor(float(mean_function_config.get('delta_t', 1.0 / 4096)))
+            state_to_save['mean_function_f_lower'] = torch.tensor(float(mean_function_config.get('f_lower', 20.0)))
+            state_to_save['mean_function_f_ref'] = torch.tensor(float(mean_function_config.get('f_ref', 20.0)))
+            logger.info(f"Saved mean function configuration with model state")
+
         data.add_state(
             name=f"{model_name}_{polarization}",
             group=group_name,
@@ -506,6 +586,17 @@ def train_gpr(config, training_data, iterations):
     checkpoint_frequency = hyperparams.get('checkpoint_frequency', 100)
     validation_samples = hyperparams.get('validation_samples', None)
 
+    # Mean function configuration
+    mean_function_config = settings.get('mean_function', None)
+    if mean_function_config:
+        click.echo(f"Mean function configured: {mean_function_config.get('type', 'IMRPhenomD')}")
+        # Validate required parameters
+        if mean_function_config.get('enabled', True):
+            if 'total_mass' not in mean_function_config:
+                raise ValueError("mean_function.total_mass is required when mean function is enabled")
+            if 'distance' not in mean_function_config:
+                raise ValueError("mean_function.distance is required when mean function is enabled")
+
     # Determine plots directory
     if 'pages directory' in settings:
         plots_dir = os.path.join(settings['pages directory'], 'plots')
@@ -524,7 +615,8 @@ def train_gpr(config, training_data, iterations):
             warp_scale=warp_scale,
             plots_dir=plots_dir,
             checkpoint_frequency=checkpoint_frequency,
-            validation_samples=validation_samples
+            validation_samples=validation_samples,
+            mean_function_config=mean_function_config
         )
 
         click.echo(f"✓ GPR model training complete")

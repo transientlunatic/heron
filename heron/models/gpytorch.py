@@ -7,6 +7,7 @@ import gpytorch
 
 from . import WaveformSurrogate
 from ..types import Waveform, WaveformDict
+from .mean_functions import IMRPhenomDMeanFunction
 
 disable_cuda = False
 if not disable_cuda and torch.cuda.is_available():
@@ -48,20 +49,91 @@ class ExactGPModelKeOps(gpytorch.models.ExactGP):
         self.train_y = train_y
         self.device = device
         self.mean_module = gpytorch.means.ZeroMean()
+
+        # Create kernels with appropriate initial lengthscales
+        # Mass ratio kernel (dimension 0): data typically in [0.1, 1.0]
+        mass_ratio_kernel = gpytorch.kernels.keops.RBFKernel(active_dims=[0])
+        mass_ratio_kernel.lengthscale = 0.3  # Reasonable for mass ratio range
+
+        # Time kernel (dimension 1): warped time typically in [-0.05, 0.05]
+        time_kernel = gpytorch.kernels.keops.RBFKernel(
+            active_dims=[1],
+            lengthscale_constraint=gpytorch.constraints.GreaterThan(0.0015),
+        )
+        time_kernel.lengthscale = 0.01  # Reasonable for warped time scale
+
         self.covar_module = gpytorch.kernels.ScaleKernel(
-            gpytorch.kernels.keops.RBFKernel(
-                active_dims=[0],
-            )
-            * gpytorch.kernels.keops.RBFKernel(
-                active_dims=[1],
-                lengthscale_constraint=gpytorch.constraints.GreaterThan(
-                    0.0015
-                ),  # 0.001
-            )
+            mass_ratio_kernel * time_kernel
         )
 
     def forward(self, x):
         mean_x = self.mean_module(x)
+        covar_x = self.covar_module(x)
+        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
+
+
+class ExactGPModelKeOpsWithMean(gpytorch.models.ExactGP):
+    """
+    Exact GP model with KeOps kernels and custom mean function.
+
+    This model supports using a waveform approximant (e.g., IMRPhenomD)
+    as the mean function, allowing the GP to learn corrections to the
+    approximant rather than the full waveform.
+
+    Parameters
+    ----------
+    train_x : torch.Tensor
+        Training inputs of shape [n_points, 2] with [mass_ratio, time]
+    train_y : torch.Tensor
+        Training targets (waveform values or residuals)
+    likelihood : gpytorch.likelihoods.Likelihood
+        Likelihood function (default: Gaussian)
+    mean_function : gpytorch.means.Mean, optional
+        Custom mean function (default: ZeroMean)
+    polarization : str
+        Polarization for mean function evaluation ('plus' or 'cross')
+    """
+
+    def __init__(
+        self,
+        train_x,
+        train_y,
+        likelihood=gpytorch.likelihoods.GaussianLikelihood(),
+        mean_function=None,
+        polarization='plus'
+    ):
+        super(ExactGPModelKeOpsWithMean, self).__init__(train_x, train_y, likelihood)
+        self.train_x = train_x
+        self.train_y = train_y
+        self.device = device
+        self.polarization = polarization
+
+        # Use provided mean function or default to zero
+        if mean_function is not None:
+            self.mean_module = mean_function
+        else:
+            self.mean_module = gpytorch.means.ZeroMean()
+
+        # Create kernels with appropriate initial lengthscales
+        # Mass ratio kernel (dimension 0): data typically in [0.1, 1.0]
+        mass_ratio_kernel = gpytorch.kernels.keops.RBFKernel(active_dims=[0])
+        mass_ratio_kernel.lengthscale = 0.3  # Reasonable for mass ratio range
+
+        # Time kernel (dimension 1): warped time typically in [-0.05, 0.05]
+        time_kernel = gpytorch.kernels.keops.RBFKernel(
+            active_dims=[1],
+            lengthscale_constraint=gpytorch.constraints.GreaterThan(0.0015),
+        )
+        time_kernel.lengthscale = 0.01  # Reasonable for warped time scale
+
+        self.covar_module = gpytorch.kernels.ScaleKernel(
+            mass_ratio_kernel * time_kernel
+        )
+
+    def forward(self, x):
+        # Evaluate mean function
+        mean_x = self.mean_module(x)
+
         covar_x = self.covar_module(x)
         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
 

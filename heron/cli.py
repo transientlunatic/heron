@@ -4,6 +4,7 @@ from heron import inference
 from heron import injection
 from heron import training_data
 from heron import train_gpr
+from heron import plot_waveforms
 
 
 @click.group()
@@ -18,3 +19,5 @@ heron.add_command(inference.inference)
 heron.add_command(injection.injection)
 heron.add_command(training_data.training_data)
 heron.add_command(train_gpr.train_gpr)
+heron.add_command(plot_waveforms.plot_waveforms)
+heron.add_command(plot_waveforms.diagnose_model)
