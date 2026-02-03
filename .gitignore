@@ -91,3 +91,6 @@ archive_temp_files/
 injections/
 validation/
 examples/temp/
+asimov/
+scripts/archive_*/
+docs/archive_*/
