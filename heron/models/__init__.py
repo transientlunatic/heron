@@ -32,8 +32,8 @@ class WaveformModel:
         # Do these have units?
         # If not then we can skip some relatively expensive operations and apply a heuristic.
         if isinstance(args["m1"], u.Quantity):
-            args["m1"] = args["m1"].to_value(u.kilogram)
-            args["m2"] = args["m2"].to_value(u.kilogram)
+            args["m1"] = float(args["m1"].to_value(u.kilogram))
+            args["m2"] = float(args["m2"].to_value(u.kilogram))
         if (not isinstance(args["m1"], u.Quantity)) and (args["m1"] < 1000):
             # This appears to be in solar masses
             args["m1"] *= MSUN_SI

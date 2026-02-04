@@ -89,7 +89,7 @@ class LALSimulationApproximant(WaveformApproximant):
 
         for name, argument in args.items():
             if isinstance(argument, u.quantity.Quantity) and name in mappings.keys():
-                args[name] = argument.to_value(units[mappings[name]])
+                args[name] = float(argument.to_value(units[mappings[name]]))
             elif name in mappings.keys() and argument:
                 # This is commented out as it causes problems if e.g. lalnative values are passed
                 args[name] = (argument * default_units[mappings[name]]).to_value(
