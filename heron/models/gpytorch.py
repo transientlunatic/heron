@@ -7,6 +7,7 @@ import gpytorch
 
 from . import WaveformSurrogate
 from ..types import Waveform, WaveformDict
+from .warping import get_warping, SimpleWarping
 
 disable_cuda = False
 if not disable_cuda and torch.cuda.is_available():
@@ -191,8 +192,8 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
             time_min, time_max, time_n, dtype=torch.float32
         ).cuda()
 
-        # Warp the time axis
-        test_times[test_times < 0] = test_times[test_times < 0] / self.warp_scale
+        # Warp the time axis using warping function
+        test_times = self.warping.warp(test_times)
 
         test_data = torch.cartesian_prod(test_mass_ratio, test_times)
         return test_data
@@ -212,7 +213,7 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
                 mean = observed_pred.mean
 
             # Perform the unwarping of the time axis
-            points[points[:, 1] < 0, 1] = points[points[:, 1] < 0, 1] * self.warp_scale
+            points[:, 1] = self.warping.unwarp(points[:, 1])
 
             outputs[polarisation] = (mean / self.output_scale, observed_pred, points)
 
@@ -266,7 +267,7 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
             ]
         ).T.to(device=self.device)
         # Warp the time axis
-        points[points[:, 1] < 0, 1] = points[points[:, 1] < 0, 1] / self.warp_scale
+        points[:, 1] = self.warping.warp(points[:, 1])
         # Extract the waveform
 
         parameters.pop("time")
@@ -278,7 +279,7 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
                 )
                 mean = observed_pred.mean
             # Perform the unwarping of the time axis
-            points[points[:, 1] < 0, 1] = points[points[:, 1] < 0, 1] * self.warp_scale
+            points[:, 1] = self.warping.unwarp(points[:, 1])
 
             output.waveforms[polarisation] = Waveform(
                 data=mean.cpu() / self.output_scale / distance_factor,
@@ -296,8 +297,19 @@ class HeronNonSpinningApproximantMatern(WaveformSurrogate, GPyTorchSurrogate):
     """
     A non-spinning model using Matérn kernels instead of RBF.
 
-    This version uses Matérn(ν=1.5) kernels which can better handle
+    This version uses Matérn(ν=2.5) kernels which can better handle
     the sharp peak and exponential ringdown decay in gravitational waveforms.
+
+    Parameters
+    ----------
+    warping : str or TimeWarping, default='simple'
+        Time warping strategy:
+        - 'simple': Linear compression (backwards compatible)
+        - 'chirp': Physical chirp-time warping
+        - 'piecewise': Piecewise warping with different scales
+        Or provide a custom TimeWarping object
+    warp_scale : float, default=2
+        Scale factor for simple warping (backwards compatibility)
     """
 
     def __init__(
@@ -308,23 +320,37 @@ class HeronNonSpinningApproximantMatern(WaveformSurrogate, GPyTorchSurrogate):
         train_y_cross,
         total_mass,
         distance,
+        warping='simple',
         warp_scale=2,
         training=400,
     ):
         self.device = device
         self.output_scale = 1e27
+
+        # Set up time warping
+        if isinstance(warping, str):
+            # Warping type specified as string, create warping object
+            if warping == 'simple':
+                self.warping = get_warping('simple', scale=warp_scale)
+            elif warping == 'chirp':
+                self.warping = get_warping('chirp')
+            else:
+                self.warping = get_warping(warping)
+        else:
+            # Warping object provided directly
+            self.warping = warping
+
+        # Keep warp_scale for backwards compatibility
         self.warp_scale = warp_scale
+
         self.mass_factor = total_mass
         self.distance_factor = distance
         self.train_x_plus = train_x_plus.to(self.device)
         self.train_x_cross = train_x_cross.to(self.device)
-        times_cross = self.train_x_cross[:, 1]
-        times_cross[times_cross < 0] = times_cross[times_cross < 0] / self.warp_scale
-        self.train_x_cross[:, 1] = times_cross
 
-        times_plus = self.train_x_plus[:, 1]
-        times_plus[times_plus < 0] = times_plus[times_plus < 0] / self.warp_scale
-        self.train_x_plus[:, 1] = times_plus
+        # Apply time warping to training data
+        self.train_x_cross[:, 1] = self.warping.warp(self.train_x_cross[:, 1])
+        self.train_x_plus[:, 1] = self.warping.warp(self.train_x_plus[:, 1])
 
         self.train_y_plus = train_y_plus.cuda() * self.output_scale
         self.train_y_cross = train_y_cross.cuda() * self.output_scale
@@ -358,8 +384,8 @@ class HeronNonSpinningApproximantMatern(WaveformSurrogate, GPyTorchSurrogate):
             time_min, time_max, time_n, dtype=torch.float32
         ).cuda()
 
-        # Warp the time axis
-        test_times[test_times < 0] = test_times[test_times < 0] / self.warp_scale
+        # Warp the time axis using warping function
+        test_times = self.warping.warp(test_times)
 
         test_data = torch.cartesian_prod(test_mass_ratio, test_times)
         return test_data
@@ -379,7 +405,7 @@ class HeronNonSpinningApproximantMatern(WaveformSurrogate, GPyTorchSurrogate):
                 mean = observed_pred.mean
 
             # Perform the unwarping of the time axis
-            points[points[:, 1] < 0, 1] = points[points[:, 1] < 0, 1] * self.warp_scale
+            points[:, 1] = self.warping.unwarp(points[:, 1])
 
             outputs[polarisation] = (mean / self.output_scale, observed_pred, points)
 
@@ -433,7 +459,7 @@ class HeronNonSpinningApproximantMatern(WaveformSurrogate, GPyTorchSurrogate):
             ]
         ).T.to(device=self.device)
         # Warp the time axis
-        points[points[:, 1] < 0, 1] = points[points[:, 1] < 0, 1] / self.warp_scale
+        points[:, 1] = self.warping.warp(points[:, 1])
         # Extract the waveform
 
         parameters.pop("time")
@@ -445,7 +471,7 @@ class HeronNonSpinningApproximantMatern(WaveformSurrogate, GPyTorchSurrogate):
                 )
                 mean = observed_pred.mean
             # Perform the unwarping of the time axis
-            points[points[:, 1] < 0, 1] = points[points[:, 1] < 0, 1] * self.warp_scale
+            points[:, 1] = self.warping.unwarp(points[:, 1])
 
             output.waveforms[polarisation] = Waveform(
                 data=mean.cpu() / self.output_scale / distance_factor,
