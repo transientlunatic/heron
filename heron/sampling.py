@@ -27,7 +27,7 @@ class NessaiSampler(SamplerBase, nessai.model.Model):
         Prior dictionary.
     """
 
-    allow_vectorised = False
+    allow_vectorised = True
 
     def __init__(self, likelihood, priors, base_p):
         # Names of parameters to sample
@@ -72,7 +72,24 @@ class NessaiSampler(SamplerBase, nessai.model.Model):
         with torch.inference_mode():
             # Need to convert from numpy floats to python floats
             x = self._convert_units(x)
-            self.base_p.update({n: float(x[n]) for n in self.names})
-            likelihood = self.likelihood(self.base_p)
 
-            return likelihood
+            # Check if x contains arrays (vectorized) or scalars
+            # x is a dict where values can be either scalars or arrays
+            first_value = x[self.names[0]]
+            is_vectorized = isinstance(first_value, (np.ndarray, list))
+
+            if is_vectorized:
+                # Vectorized case: x[n] is an array of values
+                # Evaluate likelihood for each sample
+                n_samples = len(first_value)
+                likelihoods = np.zeros(n_samples)
+                for i in range(n_samples):
+                    sample_params = self.base_p.copy()
+                    sample_params.update({n: float(x[n][i]) for n in self.names})
+                    likelihoods[i] = self.likelihood(sample_params)
+                return likelihoods
+            else:
+                # Non-vectorized case: x[n] is a scalar
+                self.base_p.update({n: float(x[n]) for n in self.names})
+                likelihood = self.likelihood(self.base_p)
+                return likelihood
