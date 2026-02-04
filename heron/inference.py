@@ -84,6 +84,8 @@ def heron_inference(settings):
     import matplotlib
 
     matplotlib.use("agg")
+    # Disable LaTeX rendering to avoid missing font issues
+    matplotlib.rcParams['text.usetex'] = False
 
     data = {}
 
