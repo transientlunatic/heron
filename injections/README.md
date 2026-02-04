@@ -24,7 +24,33 @@ This directory contains settings files for testing the `IMRPhenomPv2_FakeUncerta
 
 ## Workflow
 
-### Step 1: Create Injections
+### Option 1: Using Asimov (Recommended)
+
+Asimov manages the full injection → inference workflow automatically:
+
+```bash
+# Initialize asimov with the ledger
+asimov manage injections/asimov_ledger.yaml
+
+# Submit all injection jobs
+asimov apply injections/asimov_ledger.yaml --all --pipeline "heron injection"
+
+# After injections complete, submit inference jobs
+asimov apply injections/asimov_ledger.yaml --all --pipeline "heron"
+
+# Monitor status
+asimov monitor injections/asimov_ledger.yaml
+```
+
+**Benefits:**
+- Automatic dependency management (inference waits for injection)
+- Job monitoring and status tracking
+- Automatic result collection
+- Web page generation
+
+### Option 2: Manual Workflow
+
+#### Step 1: Create Injections
 
 Run on cluster:
 ```bash
@@ -42,7 +68,7 @@ This creates:
 - `L1_injection.gwf` - Frame file for Livingston
 - PSDs and diagnostic plots in the pages directory
 
-### Step 2: Run Inference
+#### Step 2: Run Inference
 
 After injections complete, run inference:
 ```bash
