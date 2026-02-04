@@ -6,7 +6,7 @@ import torch
 import gpytorch
 
 from . import WaveformSurrogate
-from ..types import Waveform, WaveformDict
+from ..datatypes import Waveform, WaveformDict
 from .warping import get_warping, SimpleWarping
 
 disable_cuda = False
@@ -323,6 +323,7 @@ class HeronNonSpinningApproximantMatern(WaveformSurrogate, GPyTorchSurrogate):
         warping='simple',
         warp_scale=2,
         training=400,
+        nu=2.5,
     ):
         self.device = device
         self.output_scale = 1e27
@@ -355,12 +356,13 @@ class HeronNonSpinningApproximantMatern(WaveformSurrogate, GPyTorchSurrogate):
         self.train_y_plus = train_y_plus.cuda() * self.output_scale
         self.train_y_cross = train_y_cross.cuda() * self.output_scale
         self.models = {}
-        # Use Matérn kernels instead of RBF
+        # Use Matérn kernels instead of RBF with configurable nu
+        self.nu = nu
         self.models["plus"] = ExactGPModelMatern(
-            self.train_x_plus, self.train_y_plus
+            self.train_x_plus, self.train_y_plus, nu=nu
         ).to(self.device)
         self.models["cross"] = ExactGPModelMatern(
-            self.train_x_cross, self.train_y_cross
+            self.train_x_cross, self.train_y_cross, nu=nu
         ).to(self.device)
         for polarisation in ("plus", "cross"):
             self.models[polarisation].likelihood.cuda()

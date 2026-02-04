@@ -7,7 +7,7 @@ import os
 
 import click
 
-from .types import TimeSeries
+from .datatypes import TimeSeries
 import astropy.units as u
 
 from nessai.flowsampler import FlowSampler

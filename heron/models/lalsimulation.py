@@ -16,7 +16,7 @@ import lal
 from lal import cached_detector_by_prefix, TimeDelayFromEarthCenter, LIGOTimeGPS
 
 # Import heron types
-from ..types import Waveform, WaveformDict, PSD
+from ..datatypes import Waveform, WaveformDict, PSD
 from . import WaveformApproximant, PSDApproximant
 
 

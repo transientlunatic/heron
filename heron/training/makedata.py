@@ -7,7 +7,7 @@ import scipy.signal
 import astropy.units as u
 import numpy as np
 
-from ..types import Waveform, WaveformDict, WaveformManifold
+from ..datatypes import Waveform, WaveformDict, WaveformManifold
 from ..models.lalsimulation import IMRPhenomPv2
 
 

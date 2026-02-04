@@ -1,0 +1,31 @@
+# HTCondor submit file for testing injection infrastructure
+# Tests IMRPhenomPv2_FakeUncertainty on a few injections
+
+universe                = vanilla
+request_cpus            = 1
+request_memory          = 8GB
+
+# Executable - use wrapper script for proper FFTW environment
+executable              = /home/daniel/repositories/ligo/heron/scripts/run_with_gpu.sh
+arguments               = scripts/test_injection_fake_uncertainty.py --mass-ratio $(q) --injection-id $(id) $(uncertainty)
+
+# Use shared filesystem
+should_transfer_files   = NO
+initialdir              = /home/daniel/repositories/ligo/heron
+
+# Logs and output
+log                     = scripts/condor_logs/test_inj_$(id)_$(uncert).log
+output                  = scripts/condor_logs/test_inj_$(id)_$(uncert).out
+error                   = scripts/condor_logs/test_inj_$(id)_$(uncert).err
+
+# Environment
+environment             = "PYTHONPATH=/home/daniel/repositories/ligo/heron"
+
+# Queue a few test injections
+# Test both with and without uncertainty at different mass ratios
+queue q,id,uncert,uncertainty from (
+0.3 0 with_unc
+0.5 1 with_unc
+0.7 2 with_unc
+0.5 3 no_unc --no-uncertainty
+)

@@ -6,8 +6,8 @@ request_gpus            = 1
 request_cpus            = 1
 request_memory          = 8GB
 
-# Use the heron2026 conda environment
-executable              = /data/wiay/conda_envs/heron2026/bin/python
+# Use wrapper script to set up GPU environment
+executable              = /home/daniel/repositories/ligo/heron/scripts/run_with_gpu.sh
 arguments               = scripts/test_matern_single_iteration.py $(iterations)
 
 # Use shared filesystem instead of file transfer
@@ -21,7 +21,7 @@ log                     = scripts/condor_logs/matern_$(iterations).log
 output                  = scripts/condor_logs/matern_$(iterations).out
 error                   = scripts/condor_logs/matern_$(iterations).err
 
-# Set environment variables for CUDA and Python
+# Set environment variables for Python
 environment             = "PYTHONPATH=/home/daniel/repositories/ligo/heron"
 
 # Queue multiple jobs with different iteration counts

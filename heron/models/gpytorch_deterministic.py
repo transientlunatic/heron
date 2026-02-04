@@ -9,7 +9,7 @@ import torch
 import gpytorch
 from heron.models.gpytorch import device, GPyTorchSurrogate
 from heron.models import WaveformSurrogate
-from heron.types import Waveform, WaveformDict
+from heron.datatypes import Waveform, WaveformDict
 
 
 class ExactGPModelDeterministic(gpytorch.models.ExactGP):

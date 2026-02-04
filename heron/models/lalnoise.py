@@ -9,7 +9,7 @@ import numpy as np
 import lal
 import lalsimulation
 
-from ..types import PSD, TimeSeries
+from ..datatypes import PSD, TimeSeries
 from . import PSDApproximant
 
 

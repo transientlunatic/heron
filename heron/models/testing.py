@@ -10,7 +10,7 @@ import numpy as np
 import scipy.linalg
 import scipy.spatial.distance
 from astropy import units as u
-from ..types import PSD, Waveform, WaveformDict
+from ..datatypes import PSD, Waveform, WaveformDict
 from . import PSDApproximant, WaveformApproximant
 
 class FlatPSD(PSDApproximant):
