@@ -100,7 +100,7 @@ inference:
             boundary: periodic
 
     likelihood:
-        function: TimeDomainLikelihoodModelUncertainty
+        function: TimeDomainUncertaintyLikelihood
         timing basis: [H1, L1]
         sampling rate: 4096
 
