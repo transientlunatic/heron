@@ -227,7 +227,7 @@ class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
     def log_likelihood(self, waveform, norm=True):
         a, b = self.timeseries.determine_overlap(self, waveform)
 
-        wf = NumericallyScaled(self.to_device(self.array(waveform.data), self.device)[b[0]:b[1]])
+        wf = NumericallyScaled(self.to_device(self.array(waveform.data), self.device)[b[0]:b[1]], scale=np.sqrt(self.C.scale))
 
         # Handle case where self.data/self.C might already be NumericallyScaled from previous call
         raw_data = self.data.value if isinstance(self.data, NumericallyScaled) else self.data

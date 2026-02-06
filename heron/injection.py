@@ -48,6 +48,8 @@ def make_injection(
 
     import matplotlib
     matplotlib.use("agg")
+    # Disable LaTeX rendering to avoid missing font issues
+    matplotlib.rcParams['text.usetex'] = False
     from gwpy.plot import Plot
     f = Plot(waveform['plus'], waveform['cross'], separate=True)
     f.savefig(os.path.join(webdir, f"injected_waveform_sep.png"))

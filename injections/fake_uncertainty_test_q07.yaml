@@ -102,7 +102,7 @@ inference:
     likelihood:
         function: TimeDomainUncertaintyLikelihood
         timing basis: [H1, L1]
-        sampling rate: 4096
+        sampling rate: 512
 
     sampler:
         sampler: nessai
@@ -114,4 +114,4 @@ inference:
         logging interval: 10
         log on iteration: true
         seed: 1236
-        flow class: GWFlowProposal
+        flow class: FlowProposal
