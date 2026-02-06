@@ -67,3 +67,7 @@ inference:
   {% if 'waveform' in production.meta %}
   waveform: {{ production.meta['waveform'] }}
   {% endif %}
+
+  {% if 'fixed_parameters' in production.meta %}
+  fixed_parameters: {{ production.meta['fixed_parameters'] }}
+  {% endif %}

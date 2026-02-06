@@ -2,12 +2,15 @@
 These models utilise Gaussian process regression using GPyTorch.
 """
 
+import logging
 import torch
 import gpytorch
 
 from . import WaveformSurrogate
 from ..datatypes import Waveform, WaveformDict
 from .warping import get_warping, SimpleWarping
+
+logger = logging.getLogger("heron.models.gpytorch")
 
 disable_cuda = False
 if not disable_cuda and torch.cuda.is_available():
@@ -161,8 +164,8 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
         times_plus[times_plus < 0] = times_plus[times_plus < 0] / self.warp_scale
         self.train_x_plus[:, 1] = times_plus
 
-        self.train_y_plus = train_y_plus.cuda() * self.output_scale
-        self.train_y_cross = train_y_cross.cuda() * self.output_scale
+        self.train_y_plus = train_y_plus.to(self.device) * self.output_scale
+        self.train_y_cross = train_y_cross.to(self.device) * self.output_scale
         self.models = {}
         self.models["plus"] = ExactGPModelKeOps(
             self.train_x_plus, self.train_y_plus
@@ -171,7 +174,7 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
             self.train_x_cross, self.train_y_cross
         ).to(self.device)
         for polarisation in ("plus", "cross"):
-            self.models[polarisation].likelihood.cuda()
+            self.models[polarisation].likelihood.to(self.device)
 
         self._args = {
             "total_mass": None,
@@ -187,10 +190,10 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
     ):
         test_mass_ratio = torch.linspace(
             parameter_min, parameter_max, parameter_n, dtype=torch.float32
-        ).cuda()
+        ).to(device)
         test_times = torch.linspace(
             time_min, time_max, time_n, dtype=torch.float32
-        ).cuda()
+        ).to(device)
 
         # Warp the time axis using warping function
         test_times = self.warping.warp(test_times)
@@ -270,8 +273,8 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
         points[:, 1] = self.warping.warp(points[:, 1])
         # Extract the waveform
 
-        parameters.pop("time")
-        output = WaveformDict(parameters=parameters)
+        waveform_parameters = {k: v for k, v in parameters.items() if k != "time"}
+        output = WaveformDict(parameters=waveform_parameters)
         for polarisation in ("plus", "cross"):
             with torch.no_grad(), gpytorch.settings.fast_pred_var():
                 observed_pred = self.models[polarisation].likelihood(
@@ -290,7 +293,7 @@ class HeronNonSpinningApproximant(WaveformSurrogate, GPyTorchSurrogate):
                 / distance_factor**2,
             )
 
-        return output
+        return output  # HeronNonSpinningApproximant
 
 
 class HeronNonSpinningApproximantMatern(WaveformSurrogate, GPyTorchSurrogate):
@@ -353,8 +356,8 @@ class HeronNonSpinningApproximantMatern(WaveformSurrogate, GPyTorchSurrogate):
         self.train_x_cross[:, 1] = self.warping.warp(self.train_x_cross[:, 1])
         self.train_x_plus[:, 1] = self.warping.warp(self.train_x_plus[:, 1])
 
-        self.train_y_plus = train_y_plus.cuda() * self.output_scale
-        self.train_y_cross = train_y_cross.cuda() * self.output_scale
+        self.train_y_plus = train_y_plus.to(self.device) * self.output_scale
+        self.train_y_cross = train_y_cross.to(self.device) * self.output_scale
         self.models = {}
         # Use Matérn kernels instead of RBF with configurable nu
         self.nu = nu
@@ -365,7 +368,7 @@ class HeronNonSpinningApproximantMatern(WaveformSurrogate, GPyTorchSurrogate):
             self.train_x_cross, self.train_y_cross, nu=nu
         ).to(self.device)
         for polarisation in ("plus", "cross"):
-            self.models[polarisation].likelihood.cuda()
+            self.models[polarisation].likelihood.to(self.device)
 
         self._args = {
             "total_mass": None,
@@ -381,10 +384,10 @@ class HeronNonSpinningApproximantMatern(WaveformSurrogate, GPyTorchSurrogate):
     ):
         test_mass_ratio = torch.linspace(
             parameter_min, parameter_max, parameter_n, dtype=torch.float32
-        ).cuda()
+        ).to(device)
         test_times = torch.linspace(
             time_min, time_max, time_n, dtype=torch.float32
-        ).cuda()
+        ).to(device)
 
         # Warp the time axis using warping function
         test_times = self.warping.warp(test_times)
@@ -464,8 +467,8 @@ class HeronNonSpinningApproximantMatern(WaveformSurrogate, GPyTorchSurrogate):
         points[:, 1] = self.warping.warp(points[:, 1])
         # Extract the waveform
 
-        parameters.pop("time")
-        output = WaveformDict(parameters=parameters)
+        waveform_parameters = {k: v for k, v in parameters.items() if k != "time"}
+        output = WaveformDict(parameters=waveform_parameters)
         for polarisation in ("plus", "cross"):
             with torch.no_grad(), gpytorch.settings.fast_pred_var():
                 observed_pred = self.models[polarisation].likelihood(
@@ -485,3 +488,90 @@ class HeronNonSpinningApproximantMatern(WaveformSurrogate, GPyTorchSurrogate):
             )
 
         return output
+
+    def save_checkpoint(self, path):
+        """Save a trained model checkpoint to disk.
+
+        Saves model state dicts, training data, warping configuration,
+        and metadata needed to reconstruct the model for inference.
+        """
+        warping = self.warping
+        if isinstance(warping, SimpleWarping):
+            warping_config = {'type': 'simple', 'scale': warping.scale}
+        elif hasattr(warping, 'alpha'):
+            warping_config = {
+                'type': 'chirp',
+                'alpha': warping.alpha,
+                't_ref': warping.t_ref,
+            }
+        else:
+            warping_config = {'type': 'simple', 'scale': 2}
+
+        checkpoint = {
+            'model_plus_state': self.models['plus'].state_dict(),
+            'model_cross_state': self.models['cross'].state_dict(),
+            'train_x_plus': self.train_x_plus.cpu(),
+            'train_x_cross': self.train_x_cross.cpu(),
+            'train_y_plus': self.train_y_plus.cpu(),
+            'train_y_cross': self.train_y_cross.cpu(),
+            'mass_factor': self.mass_factor,
+            'distance_factor': self.distance_factor,
+            'output_scale': self.output_scale,
+            'nu': self.nu,
+            'warping': warping_config,
+        }
+        torch.save(checkpoint, path)
+        logger.info(f"Saved checkpoint to {path}")
+
+    @classmethod
+    def from_checkpoint(cls, path):
+        """Load a pre-trained model from a checkpoint file.
+
+        Parameters
+        ----------
+        path : str
+            Path to the checkpoint file saved by save_checkpoint().
+
+        Returns
+        -------
+        HeronNonSpinningApproximantMatern
+            A fully initialised model ready for inference (no retraining).
+        """
+        checkpoint = torch.load(path, map_location=device, weights_only=False)
+
+        warp_cfg = checkpoint['warping']
+        warping_obj = get_warping(warp_cfg['type'],
+                                  **{k: v for k, v in warp_cfg.items()
+                                     if k != 'type'})
+
+        # Training data was saved already warped and scaled, so we need to
+        # unwarp it before passing to __init__ (which re-warps and re-scales).
+        train_x_plus = checkpoint['train_x_plus'].clone()
+        train_x_cross = checkpoint['train_x_cross'].clone()
+        train_x_plus[:, 1] = warping_obj.unwarp(train_x_plus[:, 1])
+        train_x_cross[:, 1] = warping_obj.unwarp(train_x_cross[:, 1])
+
+        instance = cls(
+            train_x_plus=train_x_plus,
+            train_x_cross=train_x_cross,
+            train_y_plus=checkpoint['train_y_plus'] / checkpoint['output_scale'],
+            train_y_cross=checkpoint['train_y_cross'] / checkpoint['output_scale'],
+            total_mass=checkpoint['mass_factor'],
+            distance=checkpoint['distance_factor'],
+            warping=warping_obj,
+            nu=checkpoint['nu'],
+            training=0,
+        )
+
+        # Load trained model weights
+        instance.models['plus'].load_state_dict(
+            checkpoint['model_plus_state'])
+        instance.models['cross'].load_state_dict(
+            checkpoint['model_cross_state'])
+
+        for model in instance.models.values():
+            model.eval()
+            model.likelihood.eval()
+
+        logger.info(f"Loaded checkpoint from {path}")
+        return instance

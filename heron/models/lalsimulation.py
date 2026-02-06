@@ -196,25 +196,41 @@ class SEOBNRv3(LALSimulationApproximant):
 
 
 class IMRPhenomPv2_FakeUncertainty(IMRPhenomPv2):
-    def __init__(self, covariance=1e-24):
+    def __init__(self, covariance=1e-24, lengthscale=0.001):
         super().__init__()
         self.covariance = covariance
+        self.lengthscale = lengthscale
+        self._cached_covariance = None
+        self._cached_times_key = None
 
+    def _compute_covariance(self, times):
+        """Compute the fake model uncertainty covariance matrix.
 
+        Uses a squared-exponential kernel with the configured lengthscale,
+        applied to relative times (not GPS times) for correct distance scaling.
+        """
+        # Use relative times so the kernel lengthscale is meaningful
+        relative_times = np.asarray(times - times[0], dtype=np.float64)
+        covariance = np.exp(
+            -0.5 * scipy.spatial.distance.cdist(
+                np.expand_dims(relative_times, 1),
+                np.expand_dims(relative_times, 1),
+                'sqeuclidean') / self.lengthscale**2
+        ) * self.covariance**2
+        return covariance
 
     def time_domain(self, parameters, times=None):
         waveform_dict = super().time_domain(parameters, times)
 
         if times is None:
-            times = waveform_dict["plus"].times 
+            times = waveform_dict["plus"].times
 
-        covariance =  np.exp(
-            -0.5 * scipy.spatial.distance.cdist(np.expand_dims(times, 1),
-                                                np.expand_dims(times, 1), 'sqeuclidean')
+        # Cache the covariance matrix since times don't change between calls
+        times_key = (len(times), float(times[0]), float(times[-1]))
+        if self._cached_covariance is None or self._cached_times_key != times_key:
+            self._cached_covariance = self._compute_covariance(times)
+            self._cached_times_key = times_key
 
-        ) * self.covariance**2
-        #covariance = np.eye((len(waveform_dict["plus"].times))) * self.covariance**2
         for wave in waveform_dict.waveforms.values():
-            # Artificially add a covariance function to each of these
-            wave.covariance = covariance
+            wave.covariance = self._cached_covariance
         return waveform_dict

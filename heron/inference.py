@@ -25,6 +25,7 @@ from heron.models.lalsimulation import (
     IMRPhenomPv2,
     IMRPhenomPv2_FakeUncertainty,
 )
+from heron.models.gpytorch import HeronNonSpinningApproximantMatern
 from heron.utils import load_yaml
 
 import otter
@@ -38,6 +39,7 @@ KNOWN_LIKELIHOODS = {
 KNOWN_WAVEFORMS = {
     "IMRPhenomPv2": IMRPhenomPv2,
     "IMRPhenomPv2_FakeUncertainty": IMRPhenomPv2_FakeUncertainty,
+    "HeronGPR": HeronNonSpinningApproximantMatern,
 }
 
 
@@ -138,7 +140,14 @@ def heron_inference(settings):
     if len(settings["interferometers"]) > 1:
         likelihoods = []
         print("Creating likelihoods")
-        waveform_model = KNOWN_WAVEFORMS[settings["waveform"]["model"]]()
+        waveform_name = settings["waveform"]["model"]
+        waveform_cls = KNOWN_WAVEFORMS[waveform_name]
+        if "checkpoint" in settings.get("waveform", {}):
+            # Load a pre-trained model from checkpoint
+            waveform_model = waveform_cls.from_checkpoint(
+                settings["waveform"]["checkpoint"])
+        else:
+            waveform_model = waveform_cls()
         for ifo in settings["interferometers"]:
             print(f"\t {ifo}")
             likelihoods.append(

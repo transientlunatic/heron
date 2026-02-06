@@ -139,6 +139,39 @@ class InjectionPipeline(MetaPipeline):
         return outputs
 
 
+class TrainingPipeline(MetaPipeline):
+    """Asimov pipeline for training heron GPR waveform models."""
+
+    name = "heron training"
+    config_template = str(files("heron.asimov") / "heron_training_template.yml")
+    _pipeline_command = "heron"
+    _pipeline_arguments = ["train", "--settings"]
+
+    def detect_completion(self):
+        self.logger.info("Checking for training completion.")
+        assets = self.collect_assets()
+        if "checkpoint" in assets:
+            self.logger.info("Checkpoint detected, training complete.")
+            return True
+        else:
+            self.logger.info("Training job completion was not detected.")
+            return False
+
+    def after_completion(self):
+        self.production.status = "uploaded"
+        self.production.event.update_data()
+
+    def collect_assets(self):
+        """Collect the trained model checkpoint."""
+        outputs = {}
+        checkpoint_candidates = glob.glob(
+            os.path.join(self.production.rundir, "*.pt")
+        )
+        if checkpoint_candidates:
+            outputs["checkpoint"] = checkpoint_candidates[0]
+        return outputs
+
+
 class Pipeline(MetaPipeline):
     """
     An asimov pipeline for heron.

@@ -45,6 +45,7 @@ dependencies = [
     "torchvision",
     "bilby_pipe",
     "astropy>=5.0",
+    "otter-report",
 ]
 dynamic = ["version"]
 
@@ -68,9 +69,10 @@ heron = "heron.cli:heron"
 [project.entry-points."asimov.pipelines"]
 heron = "heron.asimov:Pipeline"
 "heron injection" = "heron.asimov:InjectionPipeline"
+"heron training" = "heron.asimov:TrainingPipeline"
 
 [tool.setuptools]
-packages = ["heron"]
+packages = ["heron", "heron.asimov", "heron.models", "heron.training"]
 include-package-data = true
 zip-safe = true
 

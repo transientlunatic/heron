@@ -242,19 +242,12 @@ class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
         residual = self.to_device(self.array(data.scaled - wf.scaled), device=self.device)
         N_samp = len(residual)
 
-        print("C", C.value)
-        print("K", K.value)
-        print("Cs", C.scaled)
-        print("Ks", K.scaled)
-
         self.logger.debug(f"Data scale: {np.mean(np.abs(data.scaled))}")
         self.logger.debug(f"Residual scale: {np.mean(np.abs(residual))}")
         self.logger.debug(f"Cov diagonal range: [{np.min(np.diag(total_cov))}, {np.max(np.diag(total_cov))}]")
         self.logger.debug(f"Condition number: {np.linalg.cond(total_cov)}")
 
         W = (- 0.5 * self.solve((total_cov), residual) @ residual)
-
-        print("W", W)
 
         N = (- 0.5 * N_samp*self.log((2*self.pi)) - 0.5 * self.logdet((C+K)) + N_samp * self.log(wf.scale)) if norm else 0
 

@@ -2,6 +2,7 @@ import click
 
 from heron import inference
 from heron import injection
+from heron import train
 
 
 @click.group()
@@ -14,3 +15,4 @@ def heron():
 
 heron.add_command(inference.inference)
 heron.add_command(injection.injection)
+heron.add_command(train.train)
