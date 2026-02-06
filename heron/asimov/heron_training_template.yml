@@ -1,0 +1,22 @@
+# Template for the heron training pipeline (asimov)
+# PRODUCTION: {{ production.name }}
+# EVENT: {{ production.event.name }}
+
+name: {{ production.name }}
+
+logging:
+  level: {{ production.meta.get('logging', {}).get('level', 'warning') }}
+
+training:
+  approximant: {{ production.meta['training'].get('approximant', 'IMRPhenomPv2') }}
+  mass_ratios: {{ production.meta['training']['mass_ratios'] }}
+  total_mass: {{ production.meta['training']['total_mass'] }}
+  distance: {{ production.meta['training']['distance'] }}
+  n_samples: {{ production.meta['training'].get('n_samples', 200) }}
+  nu: {{ production.meta['training'].get('nu', 2.5) }}
+  iterations: {{ production.meta['training'].get('iterations', 400) }}
+  checkpoint: {{ production.meta['training'].get('checkpoint', 'heron_matern_checkpoint.pt') }}
+  warping:
+    type: {{ production.meta['training'].get('warping', {}).get('type', 'chirp') }}
+    alpha: {{ production.meta['training'].get('warping', {}).get('alpha', 0.625) }}
+    t_ref: {{ production.meta['training'].get('warping', {}).get('t_ref', 0.1) }}
