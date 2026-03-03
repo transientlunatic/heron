@@ -14,5 +14,6 @@ def heron():
 
 
 heron.add_command(inference.inference)
+heron.add_command(inference.aspire)
 heron.add_command(injection.injection)
 heron.add_command(train.train)

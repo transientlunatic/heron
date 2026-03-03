@@ -172,6 +172,39 @@ class TrainingPipeline(MetaPipeline):
         return outputs
 
 
+class AspirePipeline(MetaPipeline):
+    """Asimov pipeline for multi-stage Heron + Aspire SMC inference.
+
+    Expects an upstream bilby (FD) result provided via the
+    ``upstream_bilby`` key in the production meta.  The bilby posterior
+    is used to seed the aspire normalising flow, then SMC corrects it
+    toward the Heron GPR posterior.
+    """
+
+    name = "heron aspire"
+    config_template = str(files("heron.asimov") / "heron_aspire_template.yml")
+    _pipeline_command = "heron"
+    _pipeline_arguments = ["aspire", "--settings"]
+
+    def detect_completion(self):
+        self.logger.info("Checking for aspire completion.")
+        return "aspire_result" in self.collect_assets()
+
+    def collect_assets(self):
+        outputs = {}
+        result_path = os.path.join(
+            self.production.rundir, self.production.name, "aspire_result.h5"
+        )
+        if os.path.exists(result_path):
+            outputs["aspire_result"] = result_path
+        self.production.event.update_data()
+        return outputs
+
+    def after_completion(self):
+        self.production.status = "uploaded"
+        self.production.event.update_data()
+
+
 class Pipeline(MetaPipeline):
     """
     An asimov pipeline for heron.

@@ -5,6 +5,9 @@ using the waveform models it supports.
 
 import numpy as np
 import torch
+from scipy.linalg import cho_factor, cho_solve
+
+from lalinference import DetFrameToEquatorial
 
 import logging
 
@@ -148,9 +151,12 @@ class TimeDomainLikelihood(Likelihood):
         if detector is not None:
             self.detector = detector
 
-        self.fixed_parameters = fixed_parameters
+        self.fixed_parameters = dict(fixed_parameters)
         if timing_basis is not None:
             self.fixed_parameters["reference_frame"] = timing_basis
+
+        self._C_chol = cho_factor(self.C_scaled)
+        self._logdet_C_scaled = 2.0 * np.sum(np.log(np.diag(self._C_chol[0])))
 
         self.logger = logger = logging.getLogger(
             "heron.likelihood.TimeDomainLikelihood"
@@ -183,13 +189,16 @@ class TimeDomainLikelihood(Likelihood):
         residual = self.to_device(data-wf, self.device)
         N = len(residual)
 
-        C_scaled = self.C_scaled[a[0]:a[1], a[0]:a[1]]
+        if a[0] == 0 and a[1] == self.N:
+            weighted_residual = residual @ cho_solve(self._C_chol, residual)
+            logdet = self._logdet_C_scaled
+        else:
+            C_scaled = self.C_scaled[a[0]:a[1], a[0]:a[1]]
+            C_chol = cho_factor(C_scaled)
+            weighted_residual = residual @ cho_solve(C_chol, residual)
+            logdet = 2.0 * np.sum(np.log(np.diag(C_chol[0])))
 
-        weighted_residual = (
-            (residual) @ self.solve(C_scaled, residual)
-        )
-
-        normalisation = N * self.log(2*np.pi) + self.logdet(C_scaled) - 2 * N * self.log(wf.scale) if norm else 0
+        normalisation = N * self.log(2*np.pi) + logdet - 2 * N * self.log(wf.scale) if norm else 0
 
         return   (- 0.5 * weighted_residual - 0.5 * normalisation)
 
@@ -265,7 +274,39 @@ class MultiDetector:
             if isinstance(detector, LikelihoodBase):
                 self._likelihoods.append(detector)
 
+    def _convert_sky_frame(self, parameters):
+        """Convert IFO-frame (azimuth, zenith) to equatorial (ra, dec) if present.
+
+        Uses the first two detector objects as the reference network baseline.
+        DetFrameToEquatorial(det0, det1, t0, azimuth, zenith) -> [geocent_time, ra, dec]
+        where t0 is the approximate GPS time (approximated by gpstime/geocent_time).
+        """
+        if "azimuth" not in parameters or "zenith" not in parameters:
+            return parameters
+        if len(self._likelihoods) < 2:
+            return parameters
+        det0 = self._likelihoods[0].detector._lal_detector
+        det1 = self._likelihoods[1].detector._lal_detector
+        gpstime = parameters.get("gpstime", parameters.get("geocent_time"))
+        if gpstime is None:
+            logger.warning(
+                "_convert_sky_frame: neither 'gpstime' nor 'geocent_time' found in "
+                "parameters; sky-frame conversion will use t0=0 (GPS epoch), which "
+                "gives an incorrect sky position."
+            )
+            gpstime = 0.0
+        _, ra, dec = DetFrameToEquatorial(
+            det0, det1, float(gpstime), parameters["azimuth"], parameters["zenith"]
+        )
+        parameters = dict(parameters)
+        parameters["ra"] = ra
+        parameters["dec"] = dec
+        del parameters["azimuth"]
+        del parameters["zenith"]
+        return parameters
+
     def __call__(self, parameters):
+        parameters = self._convert_sky_frame(parameters)
         out = 0
         for detector in self._likelihoods:
             out += detector(parameters)

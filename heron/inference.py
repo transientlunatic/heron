@@ -17,7 +17,7 @@ from heron.models.lalnoise import KNOWN_PSDS
 from heron.likelihood import TimeDomainLikelihood, MultiDetector, TimeDomainLikelihoodModelUncertainty
 import heron.priors
 
-from heron.sampling import NessaiSampler
+from heron.sampling import NessaiSampler, AspireSampler
 
 from heron.injection import make_injection, injection_parameters_add_units
 from heron.models.lalsimulation import (
@@ -41,6 +41,41 @@ KNOWN_WAVEFORMS = {
     "IMRPhenomPv2_FakeUncertainty": IMRPhenomPv2_FakeUncertainty,
     "HeronGPR": HeronNonSpinningApproximantMatern,
 }
+
+
+def _build_multidetector_likelihood(settings, data):
+    """Build a MultiDetector likelihood from processed settings and loaded data.
+
+    Parameters
+    ----------
+    settings : dict
+        Parsed inference settings (after ``parse_dict``).
+    data : dict
+        Mapping of IFO name -> loaded TimeSeries.
+
+    Returns
+    -------
+    MultiDetector
+    """
+    waveform_name = settings["waveform"]["model"]
+    waveform_cls = KNOWN_WAVEFORMS[waveform_name]
+    if "checkpoint" in settings.get("waveform", {}):
+        waveform_model = waveform_cls.from_checkpoint(settings["waveform"]["checkpoint"])
+    else:
+        waveform_model = waveform_cls()
+    likelihoods = []
+    for ifo in settings["interferometers"]:
+        likelihoods.append(
+            KNOWN_LIKELIHOODS[settings.get("likelihood").get("function")](
+                data[ifo],
+                psd=settings["psds"][ifo](),
+                waveform=waveform_model,
+                detector=settings["interferometers"][ifo](),
+                fixed_parameters=settings.get("fixed_parameters", {}),
+                timing_basis=settings["likelihood"].get("timing basis", ["H1", "L1"]),
+            )
+        )
+    return MultiDetector(*likelihoods)
 
 
 def parse_dict(settings):
@@ -138,32 +173,8 @@ def heron_inference(settings):
 
     # Make Likelihood
     if len(settings["interferometers"]) > 1:
-        likelihoods = []
         print("Creating likelihoods")
-        waveform_name = settings["waveform"]["model"]
-        waveform_cls = KNOWN_WAVEFORMS[waveform_name]
-        if "checkpoint" in settings.get("waveform", {}):
-            # Load a pre-trained model from checkpoint
-            waveform_model = waveform_cls.from_checkpoint(
-                settings["waveform"]["checkpoint"])
-        else:
-            waveform_model = waveform_cls()
-        for ifo in settings["interferometers"]:
-            print(f"\t {ifo}")
-            likelihoods.append(
-                KNOWN_LIKELIHOODS[settings.get("likelihood").get("function")](
-                    data[ifo],
-                    psd=settings["psds"][ifo](),
-                    waveform=waveform_model,
-                    detector=settings["interferometers"][ifo](),
-                    fixed_parameters=settings["fixed_parameters"],
-                    timing_basis=settings["likelihood"].get(
-                        "timing basis", ["H1", "L1"]
-                    ),
-                )
-            )
-            print(likelihoods[-1])
-        likelihood = MultiDetector(*likelihoods)
+        likelihood = _build_multidetector_likelihood(settings, data)
 
     priors = heron.priors.PriorDict()
     priors.from_dictionary(settings["priors"])
@@ -235,3 +246,84 @@ def heron_inference(settings):
 @click.option("--settings")
 def inference(settings):
     heron_inference(settings)
+
+
+def heron_aspire_inference(settings):
+    """Run multi-stage Heron inference using the aspire SMC sampler.
+
+    Optionally seeds the SMC from an upstream bilby (frequency-domain)
+    result via the ``upstream_bilby`` key in the config.
+    """
+    import numpy as np
+
+    settings = load_yaml(settings)
+    settings, other_settings = parse_dict(settings)
+
+    if "logging" in other_settings:
+        level = other_settings.get("logging", {}).get("level", "warning")
+        LOGGER_LEVELS = {
+            "info": logging.INFO,
+            "debug": logging.DEBUG,
+            "warning": logging.WARNING,
+        }
+        logging.basicConfig(level=LOGGER_LEVELS[level])
+        logging.getLogger("heron.likelihood").setLevel(LOGGER_LEVELS[level])
+
+    import matplotlib
+    matplotlib.use("agg")
+    matplotlib.rcParams['text.usetex'] = False
+
+    # Load data
+    data = {}
+    if "data files" in settings.get("data", {}):
+        start = settings['event time'] - settings['segment length'] + settings['after merger']
+        end = settings['event time'] + settings['after merger']
+        for ifo in settings["interferometers"]:
+            logger.info(f"Loading {ifo} data")
+            data[ifo] = TimeSeries.read(
+                source=settings["data"]["data files"][ifo],
+                channel=settings["data"]["channels"][ifo],
+                format="gwf",
+                start=start,
+                end=end,
+            )
+            if data[ifo].sample_rate != settings['likelihood']['sampling rate']:
+                data[ifo] = data[ifo].resample(settings['likelihood']['sampling rate'])
+
+    if not data:
+        raise RuntimeError(
+            "No data was loaded for heron aspire inference. "
+            "Ensure 'data files' is set under the 'data' key in the config."
+        )
+    likelihood = _build_multidetector_likelihood(settings, data)
+
+    priors = heron.priors.PriorDict()
+    priors.from_dictionary(settings["priors"])
+
+    aspire_cfg = settings.get("sampler", {}).get("aspire", {})
+    sampler = AspireSampler(
+        likelihood=likelihood,
+        priors=priors,
+        base_p=injection_parameters_add_units(
+            other_settings.get("injection", {}).get("parameters", {})
+        ),
+        initial_result=other_settings.get("upstream_bilby"),
+    )
+
+    posterior, history = sampler.sample(
+        n_samples=aspire_cfg.get("n_samples", 500),
+        n_epochs=aspire_cfg.get("n_epochs", 30),
+        sampler=aspire_cfg.get("sampler", "smc"),
+        sampler_kwargs=aspire_cfg.get("sampler_kwargs", {}),
+    )
+
+    out_dir = settings["name"]
+    os.makedirs(out_dir, exist_ok=True)
+    posterior.save(os.path.join(out_dir, "aspire_result.h5"), path="posterior")
+    logger.info(f"Aspire posterior saved to {out_dir}/aspire_result.h5")
+
+
+@click.command
+@click.option("--settings")
+def aspire(settings):
+    heron_aspire_inference(settings)
