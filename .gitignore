@@ -88,9 +88,9 @@ archive_temp_files/
 .idea/
 
 # Project-specific temporary directories
-injections/
+#injections/
 validation/
 examples/temp/
-asimov/
+#asimov/
 scripts/archive_*/
 docs/archive_*/

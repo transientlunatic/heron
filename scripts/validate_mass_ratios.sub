@@ -1,0 +1,36 @@
+#!/usr/bin/env condor_submit
+# Validate best configuration across mass ratio range
+#
+# Tests Matérn(ν=2.5) + Chirp(α=0.625) at multiple mass ratios:
+# - Training points: q=0.1, 0.8
+# - Interpolation: q=0.3, 0.5, 0.7
+# - Extrapolation: q=0.05, 0.9
+
+universe = vanilla
+executable = /home/daniel/repositories/ligo/heron/scripts/run_with_gpu.sh
+should_transfer_files = NO
+
+# Request GPU
+request_gpus = 1
+request_cpus = 1
+request_memory = 8GB
+
+# Arguments: wrapper script will run Python with mass ratio
+arguments = validate_mass_ratios.py $(q)
+initialdir = /home/daniel/repositories/ligo/heron/scripts
+
+# Logging
+log = condor_logs/validate_$(Cluster).$(Process).log
+output = condor_logs/validate_q$(q).out
+error = condor_logs/validate_q$(q).err
+
+# Test mass ratios
+queue q from (
+    0.05
+    0.1
+    0.3
+    0.5
+    0.7
+    0.8
+    0.9
+)

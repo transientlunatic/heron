@@ -70,6 +70,7 @@ heron = "heron.cli:heron"
 heron = "heron.asimov:Pipeline"
 "heron injection" = "heron.asimov:InjectionPipeline"
 "heron training" = "heron.asimov:TrainingPipeline"
+"heron aspire" = "heron.asimov:AspirePipeline"
 
 [tool.setuptools]
 packages = ["heron", "heron.asimov", "heron.models", "heron.training"]

@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(environment/bin/python -m pytest tests/ -x -q)",
+      "Bash(environment/bin/python -c \"import heron; print\\(''ok''\\)\")",
+      "Bash(environment/bin/pytest tests/ -x -q)",
+      "Bash(pytest tests/ -x -q)",
+      "Bash(pytest tests/ -x -q --ignore=tests/models/)",
+      "Bash(environment/bin/python -c \":*)",
+      "Bash(environment/bin/python -m pytest tests/test_td_likelihood.py -v)",
+      "Bash(environment/bin/python3.13 -m pytest --version)",
+      "Bash(environment/bin/python3.13 -c \"import pytest\")",
+      "Bash(environment/bin/python3.13 -c \":*)",
+      "Bash(# Check if _draw_from_prior missing log_likelihood matters # Look at _draw_from_prior - it returns AspireSamples\\(x=x, log_prior=log_prior\\) without log_likelihood # Then aspire_model.fit\\(initial, ...\\) is called - if fit\\(\\) requires log_likelihood this would fail # Let''s check whether the aspire library is available anywhere or check its pypi docs grep -rn \"\"from aspire\\\\|import aspire\"\" /home/daniel/repositories/)",
+      "Bash(# Check the aspire repository for context ls /home/daniel/repositories/personal/otter/ ls /home/daniel/repositories/ligo/aspire/)",
+      "Bash(# The per-detector __call__ prints a warning for unrecognized keys but doesn''t fail # However, the waveform.time_domain\\(\\) is called with parameters - does it accept/reject azimuth? # Let''s check the waveform models grep -n \"\"azimuth\\\\|zenith\"\" heron/models/lalsimulation.py heron/models/gpytorch.py)"
+    ]
+  }
+}
