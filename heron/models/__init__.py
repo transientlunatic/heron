@@ -1,7 +1,8 @@
-import torch
 import numpy as np
-from lal import antenna, MSUN_SI
 from astropy import units as u
+
+# Solar mass in kg — avoids lal dependency for a physical constant
+MSUN_SI = 1.98892e30
 
 
 class WaveformModel:
@@ -29,44 +30,24 @@ class WaveformModel:
     def _convert_mass_ratio_total_mass(self, args):
         args["m1"] = (args["total_mass"] / (1 + args["mass_ratio"]))
         args["m2"] = (args["total_mass"] / (1 + (1 / args["mass_ratio"])))
-        # Do these have units?
-        # If not then we can skip some relatively expensive operations and apply a heuristic.
         if isinstance(args["m1"], u.Quantity):
             args["m1"] = float(args["m1"].to_value(u.kilogram))
             args["m2"] = float(args["m2"].to_value(u.kilogram))
-        if (not isinstance(args["m1"], u.Quantity)) and (args["m1"] < 1000):
-            # This appears to be in solar masses
+        elif args["m1"] < 1000:
+            # Heuristic: values < 1000 are likely solar masses
             args["m1"] *= MSUN_SI
-        if (not isinstance(args["m2"], u.Quantity)) and (args["m2"] < 1000):
-            # This appears to be in solar masses
             args["m2"] *= MSUN_SI
-        
+
         args.pop("total_mass")
         args.pop("mass_ratio")
         return args
 
 
 class WaveformApproximant(WaveformModel):
-    """
-    This class handles a waveform approximant model.
-    """
-
+    """Base class for analytical/numerical waveform approximants."""
     pass
 
 
 class WaveformSurrogate(WaveformModel):
-    """
-    This class handles a waveform surrogate model.
-    """
-
-    pass
-
-
-class PSDModel:
-
-    def to_file(self, filename, *args, **kwargs):
-        data = self.twocolumn(*args, **kwargs)
-        np.savetxt(filename, data)
-
-class PSDApproximant(PSDModel):
+    """Base class for waveform surrogate models."""
     pass

@@ -4,48 +4,33 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "heron-model"
-description = "Heron is a toolkit for making machine learning-based gravitational waveform models in python."
+description = "Probabilistic waveform emulation with uncertainty for gravitational wave astronomy."
 readme = "README.rst"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = {text = "ISC License (ISCL)"}
 authors = [
     {name = "Daniel Williams", email = "daniel.williams@ligo.org"}
 ]
-keywords = ["heron"]
+keywords = ["heron", "gravitational-waves", "gaussian-processes", "waveform-modelling"]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
     "License :: OSI Approved :: ISC License (ISCL)",
     "Natural Language :: English",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "matplotlib>=3.9.3",
     "numpy>=2.2.0",
-    "bilby",
-    "scipy",
-    "progressbar",
-    "emcee",
-    "pyyaml",
-    "jinja2",
-    "cython",
-    "george",
-    "nestle",
-    "lalsuite",
-    "h5py",
-    "click",
-    "asimov",
-    "pesummary",
-    "nessai",
-    "gpytorch",
     "torch",
-    "torchvision",
-    "bilby_pipe",
-    "astropy>=5.0",
-    "otter-report",
+    "gpytorch",
+    "scipy",
+    "h5py",
+    "pyyaml",
+    "click",
 ]
 dynamic = ["version"]
 
@@ -53,27 +38,33 @@ dynamic = ["version"]
 Homepage = "https://github.com/transientlunatic/heron"
 
 [project.optional-dependencies]
-test = [
-    "hypothesis",
+lal = [
+    "lalsuite",
+    "astropy>=5.0",
+]
+plot = [
+    "matplotlib>=3.9.3",
 ]
 dev = [
     "pytest>=7.0",
     "black>=22.0",
     "flake8>=4.0",
     "hypothesis",
+    "astropy>=5.0",
 ]
 
 [project.scripts]
 heron = "heron.cli:heron"
 
-[project.entry-points."asimov.pipelines"]
-heron = "heron.asimov:Pipeline"
-"heron injection" = "heron.asimov:InjectionPipeline"
-"heron training" = "heron.asimov:TrainingPipeline"
-"heron aspire" = "heron.asimov:AspirePipeline"
-
 [tool.setuptools]
-packages = ["heron", "heron.asimov", "heron.models", "heron.training"]
+packages = [
+    "heron",
+    "heron.models",
+    "heron.models.gp",
+    "heron.models.reference",
+    "heron.training",
+    "heron.evaluation",
+]
 include-package-data = true
 zip-safe = true
 

@@ -2,63 +2,18 @@
 Testing models
 --------------
 
-These models are designed purely for helping with unittests and other tests.
-They aren't designed for use in production analyses!
+Simple waveform models for unit tests. Not for production use.
 """
 
 import numpy as np
-import scipy.linalg
 import scipy.spatial.distance
 from astropy import units as u
-from ..datatypes import PSD, Waveform, WaveformDict
-from . import PSDApproximant, WaveformApproximant
+from ..types import Waveform, WaveformDict
+from . import WaveformApproximant
 
-class FlatPSD(PSDApproximant):
-    """
-    Return a flat PSD.
-    """
-    
-    def __init__(self):
-        super().__init__()
-
-    def psd_function(self, psd_data, flow):
-
-        return np.ones_like(psd_data)
-    
-    def frequency_domain(
-        self,
-        df=1,
-        frequencies=None,
-        lower_frequency=20,
-        upper_frequency=1024,
-        mask_below=20,
-    ):
-        if frequencies is None:
-            frequencies = np.arange(lower_frequency, upper_frequency + df, df)
-
-        N = int(len(frequencies))
-        df = float(frequencies[1] - frequencies[0])
-        psd_data = np.ones(N)
-        psd_data = self.psd_function(psd_data, flow=lower_frequency) / N
-        psd_data[frequencies < mask_below] = psd_data[frequencies > mask_below][0]
-        psd = PSD(psd_data, frequencies=frequencies)
-        return psd
-
-    def covariance_matrix(self, times):
-        """
-        Create the covariance matrix for this PSD.
-        """
-        N = int(len(times))
-        # autocovariance = 1e-42*np.exp(-np.arange(N)*0.01)
-        autocovariance = np.zeros(N)
-        autocovariance[0] = 1.0
-        return scipy.linalg.circulant(autocovariance)
-    
 
 class SineGaussianWaveform(WaveformApproximant):
-    """
-    A simple SineGaussian waveform for testing purposes.
-    """
+    """A simple SineGaussian waveform for testing purposes."""
 
     def __init__(self):
         super().__init__()
@@ -69,35 +24,59 @@ class SineGaussianWaveform(WaveformApproximant):
             "amplitude": 1.0,
         }
 
-    def time_domain(self, parameters, times=None, sample_rate=1024*u.Hertz):
+    def time_domain(self, parameters, times=None, sample_rate=1024 * u.Hertz):
         epoch = parameters.get("gpstime", parameters.get("epoch", 0))
         amplitude = parameters.get("amplitude", self._args["amplitude"])
         self._args.update(parameters)
         width = self._args['width']
         length = self._args['segment length']
-        times = np.linspace(-length/2, length/2, int((length*sample_rate).value))
-        envelope = amplitude * np.exp(
-            (- (times - epoch)**2/(2*width**2)).value
-        ) / np.sqrt(2*np.pi*width**2)
 
-        strain = np.sin((times*u.second * self._args['frequency']).value) * envelope
- 
-        covariance =  np.exp(
-            -0.5 * scipy.spatial.distance.cdist(np.expand_dims(times, 1),
-                                                np.expand_dims(times, 1), 'sqeuclidean')
-            
-        ) * np.exp((100*np.abs(width-0.05)))
-        variance = np.diag(covariance)
-        hp_data = Waveform(data=strain,
-                           times=times,
-                           covariance=covariance,
-                           variance=variance,
-                           t0=epoch)
-        hx_data = Waveform(data=strain,
-                           times=times,
-                           covariance=covariance,
-                           variance=variance,
-                           t0=epoch)
-        return WaveformDict(parameters=self._args,
-                            plus=hp_data,
-                            cross=hx_data)
+        if times is not None:
+            # External time array provided — use it directly (unitless seconds)
+            times = np.asarray(times, dtype=float)
+            has_units = False
+        elif "time" in parameters:
+            # Dict-style time grid (from evaluator / predict interface)
+            t = parameters["time"]
+            times = np.linspace(t["lower"], t["upper"], t["number"])
+            has_units = False
+        else:
+            times = np.linspace(-length / 2, length / 2, int((length * sample_rate).value))
+            has_units = True
+
+        if has_units:
+            envelope = amplitude * np.exp(
+                (-(times - epoch) ** 2 / (2 * width ** 2)).value
+            ) / np.sqrt(2 * np.pi * width ** 2)
+            strain = np.sin((times * u.second * self._args['frequency']).value) * envelope
+            times_out = times
+        else:
+            # Unitless path — strip units from width and frequency
+            w = float(width / u.second) if hasattr(width, 'unit') else float(width)
+            f = float(self._args['frequency'] / u.Hertz) if hasattr(self._args['frequency'], 'unit') else float(self._args['frequency'])
+            envelope = amplitude * np.exp(
+                -(times - epoch) ** 2 / (2 * w ** 2)
+            ) / np.sqrt(2 * np.pi * w ** 2)
+            strain = np.sin(times * f * 2 * np.pi) * envelope
+            times_out = times
+
+        covariance = np.exp(
+            -0.5 * scipy.spatial.distance.cdist(
+                np.expand_dims(times_out, 1),
+                np.expand_dims(times_out, 1),
+                'sqeuclidean',
+            )
+        ) * np.exp(100 * np.abs(float(width / u.second if hasattr(width, 'unit') else width) - 0.05))
+        hp_data = Waveform(
+            data=strain,
+            times=np.asarray(times_out, dtype=float),
+            covariance=covariance,
+            t0=epoch,
+        )
+        hx_data = Waveform(
+            data=strain,
+            times=np.asarray(times_out, dtype=float),
+            covariance=covariance,
+            t0=epoch,
+        )
+        return WaveformDict(parameters=self._args, plus=hp_data, cross=hx_data)
