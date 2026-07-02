@@ -1,0 +1,51 @@
+# Example configuration for plotting waveform draws from trained GPR models
+# Usage: heron plot-waveforms --config plot_waveforms_config.yml
+
+name: IMRPhenomPv2_Waveform_Plots
+
+# Logging
+logging:
+  level: info
+
+# Model data
+training:
+  data_file: training_data_test.h5  # Path to HDF5 file containing trained model
+  group_name: IMR_training_test      # Must match the group from training
+
+# Model naming
+model_name: gpr_imr_nonspin  # Name of the trained model states to load
+
+# Hyperparameters (must match those used in training)
+hyperparameters:
+  warp_scale: 2       # Time warping factor used in training
+  output_scale: 1.0   # Not used anymore - auto-normalized
+
+# Mean function settings (if model was trained with mean function)
+mean_function:
+  enabled: true  # Set to true if model uses IMRPhenomD mean
+  parameters:
+    total_mass: 20.0    # Total mass in solar masses
+    distance: 100.0     # Luminosity distance in Mpc
+    delta_t: 0.000244140625  # 1/4096
+    f_lower: 20.0       # Lower frequency cutoff in Hz
+    f_ref: 20.0         # Reference frequency in Hz
+
+# Plotting configuration
+plotting:
+  # Time range for waveforms (in geometric units M)
+  time_min: -0.1
+  time_max: 0.05
+  time_points: 500
+
+  # Mass ratio(s) to plot
+  mass_ratio: 0.8  # Single mass ratio for individual plots
+  mass_ratios: [0.5, 0.7, 0.9, 1.0]  # Multiple mass ratios for comparison plots
+
+  # Whether to show training data points on plots
+  show_training_data: false
+
+  # Output directory for plots
+  output_dir: plots_waveforms
+
+# Where to save plots (alternative to plotting.output_dir)
+pages directory: plots_waveforms_test

@@ -67,3 +67,30 @@ docs/_build/
 
 # PyBuilder
 target/
+
+# Training data and temporary files
+training_data*.h5
+*.gwf
+*.dat
+*.html
+
+# HTCondor logs
+scripts/condor_logs/
+*.log
+*.out
+*.err
+
+# Temporary archives
+archive_temp_files/
+
+# IDE
+.vscode/
+.idea/
+
+# Project-specific temporary directories
+injections/
+validation/
+examples/temp/
+asimov/
+scripts/archive_*/
+docs/archive_*/

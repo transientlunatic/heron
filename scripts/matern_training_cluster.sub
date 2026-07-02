@@ -1,0 +1,34 @@
+# HTCondor submit file for Matérn kernel training tests
+# Tests different iteration counts: 500, 1000, 1500, 2000, 3000
+
+universe                = vanilla
+request_gpus            = 1
+request_cpus            = 1
+request_memory          = 8GB
+
+# Use the heron2026 conda environment
+executable              = /data/wiay/conda_envs/heron2026/bin/python
+arguments               = scripts/test_matern_single_iteration.py $(iterations)
+
+# Use shared filesystem instead of file transfer
+should_transfer_files   = NO
+
+# Set initial directory (where the job will run and logs will be written)
+initialdir              = /home/daniel/repositories/ligo/heron
+
+# Logs and output
+log                     = scripts/condor_logs/matern_$(iterations).log
+output                  = scripts/condor_logs/matern_$(iterations).out
+error                   = scripts/condor_logs/matern_$(iterations).err
+
+# Set environment variables for CUDA and Python
+environment             = "PYTHONPATH=/home/daniel/repositories/ligo/heron"
+
+# Queue multiple jobs with different iteration counts
+queue iterations from (
+500
+1000
+1500
+2000
+3000
+)

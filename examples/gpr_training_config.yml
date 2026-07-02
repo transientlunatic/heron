@@ -1,0 +1,40 @@
+# Example configuration for GPR model training
+# Usage: heron train-gpr --config gpr_training_config.yml
+
+name: IMRPhenomPv2_NonSpinning_GPR
+
+# Logging
+logging:
+  level: info
+
+# Training data
+training:
+  data_file: training_data_test.h5  # Path to HDF5 file from training-data command
+  group_name: IMR_training_test      # Must match the group from training data generation
+
+# Model naming
+model_name: gpr_imr_nonspin  # Name for the trained model states
+
+# Training hyperparameters
+hyperparameters:
+  iterations: 1000              # Number of training iterations
+  learning_rate: 0.01           # Adam optimizer learning rate (lower = more stable)
+  output_scale: 1.0             # Not used anymore - data is auto-normalized
+  warp_scale: 2                 # Time warping factor for pre-merger
+  checkpoint_frequency: 100     # Save diagnostics every N iterations
+  validation_samples: 5000      # Subsample for memory efficiency (remove for all data)
+
+# Mean function configuration (optional)
+# When enabled, the GP learns corrections to the approximant rather than the full waveform
+# This can improve accuracy by letting the GP focus on the residuals
+mean_function:
+  enabled: true                 # Set to false to disable mean function
+  type: IMRPhenomD              # Mean function type (currently only IMRPhenomD supported)
+  total_mass: 20.0              # Total mass in solar masses (must match training data)
+  distance: 100.0               # Luminosity distance in Mpc (must match training data)
+  delta_t: 0.000244140625       # Time step in seconds (default: 1/4096)
+  f_lower: 20.0                 # Lower frequency cutoff in Hz (default: 20)
+  f_ref: 20.0                   # Reference frequency in Hz (default: 20)
+
+# Where to save diagnostic plots
+pages directory: plots_gpr_test
