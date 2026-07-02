@@ -7,6 +7,7 @@ try:
     import lalsimulation
     from heron.models.lalsimulation import (
         LALSimulationApproximant,
+        IMRPhenomD,
         IMRPhenomPv2,
         SEOBNRv3,
     )
@@ -53,3 +54,17 @@ class TestSEOBNRv3(unittest.TestCase):
 
     def test_initialization(self):
         self.assertIsNotNone(self.approx._args["approximant"])
+
+
+@pytest.mark.skipif(not HAS_LAL, reason="lalsuite not installed")
+class TestIMRPhenomD(unittest.TestCase):
+
+    def setUp(self):
+        self.approx = IMRPhenomD()
+
+    def test_initialization(self):
+        self.assertIsNotNone(self.approx._args["approximant"])
+
+    def test_approximant_type(self):
+        expected = lalsimulation.GetApproximantFromString("IMRPhenomD")
+        self.assertEqual(self.approx._args["approximant"], expected)

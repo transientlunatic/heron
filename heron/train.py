@@ -32,6 +32,7 @@ MODEL_REGISTRY = {
 # Approximant registry — maps config string to (module, class) for lazy import
 APPROXIMANT_REGISTRY = {
     "IMRPhenomPv2": ("heron.models.lalsimulation", "IMRPhenomPv2"),
+    "IMRPhenomD": ("heron.models.lalsimulation", "IMRPhenomD"),
     "SEOBNRv3": ("heron.models.lalsimulation", "SEOBNRv3"),
 }
 
@@ -291,7 +292,9 @@ def heron_train(settings):
         "device": train_settings.get("device", "cpu"),
         "total_mass": total_mass,
         "distance": distance,
-        "training_iterations": train_settings.get("iterations", 400),
+        "training_iterations": train_settings.get("iterations", 100),
+        "optimizer": train_settings.get("optimizer", "lbfgs"),
+        "lr": train_settings.get("lr", None),
     }
     if mean_module is not None:
         model_kwargs["mean_module"] = mean_module

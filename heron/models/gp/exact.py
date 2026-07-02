@@ -42,7 +42,16 @@ class _ExactGPModel(gpytorch.models.ExactGP):
         mean_module: gpytorch.means.Mean | None = None,
         nu: float = 2.5,
     ):
-        likelihood = gpytorch.likelihoods.GaussianLikelihood()
+        import math
+        from gpytorch.priors import LogNormalPrior
+
+        y_var = float(train_y.var())
+        # Hard floor on noise: prevents collapse to zero while still allowing
+        # the GP to fit the (nearly deterministic) waveform data tightly.
+        noise_floor = max(1e-6 * y_var, 1e-10)
+        likelihood = gpytorch.likelihoods.GaussianLikelihood(
+            noise_constraint=gpytorch.constraints.GreaterThan(noise_floor),
+        )
         super().__init__(train_x, train_y, likelihood)
         self.train_x = train_x
         self.train_y = train_y
@@ -51,17 +60,33 @@ class _ExactGPModel(gpytorch.models.ExactGP):
         n_dims = train_x.shape[1]
         kernels = []
         for dim in range(n_dims):
-            kernels.append(
-                gpytorch.kernels.MaternKernel(
-                    nu=nu,
-                    active_dims=[dim],
-                    lengthscale_constraint=gpytorch.constraints.GreaterThan(0.0005),
-                )
+            data_range = float(train_x[:, dim].max() - train_x[:, dim].min())
+            init_ls = data_range / 4.0 if data_range > 0 else 1.0
+            k = gpytorch.kernels.MaternKernel(
+                nu=nu,
+                active_dims=[dim],
+                lengthscale_constraint=gpytorch.constraints.GreaterThan(0.0005),
             )
+            k.lengthscale = init_ls
+            # LogNormal prior centred on the initialised lengthscale with
+            # σ=1 in log-space. Penalises collapse toward zero (overfitting
+            # one mass-ratio grid) and runaway growth (underfitting).
+            k.register_prior(
+                "lengthscale_prior",
+                LogNormalPrior(loc=math.log(init_ls), scale=1.0),
+                "lengthscale",
+            )
+            kernels.append(k)
+
         product_kernel = kernels[0]
         for k in kernels[1:]:
             product_kernel = product_kernel * k
         self.covar_module = gpytorch.kernels.ScaleKernel(product_kernel)
+
+        # Initialise outputscale and noise from data statistics.
+        if y_var > 0:
+            self.covar_module.outputscale = y_var
+            self.likelihood.noise = max(1e-4 * y_var, noise_floor)
 
     def forward(self, x):
         mean_x = self.mean_module(x)
@@ -112,6 +137,8 @@ class ExactGPSurrogate(WaveformSurrogate):
         total_mass: float = 60.0,
         distance: float = 100.0,
         training_iterations: int = 400,
+        optimizer: str = "lbfgs",
+        lr: float | None = None,
     ):
         self._device = torch.device(device)
         self.output_scale = output_scale
@@ -148,27 +175,94 @@ class ExactGPSurrogate(WaveformSurrogate):
             self.models[name] = model
 
         if training_iterations > 0:
-            self._train(training_iterations)
+            self._train(training_iterations, optimizer_type=optimizer, lr=lr)
 
-    def _train(self, iterations: int, lr: float = 0.05):
-        """Train all GP models via MLL optimisation."""
+    def _train(
+        self,
+        iterations: int,
+        optimizer_type: str = "lbfgs",
+        lr: float | None = None,
+    ):
+        """Train all GP models via MLL optimisation.
+
+        Parameters
+        ----------
+        iterations : int
+            Number of optimiser steps (L-BFGS: ~100 is usually enough; Adam: ~1000).
+        optimizer_type : str
+            ``"lbfgs"`` (default) or ``"adam"``.
+        lr : float or None
+            Learning rate / initial step size. Defaults to 1.0 for L-BFGS, 0.05 for Adam.
+        """
+        try:
+            from tqdm import tqdm
+        except ImportError:
+            tqdm = None
+
         for name, model in self.models.items():
             model.train()
             model.likelihood.train()
-
-            optimizer = torch.optim.Adam(model.parameters(), lr=lr)
             mll = gpytorch.mlls.ExactMarginalLogLikelihood(model.likelihood, model)
+            loss_history = []
 
-            for i in range(iterations):
-                optimizer.zero_grad()
-                output = model(model.train_x)
-                loss = -mll(output, model.train_y)
-                loss.backward()
-                optimizer.step()
+            if optimizer_type == "lbfgs":
+                _lr = lr if lr is not None else 1.0
+                opt = torch.optim.LBFGS(
+                    model.parameters(),
+                    lr=_lr,
+                    line_search_fn="strong_wolfe",
+                )
+                eval_count = 0
+                bar = tqdm(total=iterations, desc=f"  {name}", unit="step") if tqdm else None
 
+                def closure():
+                    nonlocal eval_count
+                    opt.zero_grad()
+                    output = model(model.train_x)
+                    loss = -mll(output, model.train_y)
+                    loss.backward()
+                    loss_val = float(loss.item())
+                    loss_history.append(loss_val)
+                    eval_count += 1
+                    if bar is not None:
+                        bar.set_postfix(loss=f"{loss_val:.4f}", evals=eval_count)
+                    logger.debug(f"  [{name}] eval {eval_count}: loss={loss_val:.4f}")
+                    return loss
+
+                for _ in range(iterations):
+                    opt.step(closure)
+                    if bar is not None:
+                        bar.update(1)
+
+                if bar is not None:
+                    bar.close()
+
+            else:  # adam
+                _lr = lr if lr is not None else 0.05
+                opt = torch.optim.Adam(model.parameters(), lr=_lr)
+                iter_range = (
+                    tqdm(range(iterations), desc=f"  {name}", unit="iter")
+                    if tqdm else range(iterations)
+                )
+                for i in iter_range:
+                    opt.zero_grad()
+                    output = model(model.train_x)
+                    loss = -mll(output, model.train_y)
+                    loss.backward()
+                    opt.step()
+                    loss_val = float(loss.item())
+                    loss_history.append(loss_val)
+                    if tqdm:
+                        iter_range.set_postfix(loss=f"{loss_val:.4f}")
+                    logger.debug(f"  [{name}] iter {i + 1:4d}/{iterations}: loss={loss_val:.4f}")
+
+            logger.info(
+                f"  [{name}] training complete: "
+                f"final loss={loss_history[-1]:.4f} over {len(loss_history)} evals"
+            )
             model.eval()
             model.likelihood.eval()
-            logger.info(f"Trained {name} model for {iterations} iterations")
+            model.loss_history = loss_history
 
     def predict(self, parameters: dict) -> WaveformDict:
         """Generate waveform with uncertainty.
@@ -231,6 +325,9 @@ class ExactGPSurrogate(WaveformSurrogate):
 
     def save(self, path: str | Path) -> None:
         """Save checkpoint."""
+        import datetime
+        from heron import __version__ as heron_version
+
         warping = self.warping
         if isinstance(warping, SimpleWarping):
             warping_config = {"type": "simple", "scale": warping.scale}
@@ -244,7 +341,11 @@ class ExactGPSurrogate(WaveformSurrogate):
             warping_config = {"type": str(type(warping).__name__)}
 
         checkpoint = {
-            "version": 2,
+            "format_version": 3,
+            "heron_version": heron_version,
+            "model_class": type(self).__name__,
+            "saved_at": datetime.datetime.utcnow().isoformat() + "Z",
+            "parameter_names": self.parameter_names,
             "model_states": {
                 name: model.state_dict()
                 for name, model in self.models.items()
@@ -260,12 +361,24 @@ class ExactGPSurrogate(WaveformSurrogate):
             "warping": warping_config,
         }
         torch.save(checkpoint, path)
-        logger.info(f"Saved checkpoint to {path}")
+        logger.info(f"Saved checkpoint to {path} (heron {heron_version})")
 
     @classmethod
     def load(cls, path: str | Path, device: str = "cpu") -> ExactGPSurrogate:
         """Load a pre-trained model from checkpoint."""
         checkpoint = torch.load(path, map_location=device, weights_only=False)
+
+        fmt = checkpoint.get("format_version", checkpoint.get("version"))
+
+        saved_class = checkpoint.get("model_class")
+        if saved_class is not None and saved_class != cls.__name__:
+            logger.warning(
+                f"Checkpoint was saved by {saved_class} but is being loaded by {cls.__name__}"
+            )
+
+        saved_heron = checkpoint.get("heron_version")
+        if saved_heron is not None:
+            logger.info(f"Checkpoint saved with heron {saved_heron} on {checkpoint.get('saved_at', 'unknown date')}")
 
         warp_cfg = checkpoint["warping"]
         warping_obj = get_warping(
@@ -274,7 +387,7 @@ class ExactGPSurrogate(WaveformSurrogate):
         )
 
         # Handle v1 checkpoints (from old HeronNonSpinningApproximantMatern)
-        if "version" not in checkpoint:
+        if fmt is None:
             return cls._load_v1(checkpoint, warping_obj, device)
 
         instance = cls(

@@ -147,7 +147,8 @@ class CalibrationEvaluator:
 
             try:
                 surr_wf = self.surrogate.predict(params)
-                ref_wf = self.reference.time_domain(params, times=surr_wf["plus"].times)
+                ref_params = _build_reference_params(self.surrogate, params)
+                ref_wf = self.reference.time_domain(ref_params, times=surr_wf["plus"].times)
 
                 surr_mean = surr_wf["plus"].data
                 surr_std = surr_wf["plus"].std

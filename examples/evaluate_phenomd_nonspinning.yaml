@@ -1,0 +1,35 @@
+# Evaluate the non-spinning IMRPhenomD surrogate.
+# Usage: heron evaluate --settings examples/evaluate_phenomd_nonspinning.yaml
+#
+# Chain after training:
+#   heron train --settings examples/train_phenomd_nonspinning.yaml && \
+#   heron evaluate --settings examples/evaluate_phenomd_nonspinning.yaml
+
+logging:
+  level: info
+
+evaluation:
+  checkpoint: checkpoints/phenomd_nonspinning.pt
+  model: exact
+  reference: IMRPhenomD
+  name: PhenomD_nonspinning_v1
+
+  parameter_bounds:
+    mass_ratio: [0.1, 1.0]
+
+  time:
+    lower: -0.5
+    upper: 0.02
+    number: 512
+
+  mismatch: true
+  calibration: true
+
+  n_mismatch: 200
+  n_calibration: 100
+
+  seed: 42
+  device: cpu
+
+  output_dir: evaluation/phenomd_nonspinning
+  plots: true

@@ -25,6 +25,7 @@ MODEL_REGISTRY = {
 
 APPROXIMANT_REGISTRY = {
     "IMRPhenomPv2": ("heron.models.lalsimulation", "IMRPhenomPv2"),
+    "IMRPhenomD": ("heron.models.lalsimulation", "IMRPhenomD"),
     "SEOBNRv3": ("heron.models.lalsimulation", "SEOBNRv3"),
     "SineGaussian": ("heron.models.testing", "SineGaussianWaveform"),
 }
@@ -131,6 +132,8 @@ def heron_evaluate(settings):
         mismatch=mismatch_result,
         calibration=calibration_result,
         name=name,
+        surrogate=model,
+        reference=reference,
     )
 
     output_dir = eval_settings.get("output_dir", "evaluation")

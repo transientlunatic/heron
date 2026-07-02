@@ -22,7 +22,8 @@ training:
   # GP configuration
   nu: 2.5                         # Matern smoothness
   output_scale: 1.0e+27           # numerical rescaling
-  iterations: 400                 # MLL optimisation steps
+  optimizer: lbfgs                # lbfgs (recommended) | adam
+  iterations: 100                 # L-BFGS steps (use ~1000 for adam)
   device: cpu                     # cpu | cuda
 
   # Time warping
