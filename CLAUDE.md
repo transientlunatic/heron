@@ -104,9 +104,18 @@ injections/                 Asimov blueprints and injection configs (work in pro
 The primary production model. Architecture:
 - Separate `_ExactGPModel` (GPyTorch `ExactGP`) for plus and cross polarisations
 - Product Matérn kernel over each input dimension with `ScaleKernel`
-- Time column warped via `ChirpTimeWarping` (power-law, default `alpha=0.375`)
+- Time column warped via `ChirpTimeWarping` (power-law, best `alpha=0.625`)
 - Output scaled by `output_scale=1e27` for numerical stability
 - Checkpoint format is versioned: v2 saves unwarped training data; `_load_v1` handles old checkpoints from `HeronNonSpinningApproximantMatern`
+
+**Critical hyperparameter constraints** — without these, L-BFGS collapses lengthscales to ~0.001 and the GP treats each training point independently:
+- `ls_min_q` (default 0.0005): set to the q-spacing of your training grid. E.g., 5 mass ratios at spacing 0.2 → `ls_min_q=0.2`. Without it, the GP cannot interpolate between mass ratios and reverts to the prior at any untrained q.
+- `ls_min_time` (default 0.0005): set to ~2× the warped-time training spacing. E.g., 200 samples → spacing 0.015 s → `ls_min_time=0.030`. Without it, the GP reverts to the prior between training times.
+- `noise_floor_rel` (default 1e-6): set to 1e-3 when `ls_min > training_spacing` (highly correlated training points → ill-conditioned kernel matrix → CG NaN). This regularises K+σ²I without inflating the surrogate uncertainty in the likelihood.
+
+**Training uses Cholesky, not CG** (enforced via `gpytorch.settings.max_cholesky_size(2000)` inside `_train()`). Safe for N ≤ ~2000 training points. Above that, switch to `SparseGPSurrogate`.
+
+**Use the latent GP covariance in the likelihood** — `model(x)`, not `model.likelihood(model(x))`. LALSuite training data is noiseless; the trained σ²_noise is a regularisation artefact. The predictive (latent + noise) covariance inflates K unnecessarily. `predict()` already uses the latent distribution.
 
 ### Time Warping (`heron/models/warping.py`)
 
@@ -126,6 +135,20 @@ Three training modes (set `training.mode` in YAML):
 - Stores `x` (N, D), `y_plus` (N,), `y_cross` (N,); last column of x is always time
 - HDF5 save/load; `append()` for incremental active learning
 
+### GW Likelihood (`heron/gw_likelihood.py`, `heron/noise.py`, `heron/detector.py`)
+
+The GP-marginalised GW likelihood `p(d|θ) = N(d | μ(θ), C + K(θ))`:
+- `GWLikelihood`: wraps the surrogate; computes `log p(d|θ)` for one detector
+- `use_waveform_uncertainty=True/False` switches GP-marginalised vs. standard matched-filter
+- Data and signal are HP-filtered at `f_low`; noise covariance C from `noise_covariance(times, psd_fn, f_low)`
+- K is approximated as **diagonal** (HP filtering creates negative eigenvalues in the full projected K — diagonal stays positive-definite)
+- GP predict casts to `float64` before dividing by `output_scale²` — float32 underflows at 1e-42
+
+**The log-determinant bias**: the likelihood has two competing terms — a data-fit term (peaks at true θ) and a log-det term `−½ log|C+K(θ)|` (penalises high-K regions, i.e. pulls posteriors toward training points). When K/C is large *and* varies strongly with θ (sparse training grid), the log-det term dominates and the posterior is biased toward training parameters. Rule of thumb:
+- K_prior/C ≈ SNR²/N_samples (e.g., SNR=163, N=256 → K_prior/C ≈ 144)
+- K_mid/C < 1 requires q-spacing ≤ 0.03 (30 qs); unbiased posterior requires q-spacing ≤ 0.02 (45 qs)
+- At high SNR (>30), a training grid of 5–10 mass ratios is insufficient for unbiased q PE
+
 ### Evaluation (`heron/evaluate.py`, `heron/evaluation/`)
 
 - `MismatchEvaluator`: computes overlap mismatch between surrogate and reference
@@ -144,12 +167,17 @@ training:
   n_samples: 200        # time samples per mass ratio
   warping:
     type: chirp
-    alpha: 0.625
+    alpha: 0.625        # best empirical value; 0.375 is Newtonian
   model: exact          # exact | sparse
   nu: 2.5
   output_scale: 1.0e27
-  iterations: 400
+  optimizer: lbfgs      # lbfgs (default) | adam
+  iterations: 80        # L-BFGS outer steps; ~80 usually enough
   checkpoint: checkpoints/model.pt
+  # Lengthscale lower bounds — MUST be set; see ExactGPSurrogate notes above
+  ls_min_q: 0.2         # set to q-spacing of mass_ratios grid
+  ls_min_time: 0.030    # set to ~2× warped-time training spacing
+  noise_floor_rel: 1.0e-3  # raise from 1e-6 when ls_min > training spacing
   # optional:
   device: cpu           # or cuda
   save_training_data: checkpoints/training.h5
@@ -157,13 +185,17 @@ training:
     type: newtonian     # zero | newtonian | taylort2
 ```
 
+A worked example: `examples/train_phenomd_hf.yaml` (5 mass ratios, N=1000, ls_min_q=0.2, ls_min_time=0.030).
+
 ## Known Issues
 
 - `heron/models/gpytorch.py` — `HeronNonSpinningApproximant` (RBF class) references `self.warping` never set. Only `HeronNonSpinningApproximantMatern` is usable, and only for loading v1 checkpoints.
 - `heron/training/data.py` — `DataWrapper001.add_waveform()` has a stray `print()` on line 393. Legacy code; new code uses `TrainingSet`.
 - `heron/asimov/` — directory exists but has no `__init__.py`; Asimov integration not yet functional.
 - `heron/models/warping.py` — `PiecewiseWarping.unwarp()` raises `NotImplementedError`.
-- `heron/models/gp/sparse.py` — `SparseGPSurrogate` exists and is referenced in train.py but may not be fully implemented.
+- `heron/models/gp/sparse.py` — `SparseGPSurrogate` has test coverage (`tests/test_gp_sparse.py`) and several past bugs are fixed (kwarg routing in `train.py`, missing `ls_min_q`/`ls_min_time` floors, `predict()` used predictive instead of latent covariance, float32 underflow when dividing by `output_scale**2`, lengthscale init anchored at `data_range/4` instead of `ls_min` on dense grids). A real fit was recovered on the 30-mass-ratio/N=6000 dense grid using `NaturalVariationalDistribution` + `gpytorch.optim.NGD`, but **only after discovering the ExactGPSurrogate-standard `alpha=0.625` chirp warping is specifically bad for this SVGP setup** (r≈0.08 with own training data) vs `alpha=0.375`, `ChirpTimeWarping`'s default (r≈0.74) — `ls_min_time` must be rescaled for whichever alpha is used, since the warped-time range/spacing itself depends on alpha. See `examples/train_phenomd_hf_sparse.yaml`. Even with the fit fixed, K/C came out *worse* than the exact-GP dense10 grid (mean 386 vs 22) — r=0.74 still leaves real residual error, correctly reflected as large K rather than false confidence. Not yet a win over denser `ExactGPSurrogate` grids (up to N≈2000, e.g. `examples/train_phenomd_hf_dense10.yaml`); next lever is tightening the mean fit itself (more inducing points/iterations) now that the warping/lengthscale mismatch is fixed.
+- `heron/gw_likelihood.py` — K is approximated as diagonal (HP filtering produces negative eigenvalues in the full projected covariance). A regularised full-matrix solve would be more correct.
+- **Log-det bias** — at sparse training density (5–10 mass ratios), the GP-marginalised q-posterior is biased toward training mass ratios at SNR > 30. The log-det term `−½ log|C+K(θ)|` dominates the data-fit term when K varies strongly with θ. Requires either denser training (q-spacing ≤ 0.02–0.03) or `SparseGPSurrogate` to fix.
 
 ## Environment
 

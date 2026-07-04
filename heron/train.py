@@ -282,6 +282,7 @@ def heron_train(settings):
 
     mean_module = _build_mean_module(train_settings, warping=warping)
 
+    # Kwargs common to both ExactGPSurrogate and SparseGPSurrogate.
     model_kwargs = {
         "train_x": training_set.x,
         "train_y_plus": training_set.y_plus,
@@ -293,13 +294,22 @@ def heron_train(settings):
         "total_mass": total_mass,
         "distance": distance,
         "training_iterations": train_settings.get("iterations", 100),
-        "optimizer": train_settings.get("optimizer", "lbfgs"),
-        "lr": train_settings.get("lr", None),
+        "ls_min_time": train_settings.get("ls_min_time", 0.0005),
+        "ls_min_q": train_settings.get("ls_min_q", 0.0005),
+        "noise_floor_rel": train_settings.get("noise_floor_rel", 1e-6),
     }
     if mean_module is not None:
         model_kwargs["mean_module"] = mean_module
+
     if model_type == "sparse":
         model_kwargs["n_inducing"] = train_settings.get("n_inducing", 200)
+        if "lr" in train_settings:
+            model_kwargs["learning_rate"] = train_settings["lr"]
+        if "ngd_lr" in train_settings:
+            model_kwargs["ngd_lr"] = train_settings["ngd_lr"]
+    else:
+        model_kwargs["optimizer"] = train_settings.get("optimizer", "lbfgs")
+        model_kwargs["lr"] = train_settings.get("lr", None)
 
     logger.info(
         f"Training {model_type} GP "

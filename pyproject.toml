@@ -72,5 +72,10 @@ zip-safe = true
 [tool.setuptools_scm]
 local_scheme = "no-local-version"
 
+[tool.pytest.ini_options]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+
 [tool.flake8]
 exclude = ["docs"]

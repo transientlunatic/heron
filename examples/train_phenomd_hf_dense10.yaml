@@ -1,0 +1,53 @@
+# Denser ExactGP grid (10 mass ratios instead of 5), staying inside
+# Cholesky's practical N<=2000 safety limit (10 * 200 = 2000 exactly).
+#
+# Interim step while SparseGPSurrogate's variational-collapse issue
+# (see CLAUDE.md Known Issues) gets properly resolved separately: this
+# won't reach the K/C<1 target that needs 30-45 mass ratios, but it's a
+# real, verified improvement over the 5-mass-ratio baseline
+# (examples/train_phenomd_hf.yaml, K/C mean=45) using a fully working
+# code path.
+#
+# Zero mean function: the earlier mean-function experiment
+# (examples/train_phenomd_hf_pnmean.yaml) found the Newtonian/1PN PN
+# mean is uncorrelated with the true waveform at M=60 Msun (r~-0.07),
+# so there's no reason to add that complexity here.
+#
+# Usage: heron train --settings examples/train_phenomd_hf_dense10.yaml
+# Requires: lalsuite (pip install heron[lal])
+
+logging:
+  level: info
+
+training:
+  mode: fixed
+  model: exact
+
+  approximant: IMRPhenomD
+
+  total_mass: 60.0        # solar masses
+  distance: 100.0         # Mpc
+
+  # 10 mass ratios, spacing 0.1, symmetric around (but not touching) the
+  # q=0.8 demo injection point. N_total = 10 * 200 = 2000.
+  mass_ratios: [0.05, 0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95]
+
+  n_samples: 200
+
+  nu: 2.5
+  output_scale: 1.0e+27
+  optimizer: lbfgs
+  iterations: 80
+  device: cpu
+
+  warping:
+    type: chirp
+    alpha: 0.625
+
+  # ls_min_q set to the new grid spacing (0.1, half the baseline's 0.2).
+  ls_min_q: 0.1
+  ls_min_time: 0.030
+  noise_floor_rel: 1.0e-3
+
+  checkpoint: checkpoints/phenomd_nonspinning_dense10.pt
+  save_training_data: checkpoints/phenomd_nonspinning_dense10_data.h5

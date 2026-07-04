@@ -41,14 +41,19 @@ class _ExactGPModel(gpytorch.models.ExactGP):
         train_y: torch.Tensor,
         mean_module: gpytorch.means.Mean | None = None,
         nu: float = 2.5,
+        ls_min_per_dim: list[float] | None = None,
+        noise_floor_rel: float = 1e-6,
     ):
         import math
         from gpytorch.priors import LogNormalPrior
 
         y_var = float(train_y.var())
-        # Hard floor on noise: prevents collapse to zero while still allowing
-        # the GP to fit the (nearly deterministic) waveform data tightly.
-        noise_floor = max(1e-6 * y_var, 1e-10)
+        # Hard floor on noise: prevents ill-conditioning when training points
+        # are highly correlated (ls >> spacing). When ls_min_time > training
+        # spacing the kernel matrix is nearly rank-deficient; noise_floor_rel
+        # controls the minimum noise / y_var so CG converges. Using the latent
+        # GP for K means this noise does NOT inflate the surrogate uncertainty.
+        noise_floor = max(noise_floor_rel * y_var, 1e-10)
         likelihood = gpytorch.likelihoods.GaussianLikelihood(
             noise_constraint=gpytorch.constraints.GreaterThan(noise_floor),
         )
@@ -60,12 +65,13 @@ class _ExactGPModel(gpytorch.models.ExactGP):
         n_dims = train_x.shape[1]
         kernels = []
         for dim in range(n_dims):
+            ls_min = ls_min_per_dim[dim] if ls_min_per_dim is not None else 0.0005
             data_range = float(train_x[:, dim].max() - train_x[:, dim].min())
-            init_ls = data_range / 4.0 if data_range > 0 else 1.0
+            init_ls = max(data_range / 4.0, ls_min) if data_range > 0 else 1.0
             k = gpytorch.kernels.MaternKernel(
                 nu=nu,
                 active_dims=[dim],
-                lengthscale_constraint=gpytorch.constraints.GreaterThan(0.0005),
+                lengthscale_constraint=gpytorch.constraints.GreaterThan(ls_min),
             )
             k.lengthscale = init_ls
             # LogNormal prior centred on the initialised lengthscale with
@@ -139,12 +145,18 @@ class ExactGPSurrogate(WaveformSurrogate):
         training_iterations: int = 400,
         optimizer: str = "lbfgs",
         lr: float | None = None,
+        ls_min_time: float = 0.0005,
+        ls_min_q: float = 0.0005,
+        noise_floor_rel: float = 1e-6,
     ):
         self._device = torch.device(device)
         self.output_scale = output_scale
         self.nu = nu
         self.mass_factor = total_mass
         self.distance_factor = distance
+        self.ls_min_time = ls_min_time
+        self.ls_min_q = ls_min_q
+        self.noise_floor_rel = noise_floor_rel
 
         # Set up warping
         if isinstance(warping, str):
@@ -163,13 +175,20 @@ class ExactGPSurrogate(WaveformSurrogate):
         train_y_plus_scaled = train_y_plus.to(self._device) * self.output_scale
         train_y_cross_scaled = train_y_cross.to(self._device) * self.output_scale
 
-        # Build GP models for each polarisation
+        # Build GP models for each polarisation.
+        # ls_min_per_dim: per-dimension minimum lengthscale (in warped space).
+        # The time dimension (last) uses ls_min_time; parameter dims use ls_min_q.
+        n_dims = train_x_warped.shape[1]
+        ls_min_per_dim = [ls_min_q] * (n_dims - 1) + [ls_min_time]
+
         self.models: dict[str, _ExactGPModel] = {}
         for name, y in [("plus", train_y_plus_scaled), ("cross", train_y_cross_scaled)]:
             model = _ExactGPModel(
                 train_x_warped, y,
                 mean_module=mean_module,
                 nu=nu,
+                ls_min_per_dim=ls_min_per_dim,
+                noise_floor_rel=noise_floor_rel,
             ).to(self._device)
             model.likelihood.to(self._device)
             self.models[name] = model
@@ -205,6 +224,9 @@ class ExactGPSurrogate(WaveformSurrogate):
             mll = gpytorch.mlls.ExactMarginalLogLikelihood(model.likelihood, model)
             loss_history = []
 
+            # Force Cholesky for N ≤ 2000: exact, no CG NaN risk, fast at N=1000.
+            cholesky_ctx = gpytorch.settings.max_cholesky_size(2000)
+
             if optimizer_type == "lbfgs":
                 _lr = lr if lr is not None else 1.0
                 opt = torch.optim.LBFGS(
@@ -218,8 +240,9 @@ class ExactGPSurrogate(WaveformSurrogate):
                 def closure():
                     nonlocal eval_count
                     opt.zero_grad()
-                    output = model(model.train_x)
-                    loss = -mll(output, model.train_y)
+                    with cholesky_ctx:
+                        output = model(model.train_x)
+                        loss = -mll(output, model.train_y)
                     loss.backward()
                     loss_val = float(loss.item())
                     loss_history.append(loss_val)
@@ -246,8 +269,9 @@ class ExactGPSurrogate(WaveformSurrogate):
                 )
                 for i in iter_range:
                     opt.zero_grad()
-                    output = model(model.train_x)
-                    loss = -mll(output, model.train_y)
+                    with cholesky_ctx:
+                        output = model(model.train_x)
+                        loss = -mll(output, model.train_y)
                     loss.backward()
                     opt.step()
                     loss_val = float(loss.item())
@@ -310,15 +334,28 @@ class ExactGPSurrogate(WaveformSurrogate):
 
         for pol_name in ("plus", "cross"):
             model = self.models[pol_name]
-            with torch.no_grad(), gpytorch.settings.fast_pred_var():
-                pred = model.likelihood(model(points_warped))
-                mean = pred.mean.cpu()
-                covar = pred.covariance_matrix.cpu()
+            # gpytorch's default max_cholesky_size is 800; above that it
+            # silently falls back to CG, which can fail to converge (seen
+            # directly: N=2000 with tight lengthscales left CG short of
+            # tolerance, producing an inaccurate, inflated covariance).
+            # _train() already raises this to 2000 for training — predict()
+            # needs the same override for consistent, exact covariances.
+            with torch.no_grad(), gpytorch.settings.fast_pred_var(), \
+                    gpytorch.settings.max_cholesky_size(2000):
+                # Use the LATENT distribution (no observation noise) for the
+                # covariance. The training noise σ² is a regularisation artefact
+                # (LALSuite training data is noiseless); the physical surrogate
+                # uncertainty is the latent posterior covariance K_latent.
+                latent = model(points_warped)
+                mean = latent.mean.cpu()
+                covar = latent.covariance_matrix.cpu()
 
+            # Cast to float64 before dividing: covar / output_scale² ~ 1e12/1e54 = 1e-42,
+            # which underflows float32 (min ~1.2e-38).
             output[pol_name] = Waveform(
-                data=(mean / self.output_scale / distance_factor).numpy(),
+                data=(mean.double() / self.output_scale / distance_factor).numpy(),
                 times=times_np,
-                covariance=(covar / self.output_scale**2 / distance_factor**2).numpy(),
+                covariance=(covar.double() / self.output_scale**2 / distance_factor**2).numpy(),
             )
 
         return output
@@ -341,7 +378,7 @@ class ExactGPSurrogate(WaveformSurrogate):
             warping_config = {"type": str(type(warping).__name__)}
 
         checkpoint = {
-            "format_version": 3,
+            "format_version": 4,
             "heron_version": heron_version,
             "model_class": type(self).__name__,
             "saved_at": datetime.datetime.utcnow().isoformat() + "Z",
@@ -359,6 +396,9 @@ class ExactGPSurrogate(WaveformSurrogate):
             "output_scale": self.output_scale,
             "nu": self.nu,
             "warping": warping_config,
+            "ls_min_time": self.ls_min_time,
+            "ls_min_q": self.ls_min_q,
+            "noise_floor_rel": self.noise_floor_rel,
         }
         torch.save(checkpoint, path)
         logger.info(f"Saved checkpoint to {path} (heron {heron_version})")
@@ -401,6 +441,9 @@ class ExactGPSurrogate(WaveformSurrogate):
             total_mass=checkpoint["mass_factor"],
             distance=checkpoint["distance_factor"],
             training_iterations=0,
+            ls_min_time=checkpoint.get("ls_min_time", 0.0005),
+            ls_min_q=checkpoint.get("ls_min_q", 0.0005),
+            noise_floor_rel=checkpoint.get("noise_floor_rel", 1e-6),
         )
 
         for name, state in checkpoint["model_states"].items():

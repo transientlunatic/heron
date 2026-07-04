@@ -50,15 +50,21 @@ class MarginalLogLikelihood:
         K,
         dtype: torch.dtype = torch.float64,
         device: str | torch.device = "cpu",
+        _L_C: torch.Tensor | None = None,
     ):
         dev = torch.device(device)
         _t = lambda a: torch.as_tensor(np.asarray(a, dtype=float), dtype=dtype, device=dev)
-        C_ = _t(C)
         mu_ = _t(mu)
         K_ = _t(K)
 
         # Factor C once; reused across all calls.
-        self._L_C = torch.linalg.cholesky(C_)
+        # If a pre-computed Cholesky factor is supplied (e.g. by GWLikelihood which
+        # holds a fixed noise covariance), the O(N³) factorisation is skipped.
+        if _L_C is not None:
+            self._L_C = _L_C
+        else:
+            C_ = _t(C)
+            self._L_C = torch.linalg.cholesky(C_)
         log_det_C = 2.0 * self._L_C.diagonal().log().sum()
 
         # Whiten K: A = L_C^{-1} K L_C^{-T}.
@@ -72,7 +78,7 @@ class MarginalLogLikelihood:
 
         # log|C + K| = log|C| + log|I + A| = 2 Σ log L_C_ii + 2 Σ log L_A_ii.
         self._log_det = float(log_det_C + 2.0 * self._L_A.diagonal().log().sum())
-        self._n = C_.shape[0]
+        self._n = self._L_C.shape[0]
 
         # Whitened mean: u_mu = L_C^{-1} mu  (fixed for the given C, mu).
         self._u_mu = torch.linalg.solve_triangular(

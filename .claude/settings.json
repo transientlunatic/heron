@@ -13,7 +13,22 @@
       "Bash(environment/bin/python3.13 -c \":*)",
       "Bash(# Check if _draw_from_prior missing log_likelihood matters # Look at _draw_from_prior - it returns AspireSamples\\(x=x, log_prior=log_prior\\) without log_likelihood # Then aspire_model.fit\\(initial, ...\\) is called - if fit\\(\\) requires log_likelihood this would fail # Let''s check whether the aspire library is available anywhere or check its pypi docs grep -rn \"\"from aspire\\\\|import aspire\"\" /home/daniel/repositories/)",
       "Bash(# Check the aspire repository for context ls /home/daniel/repositories/personal/otter/ ls /home/daniel/repositories/ligo/aspire/)",
-      "Bash(# The per-detector __call__ prints a warning for unrecognized keys but doesn''t fail # However, the waveform.time_domain\\(\\) is called with parameters - does it accept/reject azimuth? # Let''s check the waveform models grep -n \"\"azimuth\\\\|zenith\"\" heron/models/lalsimulation.py heron/models/gpytorch.py)"
+      "Bash(# The per-detector __call__ prints a warning for unrecognized keys but doesn''t fail # However, the waveform.time_domain\\(\\) is called with parameters - does it accept/reject azimuth? # Let''s check the waveform models grep -n \"\"azimuth\\\\|zenith\"\" heron/models/lalsimulation.py heron/models/gpytorch.py)",
+      "Bash(environment/bin/python -m pytest tests/test_likelihood_spec.py -v)",
+      "Bash(environment/bin/python3.13 -m pytest tests/test_gw_likelihood.py -v)",
+      "Bash(./environment/bin/python3.13 -c ' *)",
+      "Bash(/home/daniel/repositories/ligo/heron/environment/bin/python3.13 scripts/demo_uncertainty_comparison.py --checkpoint checkpoints/phenomd_nonspinning.pt --output results/uncertainty_comparison.png --nlive 300 --seed 42)",
+      "Bash(/home/daniel/repositories/ligo/heron/environment/bin/python3.13 -m heron.cli train --settings examples/train_phenomd_hf.yaml)",
+      "Bash(/home/daniel/repositories/ligo/heron/environment/bin/python3.13 -c \"import heron.cli; print\\('OK'\\)\")",
+      "Bash(/home/daniel/repositories/ligo/heron/environment/bin/heron train *)",
+      "Bash(/home/daniel/repositories/ligo/heron/environment/bin/python3.13 scripts/demo_uncertainty_comparison.py --checkpoint checkpoints/phenomd_nonspinning_hf.pt --output /tmp/uncertainty_comparison_hf.png)",
+      "Bash(/home/daniel/repositories/ligo/heron/environment/bin/python3.13 -m pytest tests/test_gp_exact.py -x -q)",
+      "Skill(artifact-design)",
+      "Skill(artifact-design:*)",
+      "Bash(/home/daniel/repositories/ligo/heron/environment/bin/python scripts/demo_uncertainty_comparison.py --checkpoint checkpoints/phenomd_nonspinning_hf.pt --output results/uncertainty_comparison_zeromean.png)",
+      "Bash(/home/daniel/repositories/ligo/heron/environment/bin/python3 -c ' *)",
+      "Bash(git check-ignore *)",
+      "Bash(git status *)"
     ]
   }
 }
