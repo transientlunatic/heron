@@ -310,6 +310,7 @@ def heron_train(settings):
     else:
         model_kwargs["optimizer"] = train_settings.get("optimizer", "lbfgs")
         model_kwargs["lr"] = train_settings.get("lr", None)
+        model_kwargs["cholesky_size"] = train_settings.get("cholesky_size", 2000)
 
     logger.info(
         f"Training {model_type} GP "

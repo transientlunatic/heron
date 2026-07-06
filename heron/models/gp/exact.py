@@ -148,6 +148,7 @@ class ExactGPSurrogate(WaveformSurrogate):
         ls_min_time: float = 0.0005,
         ls_min_q: float = 0.0005,
         noise_floor_rel: float = 1e-6,
+        cholesky_size: int = 2000,
     ):
         self._device = torch.device(device)
         self.output_scale = output_scale
@@ -157,6 +158,7 @@ class ExactGPSurrogate(WaveformSurrogate):
         self.ls_min_time = ls_min_time
         self.ls_min_q = ls_min_q
         self.noise_floor_rel = noise_floor_rel
+        self.cholesky_size = cholesky_size
 
         # Set up warping
         if isinstance(warping, str):
@@ -224,8 +226,10 @@ class ExactGPSurrogate(WaveformSurrogate):
             mll = gpytorch.mlls.ExactMarginalLogLikelihood(model.likelihood, model)
             loss_history = []
 
-            # Force Cholesky for N ≤ 2000: exact, no CG NaN risk, fast at N=1000.
-            cholesky_ctx = gpytorch.settings.max_cholesky_size(2000)
+            # Force Cholesky up to cholesky_size: exact, no CG NaN risk.
+            # Default 2000 matches the CPU-era "safe" ceiling; raise it (GPU
+            # can afford a bigger N^3 factorisation) to train past N=2000.
+            cholesky_ctx = gpytorch.settings.max_cholesky_size(self.cholesky_size)
 
             if optimizer_type == "lbfgs":
                 _lr = lr if lr is not None else 1.0
@@ -338,10 +342,11 @@ class ExactGPSurrogate(WaveformSurrogate):
             # silently falls back to CG, which can fail to converge (seen
             # directly: N=2000 with tight lengthscales left CG short of
             # tolerance, producing an inaccurate, inflated covariance).
-            # _train() already raises this to 2000 for training — predict()
-            # needs the same override for consistent, exact covariances.
+            # _train() already raises this for training — predict() needs
+            # the same override (self.cholesky_size) for consistent, exact
+            # covariances at the same N.
             with torch.no_grad(), gpytorch.settings.fast_pred_var(), \
-                    gpytorch.settings.max_cholesky_size(2000):
+                    gpytorch.settings.max_cholesky_size(self.cholesky_size):
                 # Use the LATENT distribution (no observation noise) for the
                 # covariance. The training noise σ² is a regularisation artefact
                 # (LALSuite training data is noiseless); the physical surrogate
@@ -399,6 +404,7 @@ class ExactGPSurrogate(WaveformSurrogate):
             "ls_min_time": self.ls_min_time,
             "ls_min_q": self.ls_min_q,
             "noise_floor_rel": self.noise_floor_rel,
+            "cholesky_size": self.cholesky_size,
         }
         torch.save(checkpoint, path)
         logger.info(f"Saved checkpoint to {path} (heron {heron_version})")
@@ -444,6 +450,7 @@ class ExactGPSurrogate(WaveformSurrogate):
             ls_min_time=checkpoint.get("ls_min_time", 0.0005),
             ls_min_q=checkpoint.get("ls_min_q", 0.0005),
             noise_floor_rel=checkpoint.get("noise_floor_rel", 1e-6),
+            cholesky_size=checkpoint.get("cholesky_size", 2000),
         )
 
         for name, state in checkpoint["model_states"].items():
