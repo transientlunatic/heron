@@ -112,14 +112,34 @@ def compute_overlap(
     integrand = h1_f * np.conj(h2_f) * inv_psd
 
     if maximize_time:
-        # irfft on a one-sided (rfft) spectrum accounts for conjugate symmetry,
-        # effectively doubling the interior frequencies. The correct scale to
-        # recover the inner product at zero lag is therefore 2*n*df (not 4*n*df).
+        # Complex correlation over the one-sided (positive-frequency)
+        # spectrum: z(tau) = 4 df sum_f integrand_f e^{2 pi i f tau}. Its
+        # modulus at each lag is the inner product maximised analytically
+        # over a constant phase rotation. This must NOT be computed with
+        # irfft: irfft imposes conjugate symmetry (a real output), i.e. it
+        # returns only Re z(tau), and |Re z| equals |z| only when the
+        # optimal phase is 0 or pi. For waveform pairs with a genuinely
+        # nonzero best-fit phase offset (e.g. IMRPhenomD vs IMRPhenomXAS,
+        # ~2 rad), the irfft version undervalued the overlap so badly it
+        # reported 23% mismatch where the true fitting-factor mismatch is
+        # ~0.1% (bug found+fixed 2026-07-15).
+        weighted = integrand.copy()
+        # Same trapezoidal DC/Nyquist half-weighting as _inner, so the
+        # zero-lag value equals the maximize_time=False branch exactly.
+        weighted[0] *= 0.5
+        if n % 2 == 0:
+            weighted[-1] *= 0.5
+        spectrum = np.zeros(n, dtype=complex)
+        spectrum[: len(weighted)] = weighted
+        z_t = np.fft.ifft(spectrum) * n * 4.0 * df
         n_shift = max(1, int(round(max_time_shift / dt)))
-        rho_t = np.fft.irfft(integrand, n=n) * 2.0 * n * df
         # Search within ±n_shift samples (circular, so check both ends)
-        window = np.concatenate([rho_t[:n_shift + 1], rho_t[-(n_shift):]])
-        peak = float(np.max(np.abs(window))) if maximize_phase else float(np.max(window))
+        window = np.concatenate([z_t[:n_shift + 1], z_t[-(n_shift):]])
+        peak = (
+            float(np.max(np.abs(window)))
+            if maximize_phase
+            else float(np.max(window.real))
+        )
     else:
         # Use same trapezoidal weighting as _inner: half weight at DC and Nyquist
         inner_val = 4.0 * df * (integrand[0] / 2.0 + np.sum(integrand[1:-1]) + integrand[-1] / 2.0)

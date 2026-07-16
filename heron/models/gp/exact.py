@@ -17,7 +17,8 @@ import gpytorch
 
 from ..base import WaveformSurrogate
 from ...types import Waveform, WaveformDict
-from ..warping import get_warping, SimpleWarping, ChirpTimeWarping
+from ..warping import get_warping, SimpleWarping, ChirpTimeWarping, MassRatioChirpTimeWarping
+from .kernels import NonstationaryMaternKernel
 
 logger = logging.getLogger("heron.models.gp.exact")
 
@@ -43,11 +44,26 @@ class _ExactGPModel(gpytorch.models.ExactGP):
         nu: float = 2.5,
         ls_min_per_dim: list[float] | None = None,
         noise_floor_rel: float = 1e-6,
+        merger_kernel: bool = False,
+        ls_min_time_merger: float | None = None,
+        merger_center: float = 0.0,
+        merger_width_init: float | None = None,
     ):
         import math
         from gpytorch.priors import LogNormalPrior
 
-        y_var = float(train_y.var())
+        # All data-driven scales (noise floor, outputscale/noise init) must
+        # come from the variance of what the GP actually models: the
+        # RESIDUAL y - mean(x), not the raw target. With an accurate mean
+        # (e.g. a full-IMR approximant mean, residual ~0.1 rad on a ~140 rad
+        # phase target) using var(y) put the noise floor ~5 orders of
+        # magnitude above the entire residual, forcing the GP to explain
+        # its whole signal as observation noise and predict ≈ the bare mean.
+        if mean_module is not None:
+            with torch.no_grad():
+                y_var = float((train_y - mean_module(train_x)).var())
+        else:
+            y_var = float(train_y.var())
         # Hard floor on noise: prevents ill-conditioning when training points
         # are highly correlated (ls >> spacing). When ls_min_time > training
         # spacing the kernel matrix is nearly rank-deficient; noise_floor_rel
@@ -63,11 +79,66 @@ class _ExactGPModel(gpytorch.models.ExactGP):
         self.mean_module = mean_module or gpytorch.means.ZeroMean()
 
         n_dims = train_x.shape[1]
+        time_dim = n_dims - 1
         kernels = []
         for dim in range(n_dims):
             ls_min = ls_min_per_dim[dim] if ls_min_per_dim is not None else 0.0005
             data_range = float(train_x[:, dim].max() - train_x[:, dim].min())
             init_ls = max(data_range / 4.0, ls_min) if data_range > 0 else 1.0
+
+            if merger_kernel and dim == time_dim:
+                # Merger/ringdown is a fast transient right after the long,
+                # slowly-varying inspiral — a single stationary lengthscale
+                # can't represent both (see CLAUDE.md merger/ringdown notes).
+                # Let the time lengthscale itself shrink smoothly around
+                # merger instead of relying on the time-warp shape alone.
+                ls_min_near = ls_min_time_merger if ls_min_time_merger is not None else ls_min
+                init_ls_near = max(ls_min_near * 4.0, ls_min_near)
+                width_init = merger_width_init if merger_width_init is not None else max(init_ls_near, ls_min_near * 4.0)
+                # `center` (the transition location) is fixed, not learned
+                # — see NonstationaryMaternKernel's docstring for why: t=0
+                # is the exact, known physical merger time for every
+                # warping in this codebase, and letting L-BFGS learn it
+                # instead was tried twice (bounded to the data range, then
+                # to +-20*width with an informative prior) and both still
+                # collapsed to the edge of whatever range was allowed,
+                # confirmed on real N=2000 training data. `width` is
+                # bounded on both sides for the same reason: floored
+                # against collapsing to a hard step, capped against
+                # expanding to cover the whole inspiral instead of just
+                # merger/ringdown.
+                min_width = max(width_init / 4.0, ls_min_near)
+                max_width = width_init * 3.0
+                k = NonstationaryMaternKernel(
+                    nu=nu,
+                    active_dims=[dim],
+                    ls_min_far=ls_min,
+                    ls_min_near=ls_min_near,
+                    min_width=min_width,
+                    max_width=max_width,
+                    init_ls_far=init_ls,
+                    init_ls_near=init_ls_near,
+                    center=merger_center,
+                    init_width=width_init,
+                )
+                k.register_prior(
+                    "lengthscale_far_prior",
+                    LogNormalPrior(loc=math.log(init_ls), scale=1.0),
+                    "lengthscale_far",
+                )
+                k.register_prior(
+                    "lengthscale_near_prior",
+                    LogNormalPrior(loc=math.log(init_ls_near), scale=1.0),
+                    "lengthscale_near",
+                )
+                k.register_prior(
+                    "width_prior",
+                    LogNormalPrior(loc=math.log(width_init), scale=1.0),
+                    "width",
+                )
+                kernels.append(k)
+                continue
+
             k = gpytorch.kernels.MaternKernel(
                 nu=nu,
                 active_dims=[dim],
@@ -149,6 +220,10 @@ class ExactGPSurrogate(WaveformSurrogate):
         ls_min_q: float = 0.0005,
         noise_floor_rel: float = 1e-6,
         cholesky_size: int = 2000,
+        merger_kernel: bool = False,
+        ls_min_time_merger: float | None = None,
+        merger_center: float = 0.0,
+        merger_width_init: float | None = None,
     ):
         self._device = torch.device(device)
         self.output_scale = output_scale
@@ -159,6 +234,10 @@ class ExactGPSurrogate(WaveformSurrogate):
         self.ls_min_q = ls_min_q
         self.noise_floor_rel = noise_floor_rel
         self.cholesky_size = cholesky_size
+        self.merger_kernel = merger_kernel
+        self.ls_min_time_merger = ls_min_time_merger
+        self.merger_center = merger_center
+        self.merger_width_init = merger_width_init
 
         # Set up warping
         if isinstance(warping, str):
@@ -169,9 +248,13 @@ class ExactGPSurrogate(WaveformSurrogate):
         # Store unwarped training data for checkpointing
         self._train_x_raw = train_x.clone()
 
-        # Warp the time column (last column)
+        # Warp the time column (last column). mass_ratio (column 0) is
+        # passed through for mass-ratio-adaptive warpings (e.g.
+        # MassRatioChirpTimeWarping); other warpings ignore it.
         train_x_warped = train_x.clone().to(self._device)
-        train_x_warped[:, -1] = self.warping.warp(train_x_warped[:, -1])
+        train_x_warped[:, -1] = self.warping.warp(
+            train_x_warped[:, -1], mass_ratio=train_x_warped[:, 0]
+        )
 
         # Scale outputs
         train_y_plus_scaled = train_y_plus.to(self._device) * self.output_scale
@@ -191,9 +274,22 @@ class ExactGPSurrogate(WaveformSurrogate):
                 nu=nu,
                 ls_min_per_dim=ls_min_per_dim,
                 noise_floor_rel=noise_floor_rel,
+                merger_kernel=merger_kernel,
+                ls_min_time_merger=ls_min_time_merger,
+                merger_center=merger_center,
+                merger_width_init=merger_width_init,
             ).to(self._device)
             model.likelihood.to(self._device)
             self.models[name] = model
+
+        # Lazily-built float64 clones of self.models, used only by predict().
+        # Training stays float32 (matches the training data / existing
+        # checkpoints); prediction needs float64 to avoid roundoff noise in
+        # K_star @ alpha swamping the true signal at fine parameter
+        # resolution (cond(K) ~1e5 combined with float32's ~7 digits leaves
+        # only ~2-3 clean digits — see scripts/gp_precision_probe.py).
+        # Invalidated (reset to None) whenever _train() runs.
+        self._predict_models: dict[str, _ExactGPModel] | None = None
 
         if training_iterations > 0:
             self._train(training_iterations, optimizer_type=optimizer, lr=lr)
@@ -219,6 +315,8 @@ class ExactGPSurrogate(WaveformSurrogate):
             from tqdm import tqdm
         except ImportError:
             tqdm = None
+
+        self._predict_models = None  # invalidate float64 predict cache
 
         for name, model in self.models.items():
             model.train()
@@ -292,6 +390,31 @@ class ExactGPSurrogate(WaveformSurrogate):
             model.likelihood.eval()
             model.loss_history = loss_history
 
+    def _get_predict_models(self) -> dict[str, _ExactGPModel]:
+        """Float64 clones of self.models, built lazily and cached.
+
+        The trained kernel matrix K is only mildly ill-conditioned
+        (cond ~1e5), but combined with float32's ~7 decimal digits that
+        leaves only ~2-3 clean digits in K_star @ alpha — enough for the
+        predictive mean to look smooth at the training-grid scale but swamp
+        the true (much smaller) signal at sub-lengthscale query resolution
+        with pure roundoff noise. Casting the already-trained parameters to
+        float64 fixes this with no retraining required (verified: relative
+        finite-difference change for a 1e-6 mass-ratio step scales linearly
+        with step size in float64 vs. plateauing ~1e-3 in float32 — see
+        scripts/gp_precision_probe.py).
+        """
+        if self._predict_models is None:
+            import copy
+
+            self._predict_models = {}
+            for name, model in self.models.items():
+                pm = copy.deepcopy(model).double()
+                pm.eval()
+                pm.likelihood.eval()
+                self._predict_models[name] = pm
+        return self._predict_models
+
     def predict(self, parameters: dict) -> WaveformDict:
         """Generate waveform with uncertainty.
 
@@ -307,13 +430,14 @@ class ExactGPSurrogate(WaveformSurrogate):
         distance = parameters.get("luminosity_distance", self.distance_factor)
         distance_factor = distance / self.distance_factor
 
-        # Build time array
+        # Build time array. Evaluation happens in float64 — see
+        # _predict_models below — so build points in float64 from the start.
         if "times" in parameters:
-            times = torch.tensor(parameters["times"], dtype=torch.float32) / mass_factor
+            times = torch.tensor(parameters["times"], dtype=torch.float64) / mass_factor
         elif "time" in parameters:
             t = parameters["time"]
             times = torch.linspace(
-                t["lower"], t["upper"], t["number"], dtype=torch.float32
+                t["lower"], t["upper"], t["number"], dtype=torch.float64
             ) / mass_factor
         else:
             raise ValueError("parameters must contain 'times' or 'time'")
@@ -322,13 +446,15 @@ class ExactGPSurrogate(WaveformSurrogate):
 
         # Build evaluation points: (mass_ratio, time)
         points = torch.column_stack([
-            torch.full((n_times,), mass_ratio, dtype=torch.float32),
+            torch.full((n_times,), mass_ratio, dtype=torch.float64),
             times,
         ]).to(self._device)
 
         # Warp the time column
         points_warped = points.clone()
-        points_warped[:, -1] = self.warping.warp(points_warped[:, -1])
+        points_warped[:, -1] = self.warping.warp(
+            points_warped[:, -1], mass_ratio=points_warped[:, 0]
+        )
 
         # Predict
         times_np = times.numpy()
@@ -336,8 +462,10 @@ class ExactGPSurrogate(WaveformSurrogate):
             parameters={k: v for k, v in parameters.items() if k != "time" and k != "times"}
         )
 
+        predict_models = self._get_predict_models()
+
         for pol_name in ("plus", "cross"):
-            model = self.models[pol_name]
+            model = predict_models[pol_name]
             # gpytorch's default max_cholesky_size is 800; above that it
             # silently falls back to CG, which can fail to converge (seen
             # directly: N=2000 with tight lengthscales left CG short of
@@ -355,12 +483,10 @@ class ExactGPSurrogate(WaveformSurrogate):
                 mean = latent.mean.cpu()
                 covar = latent.covariance_matrix.cpu()
 
-            # Cast to float64 before dividing: covar / output_scale² ~ 1e12/1e54 = 1e-42,
-            # which underflows float32 (min ~1.2e-38).
             output[pol_name] = Waveform(
-                data=(mean.double() / self.output_scale / distance_factor).numpy(),
+                data=(mean / self.output_scale / distance_factor).numpy(),
                 times=times_np,
-                covariance=(covar.double() / self.output_scale**2 / distance_factor**2).numpy(),
+                covariance=(covar / self.output_scale**2 / distance_factor**2).numpy(),
             )
 
         return output
@@ -373,6 +499,15 @@ class ExactGPSurrogate(WaveformSurrogate):
         warping = self.warping
         if isinstance(warping, SimpleWarping):
             warping_config = {"type": "simple", "scale": warping.scale}
+        elif isinstance(warping, MassRatioChirpTimeWarping):
+            # Check before ChirpTimeWarping: MassRatioChirpTimeWarping is a
+            # subclass, so the parent isinstance check would also match.
+            warping_config = {
+                "type": "chirp_adaptive",
+                "alpha": warping.alpha,
+                "t_ref": warping.t_ref,
+                "ref_mass_ratio": warping.ref_mass_ratio,
+            }
         elif isinstance(warping, ChirpTimeWarping):
             warping_config = {
                 "type": "chirp",
@@ -382,8 +517,10 @@ class ExactGPSurrogate(WaveformSurrogate):
         else:
             warping_config = {"type": str(type(warping).__name__)}
 
+        from .mean import mean_to_config
+
         checkpoint = {
-            "format_version": 4,
+            "format_version": 6,
             "heron_version": heron_version,
             "model_class": type(self).__name__,
             "saved_at": datetime.datetime.utcnow().isoformat() + "Z",
@@ -396,6 +533,12 @@ class ExactGPSurrogate(WaveformSurrogate):
             "train_y": {
                 name: model.train_y.cpu() for name, model in self.models.items()
             },
+            # Mean functions have no trainable parameters, so state_dicts
+            # cannot restore them -- record explicitly (both polarisation
+            # models share one mean module) or load() silently reverts to
+            # ZeroMean (format_version <= 5 bug; all known v<=5 checkpoints
+            # were trained with ZeroMean, so none are affected).
+            "mean_function": mean_to_config(self.models["plus"].mean_module),
             "mass_factor": self.mass_factor,
             "distance_factor": self.distance_factor,
             "output_scale": self.output_scale,
@@ -405,6 +548,10 @@ class ExactGPSurrogate(WaveformSurrogate):
             "ls_min_q": self.ls_min_q,
             "noise_floor_rel": self.noise_floor_rel,
             "cholesky_size": self.cholesky_size,
+            "merger_kernel": self.merger_kernel,
+            "ls_min_time_merger": self.ls_min_time_merger,
+            "merger_center": self.merger_center,
+            "merger_width_init": self.merger_width_init,
         }
         torch.save(checkpoint, path)
         logger.info(f"Saved checkpoint to {path} (heron {heron_version})")
@@ -436,11 +583,16 @@ class ExactGPSurrogate(WaveformSurrogate):
         if fmt is None:
             return cls._load_v1(checkpoint, warping_obj, device)
 
+        from .mean import mean_from_config
+
         instance = cls(
             train_x=checkpoint["train_x"],
             train_y_plus=checkpoint["train_y"]["plus"] / checkpoint["output_scale"],
             train_y_cross=checkpoint["train_y"]["cross"] / checkpoint["output_scale"],
             warping=warping_obj,
+            mean_module=mean_from_config(
+                checkpoint.get("mean_function"), warping=warping_obj
+            ),
             nu=checkpoint["nu"],
             output_scale=checkpoint["output_scale"],
             device=device,
@@ -451,6 +603,10 @@ class ExactGPSurrogate(WaveformSurrogate):
             ls_min_q=checkpoint.get("ls_min_q", 0.0005),
             noise_floor_rel=checkpoint.get("noise_floor_rel", 1e-6),
             cholesky_size=checkpoint.get("cholesky_size", 2000),
+            merger_kernel=checkpoint.get("merger_kernel", False),
+            ls_min_time_merger=checkpoint.get("ls_min_time_merger"),
+            merger_center=checkpoint.get("merger_center", 0.0),
+            merger_width_init=checkpoint.get("merger_width_init"),
         )
 
         for name, state in checkpoint["model_states"].items():

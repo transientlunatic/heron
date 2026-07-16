@@ -1,0 +1,63 @@
+# Exact-GP at the full target density from CLAUDE.md's log-det bias
+# analysis: spacing <= 0.02 (45 mass ratios) is the condition for a fully
+# unbiased q posterior, vs spacing <= 0.03 (30 mass ratios, K/C<1 target)
+# used by examples/train_phenomd_hf_dense30.yaml.
+#
+# dense30 (N=6000) got K/C mean~1.5-2, essentially flat across the q range,
+# but not <1 everywhere -- a mild log-det bias signature (sigma_q width
+# ratio x0.9, i.e. narrower-with-K) reappeared at low SNR / the edge of the
+# trained q range (q=0.2). This config tests whether the tighter spacing
+# removes that residual bias.
+#
+# N_total = 45 * 200 = 9000. cholesky_size=9000 forces exact Cholesky (no
+# CG fallback) -- untested at this N; dense30 confirmed clean Cholesky up
+# to N=6000 on the same 4GB GPU (RTX 3050 Ti). Run a short smoke test
+# (few iterations) before committing to the full 80-iteration run to check
+# for OOM, since kernel-hyperparameter gradient matrices multiply the
+# ~648MB (9000x9000 float64) base matrix size several times over.
+#
+# Usage: heron train --settings examples/train_phenomd_hf_dense45.yaml
+# Requires: lalsuite (pip install heron[lal]); CUDA GPU strongly recommended.
+
+logging:
+  level: info
+
+training:
+  mode: fixed
+  model: exact
+
+  approximant: IMRPhenomD
+
+  total_mass: 60.0        # solar masses
+  distance: 100.0         # Mpc
+
+  # 45 mass ratios, spacing 0.02, same low end as the dense30/sparse grids.
+  mass_ratios: [0.10, 0.12, 0.14, 0.16, 0.18, 0.20, 0.22, 0.24, 0.26, 0.28,
+                0.30, 0.32, 0.34, 0.36, 0.38, 0.40, 0.42, 0.44, 0.46, 0.48,
+                0.50, 0.52, 0.54, 0.56, 0.58, 0.60, 0.62, 0.64, 0.66, 0.68,
+                0.70, 0.72, 0.74, 0.76, 0.78, 0.80, 0.82, 0.84, 0.86, 0.88,
+                0.90, 0.92, 0.94, 0.96, 0.98]
+
+  n_samples: 200
+
+  nu: 2.5
+  output_scale: 1.0e+27
+  optimizer: lbfgs
+  iterations: 80
+  device: cuda
+
+  # alpha=0.625 is the project standard for ExactGPSurrogate.
+  warping:
+    type: chirp
+    alpha: 0.625
+
+  # ls_min_q set to the grid spacing (0.02).
+  ls_min_q: 0.02
+  ls_min_time: 0.030
+  noise_floor_rel: 1.0e-3
+
+  # Force exact Cholesky at N=9000 -- untested; smoke-test first.
+  cholesky_size: 9000
+
+  checkpoint: checkpoints/phenomd_nonspinning_dense45.pt
+  save_training_data: checkpoints/phenomd_nonspinning_dense45_data.h5

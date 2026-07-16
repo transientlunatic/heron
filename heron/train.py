@@ -27,12 +27,15 @@ logger = logging.getLogger("heron.train")
 MODEL_REGISTRY = {
     "exact": ("heron.models.gp.exact", "ExactGPSurrogate"),
     "sparse": ("heron.models.gp.sparse", "SparseGPSurrogate"),
+    "phase_amplitude": ("heron.models.gp.phase_amplitude", "PhaseAmplitudeGPSurrogate"),
+    "delta": ("heron.models.gp.delta", "DeltaGPSurrogate"),
 }
 
 # Approximant registry — maps config string to (module, class) for lazy import
 APPROXIMANT_REGISTRY = {
     "IMRPhenomPv2": ("heron.models.lalsimulation", "IMRPhenomPv2"),
     "IMRPhenomD": ("heron.models.lalsimulation", "IMRPhenomD"),
+    "IMRPhenomXAS": ("heron.models.lalsimulation", "IMRPhenomXAS"),
     "SEOBNRv3": ("heron.models.lalsimulation", "SEOBNRv3"),
 }
 
@@ -59,9 +62,24 @@ def _get_approximant(name: str):
     return cls()
 
 
-def _build_mean_module(settings: dict, warping=None):
-    """Build a mean function from config, or return None for ZeroMean."""
-    mean_cfg = settings.get("mean_function")
+def _build_mean_module(settings: dict, warping=None, target: str = "strain"):
+    """Build a mean function from config, or return None for ZeroMean.
+
+    Parameters
+    ----------
+    target : str
+        'strain' reads the `mean_function` block and returns a combined
+        h=A*cos(Phi) mean (for ExactGPSurrogate/SparseGPSurrogate).
+        'amplitude'/'phase' read `mean_function_amplitude`/
+        `mean_function_phase` and return a standalone log-amplitude/phase
+        mean (for PhaseAmplitudeGPSurrogate).
+    """
+    cfg_key = {
+        "strain": "mean_function",
+        "amplitude": "mean_function_amplitude",
+        "phase": "mean_function_phase",
+    }[target]
+    mean_cfg = settings.get(cfg_key)
     if mean_cfg is None:
         return None
 
@@ -69,24 +87,42 @@ def _build_mean_module(settings: dict, warping=None):
     if mean_type == "zero":
         return None
 
-    from heron.models.gp.mean import NewtonianInspiralMean, TaylorT2Mean
+    from heron.models.gp import mean as mean_module
 
     total_mass = settings.get("total_mass", 60.0)
     distance = settings.get("distance", 100.0)
-    output_scale = settings.get("output_scale", 1e27)
 
-    if mean_type == "newtonian":
-        return NewtonianInspiralMean(
-            total_mass=total_mass, distance=distance,
-            output_scale=output_scale, warping=warping,
-        )
-    elif mean_type == "taylort2":
-        return TaylorT2Mean(
+    if target == "strain":
+        classes = {"newtonian": "NewtonianInspiralMean", "taylort2": "TaylorT2Mean"}
+        if mean_type == "approximant":
+            raise ValueError(
+                "mean_function type 'approximant' is not supported for the "
+                "strain-domain models: ExactGPSurrogate shares one mean "
+                "module between the plus and cross polarisations, and a "
+                "waveform mean is polarisation-specific (cross is 90 deg "
+                "out of phase). Use model: phase_amplitude with "
+                "mean_function_amplitude/mean_function_phase instead."
+            )
+        if mean_type not in classes:
+            raise ValueError(f"Unknown mean function type '{mean_type}'")
+        output_scale = settings.get("output_scale", 1e27)
+        return getattr(mean_module, classes[mean_type])(
             total_mass=total_mass, distance=distance,
             output_scale=output_scale, warping=warping,
         )
     else:
-        raise ValueError(f"Unknown mean function type '{mean_type}'")
+        target_cap = "Amplitude" if target == "amplitude" else "Phase"
+        classes = {
+            "newtonian": f"NewtonianInspiral{target_cap}Mean",
+            "taylort2": f"TaylorT2{target_cap}Mean",
+            "approximant": f"LALApproximant{target_cap}Mean",
+        }
+        if mean_type not in classes:
+            raise ValueError(f"Unknown mean function type '{mean_type}'")
+        kwargs = dict(total_mass=total_mass, distance=distance, warping=warping)
+        if mean_type == "approximant":
+            kwargs["approximant"] = mean_cfg.get("approximant", "IMRPhenomXAS")
+        return getattr(mean_module, classes[mean_type])(**kwargs)
 
 
 def generate_training_data_fixed(settings: dict) -> TrainingSet:
@@ -138,14 +174,14 @@ def generate_training_data_fixed(settings: dict) -> TrainingSet:
 
         # Sample uniformly in warped space
         times_tensor = torch.tensor(times, dtype=torch.float32)
-        warped_times = warping.warp(times_tensor).numpy()
+        warped_times = warping.warp(times_tensor, mass_ratio=q).numpy()
 
         uniform_warped = np.linspace(warped_times[0], warped_times[-1], n_samples)
         plus_sampled = np.interp(uniform_warped, warped_times, plus_strain)
         cross_sampled = np.interp(uniform_warped, warped_times, cross_strain)
 
         physical_times = warping.unwarp(
-            torch.tensor(uniform_warped, dtype=torch.float32)
+            torch.tensor(uniform_warped, dtype=torch.float32), mass_ratio=q
         ).numpy()
 
         all_q.extend([q] * n_samples)
@@ -280,16 +316,14 @@ def heron_train(settings):
     total_mass = train_settings.get("total_mass", 60.0)
     distance = train_settings.get("distance", 100.0)
 
-    mean_module = _build_mean_module(train_settings, warping=warping)
-
-    # Kwargs common to both ExactGPSurrogate and SparseGPSurrogate.
+    # Kwargs common to ExactGPSurrogate, SparseGPSurrogate and
+    # PhaseAmplitudeGPSurrogate.
     model_kwargs = {
         "train_x": training_set.x,
         "train_y_plus": training_set.y_plus,
         "train_y_cross": training_set.y_cross,
         "warping": warping,
         "nu": train_settings.get("nu", 2.5),
-        "output_scale": train_settings.get("output_scale", 1e27),
         "device": train_settings.get("device", "cpu"),
         "total_mass": total_mass,
         "distance": distance,
@@ -298,8 +332,45 @@ def heron_train(settings):
         "ls_min_q": train_settings.get("ls_min_q", 0.0005),
         "noise_floor_rel": train_settings.get("noise_floor_rel", 1e-6),
     }
-    if mean_module is not None:
-        model_kwargs["mean_module"] = mean_module
+
+    if model_type == "exact" and train_settings.get("merger_kernel", False):
+        model_kwargs["merger_kernel"] = True
+        model_kwargs["ls_min_time_merger"] = train_settings.get("ls_min_time_merger")
+        model_kwargs["merger_center"] = train_settings.get("merger_center", 0.0)
+        model_kwargs["merger_width_init"] = train_settings.get("merger_width_init")
+
+    if model_type == "phase_amplitude":
+        # log-amplitude/phase targets are already well-scaled — no
+        # output_scale needed (unlike raw strain ~1e-21).
+        mean_module_amplitude = _build_mean_module(train_settings, warping=warping, target="amplitude")
+        mean_module_phase = _build_mean_module(train_settings, warping=warping, target="phase")
+        if mean_module_amplitude is not None:
+            model_kwargs["mean_module_amplitude"] = mean_module_amplitude
+        if mean_module_phase is not None:
+            model_kwargs["mean_module_phase"] = mean_module_phase
+    elif model_type == "delta":
+        # Delta targets (residuals against the base approximant) are
+        # already well-scaled — no output_scale — and the base approximant
+        # is the mean, so no mean_module either (delta GPs use ZeroMean).
+        model_kwargs["base_approximant"] = train_settings.get(
+            "base_approximant", "IMRPhenomD"
+        )
+        # The training approximant doubles as the delta model's oracle
+        # evaluator so both sides of the residual are decomposed on dense
+        # native grids (sparse-sample phase unwrap aliases -- see
+        # heron/models/gp/delta.py). In `data` mode with no approximant
+        # setting this stays None and the sparse fallback path is used.
+        model_kwargs["oracle_approximant"] = train_settings.get("approximant")
+        model_kwargs["f_low"] = train_settings.get("f_low", 20.0)
+        model_kwargs["phase_alignment"] = train_settings.get(
+            "phase_alignment", "anchor"
+        )
+        model_kwargs["amp_floor_rel"] = train_settings.get("amp_floor_rel", 1e-4)
+    else:
+        model_kwargs["output_scale"] = train_settings.get("output_scale", 1e27)
+        mean_module = _build_mean_module(train_settings, warping=warping)
+        if mean_module is not None:
+            model_kwargs["mean_module"] = mean_module
 
     if model_type == "sparse":
         model_kwargs["n_inducing"] = train_settings.get("n_inducing", 200)

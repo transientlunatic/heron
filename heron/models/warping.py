@@ -23,11 +23,16 @@ import numpy as np
 class TimeWarping:
     """Base class for time coordinate warping."""
 
-    def warp(self, t):
-        """Transform physical time to warped time (for training/prediction)."""
+    def warp(self, t, mass_ratio=None):
+        """Transform physical time to warped time (for training/prediction).
+
+        ``mass_ratio`` is accepted (and ignored) by every subclass except
+        `MassRatioChirpTimeWarping`, so call sites can pass it uniformly
+        without needing to know the concrete warping type.
+        """
         raise NotImplementedError
 
-    def unwarp(self, t_warp):
+    def unwarp(self, t_warp, mass_ratio=None):
         """Transform warped time back to physical time (for output)."""
         raise NotImplementedError
 
@@ -48,14 +53,14 @@ class SimpleWarping(TimeWarping):
     def __init__(self, scale=2):
         self.scale = scale
 
-    def warp(self, t):
+    def warp(self, t, mass_ratio=None):
         """Warp time coordinates."""
         t_warp = t.clone() if torch.is_tensor(t) else np.copy(t)
         mask = t_warp < 0
         t_warp[mask] = t_warp[mask] / self.scale
         return t_warp
 
-    def unwarp(self, t_warp):
+    def unwarp(self, t_warp, mass_ratio=None):
         """Unwarp time coordinates."""
         t = t_warp.clone() if torch.is_tensor(t_warp) else np.copy(t_warp)
         mask = t < 0
@@ -92,7 +97,7 @@ class ChirpTimeWarping(TimeWarping):
         self.t_ref = t_ref
         self.inv_alpha = 1.0 / alpha
 
-    def warp(self, t):
+    def warp(self, t, mass_ratio=None):
         """
         Warp time using power-law: t_warp = sign(t) * |t|^alpha
 
@@ -102,12 +107,65 @@ class ChirpTimeWarping(TimeWarping):
         t_warp = torch.sign(t) * torch.abs(t / self.t_ref) ** self.alpha * self.t_ref
         return t_warp
 
-    def unwarp(self, t_warp):
+    def unwarp(self, t_warp, mass_ratio=None):
         """
         Unwarp time: t = sign(t_warp) * |t_warp|^(1/alpha)
         """
         t = torch.sign(t_warp) * torch.abs(t_warp / self.t_ref) ** self.inv_alpha * self.t_ref
         return t
+
+
+class MassRatioChirpTimeWarping(ChirpTimeWarping):
+    """
+    Chirp-time warping with a mass-ratio-adaptive reference timescale.
+
+    `ChirpTimeWarping` uses one global `t_ref` for every mass ratio, but the
+    Newtonian chirp time scales as tau(f) ~ Mc^(-5/3), and at fixed total
+    mass Mc^(-5/3) ~ eta^-1 (since Mc = M * eta^(3/5)). A single global
+    t_ref therefore isn't the physically self-similar transform across a
+    mass-ratio grid -- it's only calibrated for whichever mass ratio it was
+    tuned at. This rescales t_ref per point as
+
+        t_ref(q) = t_ref * eta(ref_mass_ratio) / eta(q)
+
+    so warping stays self-similar across q while remaining numerically
+    identical to plain `ChirpTimeWarping` at `mass_ratio == ref_mass_ratio`
+    (default: 1.0, equal mass -- the natural reference point for existing
+    `alpha`/`t_ref` calibrations).
+
+    Parameters
+    ----------
+    alpha, t_ref : as `ChirpTimeWarping`.
+    ref_mass_ratio : float
+        Mass ratio at which the effective t_ref equals the base `t_ref`
+        (default 1.0).
+    """
+
+    def __init__(self, alpha=0.375, t_ref=0.1, ref_mass_ratio=1.0):
+        super().__init__(alpha=alpha, t_ref=t_ref)
+        self.ref_mass_ratio = ref_mass_ratio
+
+    @staticmethod
+    def _eta(q):
+        return q / (1.0 + q) ** 2
+
+    def _effective_t_ref(self, t, mass_ratio):
+        if mass_ratio is None:
+            return self.t_ref
+        if not torch.is_tensor(mass_ratio):
+            dtype = t.dtype if torch.is_tensor(t) else torch.float64
+            mass_ratio = torch.as_tensor(mass_ratio, dtype=dtype)
+        eta = self._eta(mass_ratio)
+        eta_ref = self._eta(torch.as_tensor(self.ref_mass_ratio, dtype=eta.dtype))
+        return self.t_ref * eta_ref / eta
+
+    def warp(self, t, mass_ratio=None):
+        eff_t_ref = self._effective_t_ref(t, mass_ratio)
+        return torch.sign(t) * torch.abs(t / eff_t_ref) ** self.alpha * eff_t_ref
+
+    def unwarp(self, t_warp, mass_ratio=None):
+        eff_t_ref = self._effective_t_ref(t_warp, mass_ratio)
+        return torch.sign(t_warp) * torch.abs(t_warp / eff_t_ref) ** self.inv_alpha * eff_t_ref
 
 
 class PiecewiseWarping(TimeWarping):
@@ -149,7 +207,7 @@ class PiecewiseWarping(TimeWarping):
             regions[t >= bp] = i + 1
         return regions
 
-    def warp(self, t):
+    def warp(self, t, mass_ratio=None):
         """Apply piecewise warping."""
         t_warp = torch.zeros_like(t)
         regions = self._find_region(t)
@@ -165,7 +223,7 @@ class PiecewiseWarping(TimeWarping):
 
         return t_warp
 
-    def unwarp(self, t_warp):
+    def unwarp(self, t_warp, mass_ratio=None):
         """Undo piecewise warping."""
         # This requires inverting the piecewise transformation
         # For now, implement simple version
@@ -186,15 +244,15 @@ class AdaptiveWarping(TimeWarping):
         self.base_warping = base_warping or SimpleWarping()
         # TODO: Add learnable component (e.g., spline or small NN)
 
-    def warp(self, t):
+    def warp(self, t, mass_ratio=None):
         # Start with base warping
-        t_warp = self.base_warping.warp(t)
+        t_warp = self.base_warping.warp(t, mass_ratio=mass_ratio)
         # TODO: Add learned correction
         return t_warp
 
-    def unwarp(self, t_warp):
+    def unwarp(self, t_warp, mass_ratio=None):
         # TODO: Invert learned warping
-        return self.base_warping.unwarp(t_warp)
+        return self.base_warping.unwarp(t_warp, mass_ratio=mass_ratio)
 
 
 def get_warping(warping_type='simple', **kwargs):
@@ -204,7 +262,7 @@ def get_warping(warping_type='simple', **kwargs):
     Parameters:
     -----------
     warping_type : str
-        Type of warping: 'simple', 'chirp', 'piecewise', 'adaptive'
+        Type of warping: 'simple', 'chirp', 'chirp_adaptive', 'piecewise', 'adaptive'
     **kwargs : dict
         Parameters for the specific warping type
 
@@ -216,11 +274,13 @@ def get_warping(warping_type='simple', **kwargs):
     ---------
     >>> warp = get_warping('simple', scale=2)
     >>> warp = get_warping('chirp', alpha=0.375)
+    >>> warp = get_warping('chirp_adaptive', alpha=0.625, ref_mass_ratio=1.0)
     >>> warp = get_warping('piecewise', breakpoints=[-0.1, 0, 0.05], scales=[2, 1])
     """
     warping_types = {
         'simple': SimpleWarping,
         'chirp': ChirpTimeWarping,
+        'chirp_adaptive': MassRatioChirpTimeWarping,
         'piecewise': PiecewiseWarping,
         'adaptive': AdaptiveWarping,
     }

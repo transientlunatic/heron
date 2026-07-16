@@ -1,0 +1,44 @@
+# Fast local CPU smoke test for merger_kernel (NonstationaryMaternKernel).
+# Small grid (3 mass ratios, N=200 each) purely to check the mechanism
+# engages on real IMRPhenomD data without crashing -- not a tuned model.
+# See examples/train_phenomd_hf_dense30_merger_kernel.yaml for the real
+# matched-density comparison run.
+#
+# Usage: heron train --settings examples/train_phenomd_hf_smoke_merger_kernel.yaml
+# Requires: lalsuite (pip install heron[lal])
+
+logging:
+  level: info
+
+training:
+  mode: fixed
+  model: exact
+
+  approximant: IMRPhenomD
+
+  total_mass: 60.0
+  distance: 100.0
+
+  mass_ratios: [0.3, 0.6, 0.9]
+  n_samples: 200
+
+  nu: 2.5
+  output_scale: 1.0e+27
+  optimizer: lbfgs
+  iterations: 40
+  device: cpu
+
+  warping:
+    type: chirp
+    alpha: 0.625
+
+  ls_min_q: 0.3
+  ls_min_time: 0.015
+  noise_floor_rel: 1.0e-3
+
+  merger_kernel: true
+  ls_min_time_merger: 0.005
+  merger_center: 0.0
+  merger_width_init: 0.02
+
+  checkpoint: checkpoints/smoke_merger_kernel.pt

@@ -197,3 +197,11 @@ class IMRPhenomD(LALSimulationApproximant):
     def __init__(self):
         super().__init__()
         self._args["approximant"] = lalsimulation.GetApproximantFromString("IMRPhenomD")
+
+
+class IMRPhenomXAS(LALSimulationApproximant):
+    def __init__(self):
+        super().__init__()
+        self._args["approximant"] = lalsimulation.GetApproximantFromString(
+            "IMRPhenomXAS"
+        )
