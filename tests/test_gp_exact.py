@@ -148,3 +148,51 @@ class TestExactGPSurrogate:
         }
         wf = trained_model.predict(params)
         assert wf["plus"].data.shape == (60,)
+
+
+class TestNoiseFloorUsesResidualVariance:
+    """The noise floor and outputscale/noise init must be scaled by the
+    variance of the residual (y - mean(x)), not the raw target. With an
+    accurate mean function, var(y) put the noise floor orders of magnitude
+    above the entire residual, forcing the GP to predict ~= the bare mean
+    (found with the IMRPhenomXAS mean: 0.1 rad residual on a 141 rad-std
+    phase target)."""
+
+    def test_noise_floor_scales_with_residual_not_target(self):
+        import gpytorch
+        from heron.models.gp.exact import _ExactGPModel
+
+        class BigOffsetMean(gpytorch.means.Mean):
+            def forward(self, x):
+                return 1000.0 * torch.ones(x.shape[0], dtype=x.dtype)
+
+        torch.manual_seed(0)
+        x = torch.rand(50, 2)
+        residual_scale = 0.01
+        y = 1000.0 + residual_scale * torch.randn(50)
+
+        with_mean = _ExactGPModel(
+            x, y, mean_module=BigOffsetMean(), noise_floor_rel=1e-3
+        )
+        floor = float(
+            with_mean.likelihood.noise_covar.raw_noise_constraint.lower_bound
+        )
+        # Residual var ~1e-4 -> floor ~1e-7. Raw target var would be ~0
+        # (constant 1000 + tiny noise) for var computed on y... use a
+        # sloped target to make raw var large instead:
+        y_sloped = 1000.0 * x[:, 0] + residual_scale * torch.randn(50)
+
+        class SlopedMean(gpytorch.means.Mean):
+            def forward(self, xx):
+                return 1000.0 * xx[:, 0]
+
+        sloped = _ExactGPModel(
+            x, y_sloped, mean_module=SlopedMean(), noise_floor_rel=1e-3
+        )
+        sloped_floor = float(
+            sloped.likelihood.noise_covar.raw_noise_constraint.lower_bound
+        )
+        # var(y_sloped) ~ 8e4; residual var ~1e-4. The floor must track the
+        # residual (~1e-7), not the raw target (~80).
+        assert sloped_floor < 1e-5
+        assert floor < 1e-5

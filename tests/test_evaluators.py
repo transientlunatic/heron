@@ -245,3 +245,48 @@ class TestEvaluationReport:
         monkeypatch.setattr(builtins, "__import__", mock_import)
         paths = report.plot_all(tmp_path / "plots")
         assert paths == []
+
+
+class TestComputeOverlapPhaseTimeMaximisation:
+    """Regression tests for the compute_overlap time-shift maximisation.
+
+    The original implementation used np.fft.irfft on the one-sided
+    cross-spectrum, which imposes conjugate symmetry and therefore computes
+    only Re z(tau) -- equal to |z(tau)| only when the optimal constant
+    phase is 0 or pi. For waveform pairs with a genuinely nonzero best-fit
+    phase offset it reported catastrophically inflated mismatch (23% for
+    IMRPhenomD-vs-IMRPhenomXAS whose true windowed mismatch is ~1%).
+    """
+
+    @staticmethod
+    def _chirp(phi0=0.0, tau=0.0, n=2048):
+        import numpy as np
+
+        t = np.linspace(0, 1, n)
+        phase = 2 * np.pi * (30 * (t - tau) + 40 * (t - tau) ** 2) + phi0
+        return np.exp(-(((t - 0.5) / 0.3) ** 2)) * np.cos(phase), t[1] - t[0]
+
+    def test_constant_phase_offset_is_absorbed(self):
+        from heron.evaluation.mismatch import compute_mismatch
+
+        h1, dt = self._chirp()
+        for phi0 in (0.5, np.pi / 2, 2.0, -1.3):
+            h2, _ = self._chirp(phi0=phi0)
+            assert compute_mismatch(h1, h2, dt, None) < 1e-4, phi0
+
+    def test_joint_phase_and_time_offset_absorbed(self):
+        from heron.evaluation.mismatch import compute_mismatch
+
+        h1, dt = self._chirp()
+        h2, _ = self._chirp(phi0=2.0, tau=0.004)
+        assert compute_mismatch(h1, h2, dt, None) < 1e-3
+
+    def test_time_maximisation_never_reduces_overlap(self):
+        """max over (phase, time) must be >= max over phase at zero lag."""
+        from heron.evaluation.mismatch import compute_overlap
+
+        h1, dt = self._chirp()
+        h2, _ = self._chirp(phi0=2.0, tau=0.002)
+        with_time = compute_overlap(h1, h2, dt, None, maximize_time=True)
+        without_time = compute_overlap(h1, h2, dt, None, maximize_time=False)
+        assert with_time >= without_time - 1e-12
