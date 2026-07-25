@@ -442,13 +442,17 @@ class _LALApproximantMeanBase(gpytorch.means.Mean):
             }
         return self._q_cache[key]
 
-    def _eval_channel(self, channel: str, x64: torch.Tensor) -> np.ndarray:
+    def _eval_channel(
+        self, channel: str, x64: torch.Tensor, zero_outside_support: bool = False
+    ) -> np.ndarray:
         """Evaluate one spline channel at (q, warped-time) inputs.
 
         Times outside the waveform's native support are clamped to its
-        edges (channels are frozen at their boundary values); the strain
-        channels additionally zero everything past the clamped region --
-        see subclass forward()s.
+        edges (channels are frozen at their boundary values) unless
+        `zero_outside_support=True`, in which case they are zeroed instead
+        -- used by the strain (plus/cross) means, since raw strain
+        physically decays outside the merger/ringdown envelope, unlike
+        log-amplitude/phase (meaningful, roughly-constant extrapolations).
         """
         q_col = x64[:, 0]
         t_col = x64[:, -1]
@@ -463,7 +467,28 @@ class _LALApproximantMeanBase(gpytorch.means.Mean):
             data = self._get_waveform_data(qv)
             t_clamped = np.clip(t_np[m], data["t0"], data["t1"])
             out[m] = data[channel](t_clamped)
+        if zero_outside_support:
+            out = np.where(self._in_support_mask(x64), out, 0.0)
         return out
+
+    def _in_support_mask(self, x64: torch.Tensor) -> np.ndarray:
+        """True where (q, warped-time) falls inside that q's native
+        generated-waveform window -- shared by every zero-outside-support
+        caller (`_eval_channel` and the plus/cross reconstruction below)
+        so the boundary rule lives in one place."""
+        q_col = x64[:, 0]
+        t_col = x64[:, -1]
+        if self.warping is not None:
+            t_col = self.warping.unwarp(t_col, mass_ratio=q_col)
+        q_np = q_col.numpy()
+        t_np = t_col.numpy()
+
+        mask = np.zeros_like(t_np, dtype=bool)
+        for qv in np.unique(q_np):
+            m = q_np == qv
+            data = self._get_waveform_data(qv)
+            mask[m] = (t_np[m] >= data["t0"]) & (t_np[m] <= data["t1"])
+        return mask
 
     def _cached_forward(self, x: torch.Tensor, compute) -> torch.Tensor:
         x64 = x.detach().to("cpu", torch.float64).contiguous()
@@ -492,6 +517,161 @@ class LALApproximantPhaseMean(_LALApproximantMeanBase):
         return self._cached_forward(x, lambda x64: self._eval_channel("phase", x64))
 
 
+class _LALApproximantWaveformMeanBase(_LALApproximantMeanBase):
+    """Shared base for the plus/cross strain means used by ExactGPSurrogate.
+
+    Unlike the amplitude/phase means above (which extrapolate as a frozen
+    boundary value outside the waveform's native support -- log-amplitude/
+    phase are still meaningful there), raw strain is zeroed outside the
+    native window: h_plus/h_cross physically decay to (near) zero before/
+    after the merger/ringdown envelope, so freezing at a nonzero boundary
+    value would inject a spurious constant offset into the GP's residual
+    for any query time beyond it.
+
+    `output_scale` matches ExactGPSurrogate's raw-strain scaling (~1e-21 ->
+    O(1)); the amplitude/phase means above don't accept it since their
+    targets (log-amplitude, phase) are already well-scaled.
+
+    `phase_correction` (radians, default 0.0) is the constant phase
+    rotation applied before reconstructing h_plus = A*cos(Phi - correction)
+    / h_cross = A*sin(Phi - correction). Different LAL approximant
+    families use slightly different `phi_ref`/`f_ref` conventions -- e.g.
+    IMRPhenomD vs IMRPhenomXAS differ by a near-constant ~-2.15 rad across
+    the whole q range (measured via `compute_phase_correction`, envelope
+    peaks already agree to <1ns so this is NOT a time-alignment issue).
+    That constant is invisible to `heron.evaluation.mismatch.compute_overlap`
+    (which maximises over exactly this phase and reports only the residual
+    mismatch), but it is NOT invisible to a raw GP residual: `cos(Phi)` vs
+    `cos(Phi + 2.15)` are two almost-uncorrelated oscillating functions of
+    comparable magnitude to the raw signal (measured: corr ~= cos(2.15) ~=
+    -0.42 on real training data), so an uncorrected mean makes the GP's job
+    *harder* than ZeroMean, not easier -- this reconstruction (from
+    amplitude/phase, not the raw hp/hx splines) is what fixes that; a
+    naive one-time output-level scalar could not, since the correction has
+    to happen inside the cos/sin, not after it.
+    """
+
+    def __init__(self, *args, output_scale: float = 1e27, phase_correction: float = 0.0, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.output_scale = output_scale
+        self.phase_correction = phase_correction
+
+    def __deepcopy__(self, memo):
+        import copy
+
+        new = type(self)(
+            approximant=self.approximant,
+            total_mass=self.total_mass,
+            distance=self.distance,
+            warping=copy.deepcopy(self.warping, memo),
+            f_low=self.f_low,
+            output_scale=self.output_scale,
+            phase_correction=self.phase_correction,
+        )
+        memo[id(self)] = new
+        return new
+
+    def _reconstruct_channel(self, channel: str, x64: torch.Tensor) -> np.ndarray:
+        log_amplitude = self._eval_channel("log_amplitude", x64, zero_outside_support=False)
+        phase = self._eval_channel("phase", x64, zero_outside_support=False)
+        amplitude = np.exp(log_amplitude)
+        corrected_phase = phase - self.phase_correction
+        vals = (
+            amplitude * np.cos(corrected_phase) if channel == "plus"
+            else amplitude * np.sin(corrected_phase)
+        )
+        return np.where(self._in_support_mask(x64), vals, 0.0)
+
+    def _channel_forward(self, channel: str, x: torch.Tensor) -> torch.Tensor:
+        vals = self._cached_forward(x, lambda x64: self._reconstruct_channel(channel, x64))
+        return vals * self.output_scale
+
+
+class LALApproximantPlusMean(_LALApproximantWaveformMeanBase):
+    """h_plus mean from a full LAL IMR approximant, for ExactGPSurrogate.
+
+    Covers merger and ringdown natively, same motivation as
+    `LALApproximantAmplitudeMean`/`LALApproximantPhaseMean` -- see
+    `_LALApproximantMeanBase` docstring. Reconstructed as
+    `A*cos(Phi - phase_correction)` rather than looked up directly from a
+    raw h_plus spline -- see `_LALApproximantWaveformMeanBase` docstring
+    for why the phase correction is essential here.
+    """
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self._channel_forward("plus", x)
+
+
+class LALApproximantCrossMean(_LALApproximantWaveformMeanBase):
+    """h_cross mean from a full LAL IMR approximant, for ExactGPSurrogate.
+
+    Reconstructed as `A*sin(Phi - phase_correction)` -- see
+    `_LALApproximantWaveformMeanBase` docstring.
+    """
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self._channel_forward("cross", x)
+
+
+def compute_phase_correction(
+    mean_approximant: str,
+    target_approximant: str,
+    total_mass: float = 60.0,
+    distance: float = 100.0,
+    f_low: float = 20.0,
+    reference_mass_ratio: float = 0.5,
+) -> float:
+    """Constant phase offset (radians) between two LAL approximants'
+    plus-polarisation phase conventions, for `LALApproximantPlusMean`/
+    `CrossMean`'s `phase_correction`.
+
+    Measured via a PSD-weighted matched-filter phase alignment (the
+    complex overlap's argument) at one representative mass ratio --
+    empirically near-constant across the whole q range for IMRPhenomD vs
+    IMRPhenomXAS (-2.24 to -2.13 rad over q=0.15-0.9, envelope peaks
+    agreeing to <1ns), so a single reference-q measurement is sufficient;
+    this is a `phi_ref`/`f_ref` convention difference between approximant
+    families, not a per-q physical effect. See
+    `_LALApproximantWaveformMeanBase` for why this matters for a raw
+    strain-domain mean specifically.
+    """
+    from scipy.interpolate import CubicSpline
+    from astropy import units as u
+
+    from heron.train import _get_approximant
+    from heron.evaluation.psd import aligo_design_psd
+
+    params = dict(
+        mass_ratio=reference_mass_ratio,
+        total_mass=total_mass * u.solMass,
+        luminosity_distance=distance * u.Mpc,
+        f_min=f_low * u.Hertz,
+        delta_t=(1.0 / 4096) * u.second,
+    )
+    wf_target = _get_approximant(target_approximant).time_domain(dict(params))
+    wf_mean = _get_approximant(mean_approximant).time_domain(dict(params))
+    t_target = np.asarray(wf_target["plus"].times)
+    h_target = np.asarray(wf_target["plus"].data)
+    t_mean = np.asarray(wf_mean["plus"].times)
+    h_mean = np.asarray(wf_mean["plus"].data)
+
+    dt = 1.0 / 4096
+    t0 = min(t_target[0], t_mean[0])
+    t1 = max(t_target[-1], t_mean[-1])
+    n = int(round((t1 - t0) / dt)) + 1
+    tgrid = t0 + np.arange(n) * dt
+    target_grid = np.nan_to_num(CubicSpline(t_target, h_target, extrapolate=False)(tgrid))
+    mean_grid = np.nan_to_num(CubicSpline(t_mean, h_mean, extrapolate=False)(tgrid))
+
+    freqs = np.fft.rfftfreq(n, d=dt)
+    target_f = np.fft.rfft(target_grid)
+    mean_f = np.fft.rfft(mean_grid)
+    psd = aligo_design_psd(freqs)
+    band = freqs >= f_low
+    z = np.sum(np.conj(target_f[band]) * mean_f[band] / psd[band])
+    return float(np.angle(z))
+
+
 # --- Mean-function (de)serialization -------------------------------------
 #
 # Checkpoints must record which mean function a model was trained with:
@@ -511,6 +691,8 @@ _MEAN_CLASS_TO_CONFIG = {
     TaylorT2PhaseMean: ("taylort2", "phase"),
     LALApproximantAmplitudeMean: ("approximant", "amplitude"),
     LALApproximantPhaseMean: ("approximant", "phase"),
+    LALApproximantPlusMean: ("approximant", "plus"),
+    LALApproximantCrossMean: ("approximant", "cross"),
 }
 
 _CONFIG_TO_MEAN_CLASS = {v: k for k, v in _MEAN_CLASS_TO_CONFIG.items()}
@@ -541,8 +723,10 @@ def mean_to_config(mean) -> dict | None:
         "distance": mean.distance,
         "f_low": mean.f_low,
     }
-    if target == "strain":
+    if target in ("strain", "plus", "cross"):
         config["output_scale"] = mean.output_scale
+    if target in ("plus", "cross"):
+        config["phase_correction"] = mean.phase_correction
     if mean_type == "approximant":
         config["approximant"] = mean.approximant
     return config
@@ -566,8 +750,10 @@ def mean_from_config(config: dict | None, warping=None):
         "f_low": config.get("f_low", 20.0),
         "warping": warping,
     }
-    if config["target"] == "strain":
+    if config["target"] in ("strain", "plus", "cross"):
         kwargs["output_scale"] = config.get("output_scale", 1e27)
+    if config["target"] in ("plus", "cross"):
+        kwargs["phase_correction"] = config.get("phase_correction", 0.0)
     if config["type"] == "approximant":
         kwargs["approximant"] = config.get("approximant", "IMRPhenomXAS")
     return cls(**kwargs)

@@ -18,7 +18,12 @@ import gpytorch
 from ..base import WaveformSurrogate
 from ...types import Waveform, WaveformDict
 from ..warping import get_warping, SimpleWarping, ChirpTimeWarping, MassRatioChirpTimeWarping
-from .kernels import NonstationaryMaternKernel
+from .kernels import (
+    NonstationaryMaternKernel,
+    build_additive_floor_kernel,
+    WarpedMaternKernel,
+    Q_WARP_FUNCTIONS,
+)
 
 logger = logging.getLogger("heron.models.gp.exact")
 
@@ -48,6 +53,11 @@ class _ExactGPModel(gpytorch.models.ExactGP):
         ls_min_time_merger: float | None = None,
         merger_center: float = 0.0,
         merger_width_init: float | None = None,
+        q_floor_kernel: bool = False,
+        q_floor_lengthscale: float | None = None,
+        q_floor_outputscale_min: float = 0.05,
+        q_floor_outputscale_init: float | None = None,
+        q_warping: str | None = None,
     ):
         import math
         from gpytorch.priors import LogNormalPrior
@@ -139,6 +149,65 @@ class _ExactGPModel(gpytorch.models.ExactGP):
                 kernels.append(k)
                 continue
 
+            if q_warping is not None and dim != time_dim:
+                # Fixed, monotonic warp applied only inside this kernel's
+                # own distance computation (WarpedMaternKernel) -- the
+                # shared `x` the mean function sees is untouched, so mean
+                # functions needing the physical mass ratio (e.g. the
+                # LAL-approximant means) need no changes. init_ls/data_range
+                # must be computed in WARPED units here, same discipline as
+                # ls_min_time being set from the real warped-time spacing
+                # rather than the raw physical spacing.
+                warp_fn = Q_WARP_FUNCTIONS[q_warping]
+                warped_col = warp_fn(train_x[:, dim])
+                data_range_w = float(warped_col.max() - warped_col.min())
+                init_ls_w = max(data_range_w / 4.0, ls_min) if data_range_w > 0 else 1.0
+                k = WarpedMaternKernel(
+                    warp_fn=warp_fn,
+                    nu=nu,
+                    active_dims=[dim],
+                    lengthscale_constraint=gpytorch.constraints.GreaterThan(ls_min),
+                )
+                k.lengthscale = init_ls_w
+                k.register_prior(
+                    "lengthscale_prior",
+                    LogNormalPrior(loc=math.log(init_ls_w), scale=1.0),
+                    "lengthscale",
+                )
+                kernels.append(k)
+                continue
+
+            if q_floor_kernel and dim != time_dim:
+                # See build_additive_floor_kernel's docstring: the training-
+                # grid-periodic collapse of posterior variance near a
+                # training node (CLAUDE.md "Log-det bias" notes) is
+                # addressed here by adding a fixed-lengthscale, long-range
+                # kernel component alongside the usual short one, rather
+                # than shortening/lengthening a single shared lengthscale.
+                floor_ls = (
+                    q_floor_lengthscale if q_floor_lengthscale is not None
+                    else max(data_range, 1.0) * 3.0
+                )
+                k = build_additive_floor_kernel(
+                    nu=nu,
+                    active_dims=[dim],
+                    ls_min=ls_min,
+                    init_ls=init_ls,
+                    floor_lengthscale=floor_ls,
+                    floor_outputscale_min=q_floor_outputscale_min,
+                    floor_outputscale_init=q_floor_outputscale_init,
+                )
+                # Prior on the short component's lengthscale only — same
+                # rationale/shape as the plain-Matern case below. k.kernels
+                # is the AdditiveKernel's [short, long_scaled] ModuleList.
+                k.kernels[0].register_prior(
+                    "lengthscale_prior",
+                    LogNormalPrior(loc=math.log(init_ls), scale=1.0),
+                    "lengthscale",
+                )
+                kernels.append(k)
+                continue
+
             k = gpytorch.kernels.MaternKernel(
                 nu=nu,
                 active_dims=[dim],
@@ -194,7 +263,17 @@ class ExactGPSurrogate(WaveformSurrogate):
     device : str
         Torch device ('cpu' or 'cuda').
     mean_module : gpytorch.means.Mean or None
-        Custom mean function (e.g. PN-based). None → ZeroMean.
+        Custom mean function shared between plus and cross (e.g. PN-based;
+        a shared waveform mean is only physically valid for polarisation-
+        agnostic means -- a full-approximant mean is NOT, see
+        `mean_module_plus`/`mean_module_cross`). None → ZeroMean.
+    mean_module_plus, mean_module_cross : gpytorch.means.Mean or None
+        Polarisation-specific mean functions (e.g. `LALApproximantPlusMean`/
+        `LALApproximantCrossMean`), overriding `mean_module` for that
+        polarisation only. A waveform mean is inherently polarisation-
+        specific (cross is 90 deg out of phase), unlike the PN means, which
+        combine amplitude*cos(phase) identically for both and so can be
+        shared via `mean_module`.
     total_mass : float
         Reference total mass used during training (solar masses).
     distance : float
@@ -211,6 +290,8 @@ class ExactGPSurrogate(WaveformSurrogate):
         output_scale: float = 1e27,
         device: str = "cpu",
         mean_module: gpytorch.means.Mean | None = None,
+        mean_module_plus: gpytorch.means.Mean | None = None,
+        mean_module_cross: gpytorch.means.Mean | None = None,
         total_mass: float = 60.0,
         distance: float = 100.0,
         training_iterations: int = 400,
@@ -224,6 +305,11 @@ class ExactGPSurrogate(WaveformSurrogate):
         ls_min_time_merger: float | None = None,
         merger_center: float = 0.0,
         merger_width_init: float | None = None,
+        q_floor_kernel: bool = False,
+        q_floor_lengthscale: float | None = None,
+        q_floor_outputscale_min: float = 0.05,
+        q_floor_outputscale_init: float | None = None,
+        q_warping: str | None = None,
     ):
         self._device = torch.device(device)
         self.output_scale = output_scale
@@ -238,6 +324,11 @@ class ExactGPSurrogate(WaveformSurrogate):
         self.ls_min_time_merger = ls_min_time_merger
         self.merger_center = merger_center
         self.merger_width_init = merger_width_init
+        self.q_floor_kernel = q_floor_kernel
+        self.q_floor_lengthscale = q_floor_lengthscale
+        self.q_floor_outputscale_min = q_floor_outputscale_min
+        self.q_floor_outputscale_init = q_floor_outputscale_init
+        self.q_warping = q_warping
 
         # Set up warping
         if isinstance(warping, str):
@@ -266,11 +357,16 @@ class ExactGPSurrogate(WaveformSurrogate):
         n_dims = train_x_warped.shape[1]
         ls_min_per_dim = [ls_min_q] * (n_dims - 1) + [ls_min_time]
 
+        mean_modules = {
+            "plus": mean_module_plus if mean_module_plus is not None else mean_module,
+            "cross": mean_module_cross if mean_module_cross is not None else mean_module,
+        }
+
         self.models: dict[str, _ExactGPModel] = {}
         for name, y in [("plus", train_y_plus_scaled), ("cross", train_y_cross_scaled)]:
             model = _ExactGPModel(
                 train_x_warped, y,
-                mean_module=mean_module,
+                mean_module=mean_modules[name],
                 nu=nu,
                 ls_min_per_dim=ls_min_per_dim,
                 noise_floor_rel=noise_floor_rel,
@@ -278,6 +374,11 @@ class ExactGPSurrogate(WaveformSurrogate):
                 ls_min_time_merger=ls_min_time_merger,
                 merger_center=merger_center,
                 merger_width_init=merger_width_init,
+                q_floor_kernel=q_floor_kernel,
+                q_floor_lengthscale=q_floor_lengthscale,
+                q_floor_outputscale_min=q_floor_outputscale_min,
+                q_floor_outputscale_init=q_floor_outputscale_init,
+                q_warping=q_warping,
             ).to(self._device)
             model.likelihood.to(self._device)
             self.models[name] = model
@@ -520,7 +621,7 @@ class ExactGPSurrogate(WaveformSurrogate):
         from .mean import mean_to_config
 
         checkpoint = {
-            "format_version": 6,
+            "format_version": 7,
             "heron_version": heron_version,
             "model_class": type(self).__name__,
             "saved_at": datetime.datetime.utcnow().isoformat() + "Z",
@@ -534,11 +635,18 @@ class ExactGPSurrogate(WaveformSurrogate):
                 name: model.train_y.cpu() for name, model in self.models.items()
             },
             # Mean functions have no trainable parameters, so state_dicts
-            # cannot restore them -- record explicitly (both polarisation
-            # models share one mean module) or load() silently reverts to
-            # ZeroMean (format_version <= 5 bug; all known v<=5 checkpoints
-            # were trained with ZeroMean, so none are affected).
-            "mean_function": mean_to_config(self.models["plus"].mean_module),
+            # cannot restore them -- record explicitly or load() silently
+            # reverts to ZeroMean (format_version <= 5 bug; all known v<=5
+            # checkpoints were trained with ZeroMean, so none are affected).
+            # format_version 7: per-polarisation, since a waveform mean
+            # (e.g. LALApproximantPlusMean/CrossMean) is not shareable
+            # between plus/cross like the older PN means were -- v<=6
+            # checkpoints (single shared "mean_function") still load, see
+            # load() below.
+            "mean_functions": {
+                name: mean_to_config(model.mean_module)
+                for name, model in self.models.items()
+            },
             "mass_factor": self.mass_factor,
             "distance_factor": self.distance_factor,
             "output_scale": self.output_scale,
@@ -552,6 +660,11 @@ class ExactGPSurrogate(WaveformSurrogate):
             "ls_min_time_merger": self.ls_min_time_merger,
             "merger_center": self.merger_center,
             "merger_width_init": self.merger_width_init,
+            "q_floor_kernel": self.q_floor_kernel,
+            "q_floor_lengthscale": self.q_floor_lengthscale,
+            "q_floor_outputscale_min": self.q_floor_outputscale_min,
+            "q_floor_outputscale_init": self.q_floor_outputscale_init,
+            "q_warping": self.q_warping,
         }
         torch.save(checkpoint, path)
         logger.info(f"Saved checkpoint to {path} (heron {heron_version})")
@@ -585,13 +698,25 @@ class ExactGPSurrogate(WaveformSurrogate):
 
         from .mean import mean_from_config
 
+        # format_version <= 6 checkpoints store a single shared
+        # "mean_function"; format_version 7+ stores "mean_functions", a
+        # dict keyed "plus"/"cross" (needed since a waveform mean is
+        # polarisation-specific and can't be shared -- see save()).
+        mean_cfgs = checkpoint.get("mean_functions")
+        if mean_cfgs is None:
+            shared_cfg = checkpoint.get("mean_function")
+            mean_cfgs = {"plus": shared_cfg, "cross": shared_cfg}
+
         instance = cls(
             train_x=checkpoint["train_x"],
             train_y_plus=checkpoint["train_y"]["plus"] / checkpoint["output_scale"],
             train_y_cross=checkpoint["train_y"]["cross"] / checkpoint["output_scale"],
             warping=warping_obj,
-            mean_module=mean_from_config(
-                checkpoint.get("mean_function"), warping=warping_obj
+            mean_module_plus=mean_from_config(
+                mean_cfgs.get("plus"), warping=warping_obj
+            ),
+            mean_module_cross=mean_from_config(
+                mean_cfgs.get("cross"), warping=warping_obj
             ),
             nu=checkpoint["nu"],
             output_scale=checkpoint["output_scale"],
@@ -607,6 +732,11 @@ class ExactGPSurrogate(WaveformSurrogate):
             ls_min_time_merger=checkpoint.get("ls_min_time_merger"),
             merger_center=checkpoint.get("merger_center", 0.0),
             merger_width_init=checkpoint.get("merger_width_init"),
+            q_floor_kernel=checkpoint.get("q_floor_kernel", False),
+            q_floor_lengthscale=checkpoint.get("q_floor_lengthscale"),
+            q_floor_outputscale_min=checkpoint.get("q_floor_outputscale_min", 0.05),
+            q_floor_outputscale_init=checkpoint.get("q_floor_outputscale_init"),
+            q_warping=checkpoint.get("q_warping"),
         )
 
         for name, state in checkpoint["model_states"].items():

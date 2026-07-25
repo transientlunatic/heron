@@ -1,0 +1,27 @@
+# DAG: matched-family (IMRPhenomXAS) injection NS validation on the
+# ls_min_q=0.06-fixed checkpoints, for both representations.
+#
+# RETRAIN builds checkpoints/phenomd_nonspinning_dense30_exact_xas_lsminq006.pt
+# (the exact/plus-cross+XAS analogue of the already-existing
+# phase_amplitude_xas_lsminq006 checkpoint). EXACT_WITHK/EXACT_NOK need
+# that checkpoint, so they're children of RETRAIN. PA_WITHK/PA_NOK use the
+# already-trained phase-amplitude checkpoint and have no dependency, so
+# they run immediately in parallel with RETRAIN.
+#
+# Submit from /scratch/wiay/daniel/heron-dense45 on wiay:
+#   condor_submit_dag condor/dag_matched_lsminq006.dag
+# Monitor: condor_q daniel -all ; tail -f condor/dag_matched_lsminq006.dag.dagman.out
+
+JOB RETRAIN    condor/train_exact_xas_lsminq006.sub
+JOB PA_WITHK   condor/pa_xas_lsminq006_matched_withK.sub
+JOB PA_NOK     condor/pa_xas_lsminq006_matched_noK.sub
+JOB EXACT_WITHK condor/exact_xas_lsminq006_matched_withK.sub
+JOB EXACT_NOK   condor/exact_xas_lsminq006_matched_noK.sub
+
+PARENT RETRAIN CHILD EXACT_WITHK EXACT_NOK
+
+RETRY RETRAIN 1
+RETRY EXACT_WITHK 1
+RETRY EXACT_NOK 1
+RETRY PA_WITHK 1
+RETRY PA_NOK 1

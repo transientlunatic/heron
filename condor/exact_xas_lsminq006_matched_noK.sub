@@ -1,0 +1,22 @@
+# Matched-family (IMRPhenomXAS) injection, without-K (matched-filter
+# control), against the ls_min_q=0.06-fixed plus/cross
+# ExactGPSurrogate+XAS checkpoint. Part of dag_matched_lsminq006.dag --
+# PARENT is the RETRAIN node.
+universe        = vanilla
+executable      = condor/run_ns_exact_xas_lsminq006_matched.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk")
+request_gpus    = 1
+request_cpus    = 2
+request_memory  = 4096
+should_transfer_files = NO
+getenv          = false
+arguments       = $(q) $(qtag) --no-uncertainty
+output          = condor_logs/ns_exact_lsminq006_matched_$(qtag).out
+error           = condor_logs/ns_exact_lsminq006_matched_$(qtag).err
+log             = condor_logs/ns_exact_lsminq006_matched_$(qtag).log
+
+queue q,qtag from (
+    0.50, q050_noK
+    0.60, q060_noK
+    0.80, q080_noK
+)

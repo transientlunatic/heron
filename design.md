@@ -66,3 +66,47 @@ subsequent work. Options:
 + Working up to a fully precessing model
 
 + Adding higher modes
+
+## Known limitation, deferred: low mass-ratio (q ≲ 0.4)
+
+The current `ExactGPSurrogate` mean develops a secular (monotonically
+accumulating) phase-evolution-rate error below q≈0.4, peaking worst around
+q≈0.27-0.30 (mismatch 55-65% there vs ~2% at q≳0.7). Root-caused (2026-07-14,
+see CLAUDE.md Known Issues and the `mean_function_low_q_defect` memory) to
+two compounding structural issues, not a config/training bug:
+
+1. `ChirpTimeWarping` applies one global `(alpha, t_ref)` to every mass
+   ratio, but the Newtonian chirp timescale scales as η⁻¹ at fixed total
+   mass (η varies ~3x across a typical q=0.1-1.0 grid) — a single global
+   warping can't be the self-similar transform for every q at once.
+2. The product/separable Matérn kernel has no q×time interaction term, so
+   one global time lengthscale must serve the whole q range — and it's
+   confirmed pinned at its regularisation floor (`ls_min_time`) in every
+   checkpoint trained so far, meaning the optimizer wants finer resolution
+   and structurally can't get it with this kernel.
+
+Tried and **ruled out as quick fixes**: more training density (dense10 →
+dense45, no change — this rules out interpolation/grid-spacing as the
+cause), a mass-ratio-adaptive warping (`MassRatioChirpTimeWarping`,
+`heron/models/warping.py`, `type: chirp_adaptive`) at two different anchor
+points — both real (phase drift in the targeted region drops 3-10x) but
+net-negative in aggregate (the fix trades hump-region improvement for
+upper-range regression, since it redistributes the same floor-limited
+kernel capacity rather than adding any).
+
+**Decision (2026-07-14): accept this as a hard limitation for now.**
+Restrict any PE/inference prior to q≥0.4 (`scripts/injection_nested_sampling.py`
+now defaults `--q-bounds` to `[0.4, 0.95]`) rather than chase a fix further
+in the near term. This mirrors a difficulty other time-domain waveform
+surrogate frameworks also face at extreme mass ratios (sparse/expensive
+oracle coverage and fast phase evolution both bite harder there) — it's
+not unique to this GP formulation, so it's reasonable to scope it out as
+follow-on work rather than a blocker for q≥0.4 science.
+
+**Real fix, future work (not attempted yet):** pair the adaptive warping
+with either a smaller `ls_min_time` (+ higher `noise_floor_rel` to keep
+`K+σ²I` conditioned) or a non-separable/per-q kernel so capacity is added
+rather than redistributed; alternatively the amplitude-phase decomposition
+or reduced-basis architectural changes above may sidestep the problem
+entirely by construction. Low priority relative to the higher-priority
+architectural items above unless a science case specifically needs q<0.4.

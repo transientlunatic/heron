@@ -1,0 +1,26 @@
+# No-K (plain matched-filter, --no-uncertainty) companion to
+# scan_pa_xas.sub -- isolates log-det/K-marginalisation effects from
+# mean-function effects, same as the lsmin0075 scan pairs.
+universe        = vanilla
+executable      = condor/run_ns_pa_xas.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk")
+request_gpus    = 1
+request_cpus    = 2
+request_memory  = 4096
+should_transfer_files = NO
+getenv          = false
+arguments       = $(q) $(qtag)_nounc --no-uncertainty
+output          = condor_logs/ns_pa_xas_$(qtag)_nounc.out
+error           = condor_logs/ns_pa_xas_$(qtag)_nounc.err
+log             = condor_logs/ns_pa_xas_$(qtag)_nounc.log
+
+queue q,qtag from (
+    0.25, q025
+    0.40, q040
+    0.50, q050
+    0.60, q060
+    0.70, q070
+    0.80, q080
+    0.90, q090
+    0.95, q095
+)

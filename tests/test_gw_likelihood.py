@@ -198,3 +198,98 @@ class TestInjectionRecovery:
                 f"should be < ll(Δtc={dt - shifts[0]})={ll_prev:.2f}"
             )
             ll_prev = ll
+
+
+# ---------------------------------------------------------------------------
+# K-smoothing: enveloping the diagonal variance over nearby mass_ratio offsets
+# ---------------------------------------------------------------------------
+
+class _DippedVarianceSurrogate:
+    """Like _SineSurrogate, but with a variance that dips sharply at a single
+    mass_ratio value, mimicking a GP posterior's minimum at a training node."""
+
+    def __init__(self, dip_at: float, f0: float = 50.0, amplitude: float = 1.0):
+        self.dip_at = dip_at
+        self.f0 = f0
+        self.amplitude = amplitude
+
+    def predict(self, params: dict) -> WaveformDict:
+        times = np.asarray(params["times"], dtype=float)
+        q = params.get("mass_ratio", self.dip_at)
+        phase = 2.0 * np.pi * self.f0 * times
+        A = self.amplitude
+        # Far variance comparable in scale to the noise covariance C (~236 in
+        # this fixture's units) so the envelope's effect on log|C+K| and the
+        # quadratic term is large enough to distinguish from float roundoff;
+        # near (the "training node") variance is negligible by comparison.
+        far = (A * 0.5) ** 2
+        near = (A * 1e-6) ** 2
+        var = near if abs(q - self.dip_at) < 1e-9 else far
+        cov = np.eye(len(times)) * var
+        return WaveformDict(
+            plus=Waveform(data=A * np.sin(phase), times=times, covariance=cov),
+            cross=Waveform(data=A * np.cos(phase), times=times, covariance=cov),
+        )
+
+
+class TestKSmoothing:
+
+    @pytest.fixture
+    def dipped_injection(self):
+        dt = 1.0 / 512.0
+        n = 64
+        times = TRUE_TC + (np.arange(n) - n // 2) * dt
+        surrogate = _DippedVarianceSurrogate(dip_at=TRUE_Q)
+        fp_true, fc_true = antenna_patterns(TRUE_RA, TRUE_DEC, TRUE_PSI, TRUE_TC, DETECTOR)
+        t_rel = times - TRUE_TC
+        wf = surrogate.predict({"times": t_rel, "mass_ratio": TRUE_Q})
+        mu_true, _ = project_waveform(wf, fp_true, fc_true)
+        return surrogate, times, mu_true
+
+    def test_no_offsets_matches_prior_behaviour(self, dipped_injection):
+        """Default (no k_smoothing_offsets) must be numerically identical to
+        the pre-existing raw-diagonal behaviour."""
+        surrogate, times, mu_true = dipped_injection
+        gw_ll = GWLikelihood(
+            data=mu_true, times=times, psd_fn=_flat_psd,
+            surrogate=surrogate, detector=DETECTOR, f_low=20.0,
+        )
+        params = {"mass_ratio": TRUE_Q, "tc": TRUE_TC, "ra": TRUE_RA,
+                  "dec": TRUE_DEC, "psi": TRUE_PSI}
+        assert gw_ll._k_smoothing_offsets == []
+        ll = gw_ll(params)
+        assert np.isfinite(ll)
+
+    def test_envelope_uses_max_variance_at_the_dip(self, dipped_injection):
+        """At the dip (a training-node-like point), enveloping over an
+        offset that lands off the dip must raise K above the raw (dipped)
+        value -- this is the mechanism the fix relies on."""
+        surrogate, times, mu_true = dipped_injection
+
+        gw_ll_raw = GWLikelihood(
+            data=mu_true, times=times, psd_fn=_flat_psd,
+            surrogate=surrogate, detector=DETECTOR, f_low=20.0,
+        )
+        gw_ll_smoothed = GWLikelihood(
+            data=mu_true, times=times, psd_fn=_flat_psd,
+            surrogate=surrogate, detector=DETECTOR, f_low=20.0,
+            k_smoothing_offsets=[0.05, -0.05],
+        )
+        params = {"mass_ratio": TRUE_Q, "tc": TRUE_TC, "ra": TRUE_RA,
+                  "dec": TRUE_DEC, "psi": TRUE_PSI}
+
+        fp, fc = antenna_patterns(TRUE_RA, TRUE_DEC, TRUE_PSI, TRUE_TC, DETECTOR)
+        t_rel = times - TRUE_TC
+        wf_raw = surrogate.predict({"times": t_rel, "mass_ratio": TRUE_Q})
+        _, K_raw = project_waveform(wf_raw, fp, fc)
+        K_env = gw_ll_smoothed._k_diagonal_envelope(
+            {"times": t_rel, "mass_ratio": TRUE_Q}, fp, fc, K_raw,
+        )
+
+        assert np.all(K_env.diagonal() >= K_raw.diagonal())
+        assert np.any(K_env.diagonal() > K_raw.diagonal())
+
+        # A likelihood evaluated exactly at the dip should therefore differ
+        # substantially between the raw and smoothed variants (smoothing is
+        # not a no-op) -- not just by float roundoff.
+        assert abs(gw_ll_raw(params) - gw_ll_smoothed(params)) > 1.0

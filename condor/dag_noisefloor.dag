@@ -1,0 +1,17 @@
+# DAG: noise_floor_rel=5e-2 experiment (see condor/train_pa_xas_noisefloor.sub
+# and memory logdet_bias_isolated.md). TRAIN builds
+# checkpoints/phenomd_nonspinning_dense30_phase_amplitude_xas_noisefloor.pt;
+# SCAN (unsmoothed with-K NS at q=0.50/0.60/0.80) needs that checkpoint, so
+# it's a child of TRAIN.
+#
+# Submit from /scratch/wiay/daniel/heron-dense45 on wiay:
+#   condor_submit_dag condor/dag_noisefloor.dag
+# Monitor: condor_q daniel -all ; tail -f condor/dag_noisefloor.dag.dagman.out
+
+JOB TRAIN condor/train_pa_xas_noisefloor.sub
+JOB SCAN  condor/scan_pa_xas_noisefloor.sub
+
+PARENT TRAIN CHILD SCAN
+
+RETRY TRAIN 1
+RETRY SCAN 1

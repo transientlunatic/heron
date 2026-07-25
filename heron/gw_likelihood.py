@@ -74,6 +74,27 @@ class GWLikelihood:
         Floating-point precision for the Cholesky factor.
     device : str or torch.device
         Torch device for linear-algebra operations.
+    k_smoothing_offsets : list of float or None
+        Additional offsets (in the units of ``k_smoothing_param``, e.g. mass
+        ratio) at which to re-evaluate the surrogate's variance and take the
+        elementwise max with the value at the current point, before using it
+        in the likelihood. Any GP's posterior variance is minimised at/near
+        its own training inputs by construction, which imprints a spurious,
+        sub-training-spacing oscillation onto K(theta) (period equal to the
+        training grid spacing) that is an artefact of the discrete training
+        grid, not a real feature of the model's uncertainty about theta. The
+        marginalised likelihood's log-det term rewards this oscillation's
+        dips regardless of whether the mean is actually more accurate there,
+        biasing inference toward whichever training node is nearest. Probing
+        a handful of nearby offsets and enveloping (max) removes the
+        oscillation while preserving genuine, larger-scale variation of K
+        with theta. Costs one extra `surrogate.predict()` call per offset,
+        per likelihood evaluation. Default: disabled (matches prior
+        behaviour exactly).
+    k_smoothing_param : str
+        Which surrogate parameter the offsets in ``k_smoothing_offsets`` are
+        applied to. Defaults to ``'mass_ratio'`` — the only dimension with a
+        discrete training grid in the checkpoints this has been tested on.
     """
 
     def __init__(
@@ -90,6 +111,8 @@ class GWLikelihood:
         use_waveform_uncertainty: bool = True,
         dtype: torch.dtype = torch.float64,
         device: str | torch.device = "cpu",
+        k_smoothing_offsets: list[float] | None = None,
+        k_smoothing_param: str = "mass_ratio",
     ):
         self.times = np.asarray(times, dtype=float)
         self.surrogate = surrogate
@@ -99,6 +122,8 @@ class GWLikelihood:
         self.use_waveform_uncertainty = use_waveform_uncertainty
         self._f_low = f_low
         self._n = len(self.times)
+        self._k_smoothing_offsets = list(k_smoothing_offsets) if k_smoothing_offsets else []
+        self._k_smoothing_param = k_smoothing_param
 
         # High-pass filter mask (reused at every call).
         dt = float(self.times[1] - self.times[0])
@@ -150,6 +175,25 @@ class GWLikelihood:
         """
         return np.diag(K.diagonal())
 
+    def _k_diagonal_envelope(
+        self, surrogate_params: dict, fp: float, fc: float, center_K: np.ndarray,
+    ) -> np.ndarray:
+        """Elementwise-max the diagonal variance over nearby k_smoothing offsets.
+
+        See ``k_smoothing_offsets`` in the class docstring for why this
+        removes a spurious, grid-spacing-periodic oscillation in K(theta)
+        rather than reflecting a real feature of the surrogate's uncertainty.
+        """
+        variances = [center_K.diagonal()]
+        base = float(surrogate_params[self._k_smoothing_param])
+        for offset in self._k_smoothing_offsets:
+            p = dict(surrogate_params)
+            p[self._k_smoothing_param] = base + offset
+            wf = self.surrogate.predict(p)
+            _, K_off = project_waveform(wf, fp, fc)
+            variances.append(K_off.diagonal())
+        return np.diag(np.maximum.reduce(variances))
+
     # ------------------------------------------------------------------
     # Likelihood evaluation
     # ------------------------------------------------------------------
@@ -195,7 +239,10 @@ class GWLikelihood:
             # leaving a residual not guaranteed to be PSD. Using diag(K) is always
             # PSD; the below-band quadratic term vanishes since r_below ≈ 0 after
             # filtering data and mu.
-            K = self._k_diagonal(K)
+            if self._k_smoothing_offsets:
+                K = self._k_diagonal_envelope(surrogate_params, fp, fc, K)
+            else:
+                K = self._k_diagonal(K)
         else:
             K = np.zeros_like(K)
 

@@ -69,13 +69,22 @@ def _build_mean_module(settings: dict, warping=None, target: str = "strain"):
     ----------
     target : str
         'strain' reads the `mean_function` block and returns a combined
-        h=A*cos(Phi) mean (for ExactGPSurrogate/SparseGPSurrogate).
+        h=A*cos(Phi) mean, shared between polarisations (SparseGPSurrogate,
+        or ExactGPSurrogate with a PN mean_function -- PN means combine
+        amplitude*cos(phase) identically for plus/cross).
+        'plus'/'cross' also read `mean_function`, but require
+        `type: approximant` and return a polarisation-specific full-IMR
+        mean (ExactGPSurrogate only -- a waveform mean is inherently
+        polarisation-specific, cross is 90 deg out of phase, so it can't be
+        shared the way the PN means are).
         'amplitude'/'phase' read `mean_function_amplitude`/
         `mean_function_phase` and return a standalone log-amplitude/phase
         mean (for PhaseAmplitudeGPSurrogate).
     """
     cfg_key = {
         "strain": "mean_function",
+        "plus": "mean_function",
+        "cross": "mean_function",
         "amplitude": "mean_function_amplitude",
         "phase": "mean_function_phase",
     }[target]
@@ -96,12 +105,16 @@ def _build_mean_module(settings: dict, warping=None, target: str = "strain"):
         classes = {"newtonian": "NewtonianInspiralMean", "taylort2": "TaylorT2Mean"}
         if mean_type == "approximant":
             raise ValueError(
-                "mean_function type 'approximant' is not supported for the "
-                "strain-domain models: ExactGPSurrogate shares one mean "
-                "module between the plus and cross polarisations, and a "
-                "waveform mean is polarisation-specific (cross is 90 deg "
-                "out of phase). Use model: phase_amplitude with "
-                "mean_function_amplitude/mean_function_phase instead."
+                "mean_function type 'approximant' is not supported as a "
+                "single shared mean: a waveform mean is polarisation-"
+                "specific (cross is 90 deg out of phase). "
+                "ExactGPSurrogate builds this automatically as two "
+                "LALApproximantPlusMean/LALApproximantCrossMean instances "
+                "(see heron_train's model_kwargs dispatch for model: "
+                "exact) -- this 'strain' path is only reached for model: "
+                "sparse, which doesn't support per-polarisation means. Use "
+                "model: exact, or model: phase_amplitude with "
+                "mean_function_amplitude/mean_function_phase, instead."
             )
         if mean_type not in classes:
             raise ValueError(f"Unknown mean function type '{mean_type}'")
@@ -109,6 +122,41 @@ def _build_mean_module(settings: dict, warping=None, target: str = "strain"):
         return getattr(mean_module, classes[mean_type])(
             total_mass=total_mass, distance=distance,
             output_scale=output_scale, warping=warping,
+        )
+    elif target in ("plus", "cross"):
+        if mean_type != "approximant":
+            raise ValueError(
+                f"mean_function type '{mean_type}' is not supported "
+                f"per-polarisation (target={target!r}); only 'approximant' "
+                "is -- PN means are polarisation-agnostic here and are "
+                "built once via target='strain' instead."
+            )
+        target_cap = "Plus" if target == "plus" else "Cross"
+        output_scale = settings.get("output_scale", 1e27)
+        mean_approximant = mean_cfg.get("approximant", "IMRPhenomXAS")
+        # The mean and training-target approximants use different
+        # phi_ref/f_ref conventions (measured: IMRPhenomD vs IMRPhenomXAS
+        # differ by a near-constant ~-2.15 rad, not a time-alignment issue
+        # -- see mean.compute_phase_correction docstring). Uncorrected,
+        # this makes cos(Phi) vs cos(Phi+2.15) two nearly-uncorrelated
+        # oscillating functions and the strain-domain mean makes the GP's
+        # job HARDER than ZeroMean, not easier. `training.approximant` is
+        # the training-target oracle for `mode: fixed`/`active`; `mode:
+        # data` configs (loading a pre-generated HDF5) don't set it, so
+        # this defaults to IMRPhenomD -- the only oracle used anywhere in
+        # this repo so far.
+        target_approximant = settings.get("approximant", "IMRPhenomD")
+        phase_correction = mean_module.compute_phase_correction(
+            mean_approximant=mean_approximant,
+            target_approximant=target_approximant,
+            total_mass=total_mass, distance=distance,
+            f_low=settings.get("f_low", 20.0),
+        )
+        return getattr(mean_module, f"LALApproximant{target_cap}Mean")(
+            total_mass=total_mass, distance=distance,
+            output_scale=output_scale, warping=warping,
+            approximant=mean_approximant,
+            phase_correction=phase_correction,
         )
     else:
         target_cap = "Amplitude" if target == "amplitude" else "Phase"
@@ -339,6 +387,17 @@ def heron_train(settings):
         model_kwargs["merger_center"] = train_settings.get("merger_center", 0.0)
         model_kwargs["merger_width_init"] = train_settings.get("merger_width_init")
 
+    if model_type in ("exact", "phase_amplitude") and train_settings.get("q_floor_kernel", False):
+        model_kwargs["q_floor_kernel"] = True
+        model_kwargs["q_floor_lengthscale"] = train_settings.get("q_floor_lengthscale")
+        model_kwargs["q_floor_outputscale_min"] = train_settings.get(
+            "q_floor_outputscale_min", 0.05
+        )
+        model_kwargs["q_floor_outputscale_init"] = train_settings.get("q_floor_outputscale_init")
+
+    if model_type in ("exact", "phase_amplitude") and train_settings.get("q_warping"):
+        model_kwargs["q_warping"] = train_settings["q_warping"]
+
     if model_type == "phase_amplitude":
         # log-amplitude/phase targets are already well-scaled — no
         # output_scale needed (unlike raw strain ~1e-21).
@@ -368,9 +427,21 @@ def heron_train(settings):
         model_kwargs["amp_floor_rel"] = train_settings.get("amp_floor_rel", 1e-4)
     else:
         model_kwargs["output_scale"] = train_settings.get("output_scale", 1e27)
-        mean_module = _build_mean_module(train_settings, warping=warping)
-        if mean_module is not None:
-            model_kwargs["mean_module"] = mean_module
+        mean_cfg = train_settings.get("mean_function") or {}
+        if model_type == "exact" and mean_cfg.get("type") == "approximant":
+            # A waveform mean is polarisation-specific -- build two
+            # separate LALApproximantPlusMean/CrossMean instances instead
+            # of the single shared mean_module used by PN/zero means.
+            mean_module_plus = _build_mean_module(train_settings, warping=warping, target="plus")
+            mean_module_cross = _build_mean_module(train_settings, warping=warping, target="cross")
+            if mean_module_plus is not None:
+                model_kwargs["mean_module_plus"] = mean_module_plus
+            if mean_module_cross is not None:
+                model_kwargs["mean_module_cross"] = mean_module_cross
+        else:
+            mean_module = _build_mean_module(train_settings, warping=warping)
+            if mean_module is not None:
+                model_kwargs["mean_module"] = mean_module
 
     if model_type == "sparse":
         model_kwargs["n_inducing"] = train_settings.get("n_inducing", 200)

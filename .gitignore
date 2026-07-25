@@ -94,3 +94,6 @@ examples/temp/
 #asimov/
 scripts/archive_*/
 docs/archive_*/
+
+# Stale asimov runtime/checkout directory (logs, event checkouts w/ embedded repos, outputs)
+asimov/

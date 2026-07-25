@@ -27,12 +27,14 @@ import torch
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from astropy import units as u
 
 from heron.models.gp.exact import ExactGPSurrogate
 from heron.gw_likelihood import GWLikelihood
 from heron.evaluation.psd import aligo_design_psd
 from heron.noise import noise_covariance
 from heron.detector import antenna_patterns, project_waveform
+from heron.train import _get_approximant
 
 
 # ---------------------------------------------------------------------------
@@ -40,19 +42,39 @@ from heron.detector import antenna_patterns, project_waveform
 # ---------------------------------------------------------------------------
 
 def make_injection(
-    surrogate: ExactGPSurrogate,
+    approximant,
     times: np.ndarray,
     tc_true: float,
     q_true: float,
+    total_mass: float,
+    distance: float,
     fp: float,
     fc: float,
     rng: np.random.Generator,
     C: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Return (data, noiseless_signal)."""
+    """Return (data, noiseless_signal).
+
+    The injected signal comes from the reference LALSuite approximant, not
+    the surrogate's own GP mean. Using the surrogate here would make the
+    injection (and hence the SNR and posterior widths) depend on where
+    q_true falls relative to *that checkpoint's* training grid -- the same
+    physical q_true can be an exact training node for one grid spacing and
+    an interpolated point for another, silently changing the effective
+    injection amplitude between checkpoints trained at different densities.
+    The reference waveform is checkpoint-independent, so cross-checkpoint
+    comparisons (e.g. dense30 vs dense45) are apples-to-apples.
+    """
     t_rel = times - tc_true
-    wf = surrogate.predict({"mass_ratio": q_true, "times": t_rel})
-    signal, _ = project_waveform(wf, fp, fc)
+    params = {
+        "mass_ratio": q_true,
+        "total_mass": total_mass * u.solMass,
+        "luminosity_distance": distance * u.Mpc,
+        "f_min": 20.0 * u.Hertz,
+        "delta_t": (1.0 / 4096) * u.second,
+    }
+    wf = approximant.time_domain(params, times=t_rel)
+    signal = fp * wf["plus"].data + fc * wf["cross"].data
     L_C = np.linalg.cholesky(C)
     noise = L_C @ rng.standard_normal(len(times))
     return signal + noise, signal
@@ -106,6 +128,90 @@ def to_posterior(log_like: np.ndarray) -> np.ndarray:
     log_like = log_like - log_like.max()  # stabilise exp
     post = np.exp(log_like)
     return post / post.sum()  # normalise (unit step assumed)
+
+
+# Target resolution for auto_scan_1d: at least this many grid points across
+# one estimated sigma, and a half-width of this many sigma (generous enough
+# that the Gaussian-weighted-std estimate isn't biased by truncated tails).
+_AUTO_SCAN_POINTS_PER_SIGMA = 15.0
+_AUTO_SCAN_HALF_WIDTH_SIGMAS = 6.0
+
+
+def auto_scan_1d(
+    ll,
+    param_name: str,
+    true_value: float,
+    half_width_init: float,
+    n_grid: int,
+    fixed: dict,
+    label: str = "",
+    value_bounds: tuple[float, float] | None = None,
+    min_half_width: float = 0.0,
+    max_iter: int = 10,
+) -> tuple[np.ndarray, np.ndarray, float]:
+    """Scan a 1-D log-likelihood profile with a self-adjusting half-width.
+
+    A single fixed half-width does not work across a range of SNRs: too
+    wide and a high-SNR posterior collapses into one or two grid cells;
+    too narrow and the profile looks flat because the window doesn't reach
+    far enough to see the falloff. Either failure looks the same to a
+    weighted-variance estimate computed *from the discrete grid itself*
+    (`gaussian_sigma`) -- a too-narrow window also produces a wide,
+    flat-looking discrete distribution, indistinguishable from a genuinely
+    wide posterior. Sizing off that estimate is a trap: it can shrink and
+    grow the half-width in a stable-looking but wrong oscillation forever
+    (this happened in an earlier version of this function) or, if only a
+    one-directional shrink is used, run away to a half-width many orders of
+    magnitude below any physically meaningful scale before ever collapsing
+    the wrong way (also observed: driving tc's half-width to ~1e-18 seconds,
+    far below float64's ~1e-7s precision floor at GPS-time magnitudes).
+
+    Instead, size the half-width from the log-likelihood *edge drop*
+    (peak minus value at the window boundary), which is meaningful even
+    when the discrete grid doesn't resolve the peak at all: for a Gaussian
+    posterior, `edge_drop = 0.5 * (half_width / sigma)^2`, so a single
+    scan directly gives `sigma_est = half_width / sqrt(2 * edge_drop)`
+    without depending on how many grid points happen to sample the peak.
+    This converges in a handful of passes regardless of how far off the
+    initial guess is, and only the *final*, now-appropriately-sized scan's
+    discrete weighted variance (`gaussian_sigma`) is used for the reported
+    width.
+
+    Returns (grid, log_like, sigma) from the final, well-resolved scan.
+    """
+    target_sigmas = _AUTO_SCAN_HALF_WIDTH_SIGMAS
+    target_edge_drop = 0.5 * target_sigmas ** 2
+
+    hw = max(half_width_init, min_half_width)
+    grid = log_like = None
+    for it in range(max_iter):
+        lo, hi = true_value - hw, true_value + hw
+        if value_bounds is not None:
+            lo = max(lo, value_bounds[0])
+            hi = min(hi, value_bounds[1])
+        grid = np.linspace(lo, hi, n_grid)
+        log_like = scan_1d(ll, param_name, grid, fixed,
+                            label=f"{label} (hw={hw:.2g}, pass {it + 1})")
+        peak = log_like.max()
+        edge_drop = peak - min(log_like[0], log_like[-1])
+
+        if edge_drop < 1e-3:
+            # Window far narrower than the posterior: the profile is flat
+            # from centre to edge, so there's no curvature to estimate from
+            # -- grow aggressively rather than trust a near-zero edge_drop.
+            hw *= 20.0
+            continue
+
+        sigma_est = hw / np.sqrt(2.0 * edge_drop)
+        target_hw = max(target_sigmas * sigma_est, min_half_width)
+
+        if 0.7 * target_hw <= hw <= 1.4 * target_hw:
+            break  # appropriately sized
+        hw = target_hw
+
+    post = to_posterior(log_like)
+    sigma = gaussian_sigma(grid - true_value, post)
+    return grid, log_like, sigma
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +295,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="GP uncertainty comparison demo")
     parser.add_argument("--checkpoint",   required=True)
     parser.add_argument("--q-true",       type=float, default=0.8)
+    parser.add_argument("--approximant",  default="IMRPhenomD",
+                        help="Reference approximant for the injection (must match "
+                             "what the checkpoint was trained on)")
+    parser.add_argument("--total-mass",   type=float, default=60.0,
+                        help="Injection total mass in solar masses")
+    parser.add_argument("--distance",     type=float, default=100.0,
+                        help="Injection luminosity distance in Mpc")
     parser.add_argument("--sample-rate",  type=float, default=512.0)
     parser.add_argument("--duration",     type=float, default=0.5,
                         help="Segment duration (s); 0.5 s covers 95%% of SNR at n=256")
@@ -235,8 +348,13 @@ def main() -> None:
     print("Building noise covariance matrix ...")
     C = noise_covariance(times, aligo_design_psd, f_low=20.0, jitter_rel=1e-8)
 
-    print(f"Injecting signal at q={args.q_true}, tc={tc_true}")
-    data, signal = make_injection(surrogate, times, tc_true, args.q_true, fp, fc, rng, C)
+    print(f"Injecting signal at q={args.q_true}, tc={tc_true} "
+          f"(reference approximant: {args.approximant})")
+    approximant = _get_approximant(args.approximant)
+    data, signal = make_injection(
+        approximant, times, tc_true, args.q_true,
+        args.total_mass, args.distance, fp, fc, rng, C,
+    )
 
     # HP-filtered SNR (what the likelihood actually uses)
     dt = 1.0 / args.sample_rate
@@ -257,18 +375,6 @@ def main() -> None:
     # Fixed extrinsic params for the likelihood wrapper
     extrinsic = {"ra": ra_true, "dec": dec_true, "psi": psi_true}
 
-    # Scan grids
-    q_grid_base = np.linspace(
-        max(0.05, args.q_true - args.q_half_width),
-        min(1.05, args.q_true + args.q_half_width),
-        args.n_grid,
-    )
-    tc_grid_base = np.linspace(
-        tc_true - args.tc_half_ms * 1e-3,
-        tc_true + args.tc_half_ms * 1e-3,
-        args.n_grid,
-    )
-
     fixed_at_truth = {"mass_ratio": args.q_true, "tc": tc_true, **extrinsic}
 
     profiles = {}
@@ -285,16 +391,25 @@ def main() -> None:
         )
         ll = lambda p: gw_ll({**p, **extrinsic})
 
-        print(f"[{tag}] scanning q ...")
-        lq = scan_1d(ll, "mass_ratio", q_grid_base,
-                     fixed={**fixed_at_truth}, label=f"[{key}:q]")
-        print(f"[{tag}] scanning tc ...")
-        ltc = scan_1d(ll, "tc", tc_grid_base,
-                      fixed={**fixed_at_truth}, label=f"[{key}:tc]")
+        print(f"[{tag}] scanning q (auto-width) ...")
+        q_grid, lq, sigma_q_est = auto_scan_1d(
+            ll, "mass_ratio", args.q_true, args.q_half_width, args.n_grid,
+            fixed={**fixed_at_truth}, label=f"[{key}:q]",
+            value_bounds=(0.05, 1.05), min_half_width=1e-6,
+        )
+        print(f"[{tag}] scanning tc (auto-width) ...")
+        # min_half_width floor: at GPS-time magnitude ~1.19e9, float64
+        # subtraction (times - tc) loses precision below ~2.6e-7 s, so
+        # anything narrower than that is numerical noise, not signal.
+        tc_grid, ltc, sigma_tc_est = auto_scan_1d(
+            ll, "tc", tc_true, args.tc_half_ms * 1e-3, args.n_grid,
+            fixed={**fixed_at_truth}, label=f"[{key}:tc]",
+            min_half_width=1e-6,
+        )
 
         profiles[key] = {"q": to_posterior(lq), "tc": to_posterior(ltc)}
-        q_grids[key]  = q_grid_base.copy()
-        tc_grids[key] = tc_grid_base.copy()
+        q_grids[key]  = q_grid
+        tc_grids[key] = tc_grid
 
     # Posterior widths (Gaussian fit)
     sigma_q  = {k: gaussian_sigma(q_grids[k] - args.q_true, profiles[k]["q"])
@@ -308,9 +423,15 @@ def main() -> None:
               f"σ_tc = {sigma_tc[key]*1e3:.4f} ms")
 
     # Width ratio (the key result)
-    ratio_q  = sigma_q["with_K"]  / sigma_q["without_K"]
-    ratio_tc = sigma_tc["with_K"] / sigma_tc["without_K"]
-    print(f"\n  Width ratio with_K / without_K:  σ_q ×{ratio_q:.1f}  σ_tc ×{ratio_tc:.1f}")
+    def _safe_ratio(num: float, den: float) -> str:
+        if den <= 0.0:
+            return "undefined (denominator collapsed to 0 -- likely still "\
+                   "under-resolved even at the min_half_width floor)"
+        return f"×{num / den:.1f}"
+
+    print(f"\n  Width ratio with_K / without_K:  "
+          f"σ_q {_safe_ratio(sigma_q['with_K'], sigma_q['without_K'])}  "
+          f"σ_tc {_safe_ratio(sigma_tc['with_K'], sigma_tc['without_K'])}")
 
     plot_profiles(profiles, tc_true, args.q_true, q_grids, tc_grids,
                   args.output, sigma_q, sigma_tc)

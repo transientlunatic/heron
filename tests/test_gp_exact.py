@@ -150,6 +150,104 @@ class TestExactGPSurrogate:
         assert wf["plus"].data.shape == (60,)
 
 
+class TestPerPolarisationMean:
+    """mean_module_plus / mean_module_cross — polarisation-specific means
+    (e.g. LALApproximantPlusMean/CrossMean), and format_version 7
+    checkpoint (de)serialization / backward compat with the old shared
+    "mean_function" format."""
+
+    def test_distinct_means_applied_per_polarisation(self):
+        from heron.models.gp.mean import NewtonianInspiralMean, TaylorT2Mean
+
+        train_x, train_y_plus, train_y_cross = _make_synthetic_training_data(
+            n_per_q=30, mass_ratios=(0.5, 1.0)
+        )
+        model = ExactGPSurrogate(
+            train_x=train_x,
+            train_y_plus=train_y_plus,
+            train_y_cross=train_y_cross,
+            warping="chirp",
+            output_scale=1.0,
+            mean_module_plus=NewtonianInspiralMean(
+                total_mass=60.0, distance=100.0, output_scale=1.0
+            ),
+            mean_module_cross=TaylorT2Mean(
+                total_mass=60.0, distance=100.0, output_scale=1.0
+            ),
+            training_iterations=5,
+        )
+        assert type(model.models["plus"].mean_module) is NewtonianInspiralMean
+        assert type(model.models["cross"].mean_module) is TaylorT2Mean
+
+    def test_save_load_roundtrip_preserves_distinct_means(self):
+        from heron.models.gp.mean import NewtonianInspiralMean, TaylorT2Mean
+
+        train_x, train_y_plus, train_y_cross = _make_synthetic_training_data(
+            n_per_q=30, mass_ratios=(0.5, 1.0)
+        )
+        model = ExactGPSurrogate(
+            train_x=train_x,
+            train_y_plus=train_y_plus,
+            train_y_cross=train_y_cross,
+            warping="chirp",
+            output_scale=1.0,
+            mean_module_plus=NewtonianInspiralMean(
+                total_mass=60.0, distance=100.0, output_scale=1.0
+            ),
+            mean_module_cross=TaylorT2Mean(
+                total_mass=60.0, distance=100.0, output_scale=1.0
+            ),
+            training_iterations=5,
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "checkpoint.pt"
+            model.save(path)
+
+            checkpoint = torch.load(path, weights_only=False)
+            assert checkpoint["format_version"] == 7
+            assert checkpoint["mean_functions"]["plus"]["type"] == "newtonian"
+            assert checkpoint["mean_functions"]["cross"]["type"] == "taylort2"
+
+            loaded = ExactGPSurrogate.load(path)
+            assert type(loaded.models["plus"].mean_module) is NewtonianInspiralMean
+            assert type(loaded.models["cross"].mean_module) is TaylorT2Mean
+
+    def test_legacy_shared_mean_function_still_loads(self):
+        """format_version <= 6 checkpoints store a single shared
+        "mean_function" (no "mean_functions" dict) -- load() must still
+        apply it to both polarisations."""
+        from heron.models.gp.mean import NewtonianInspiralMean
+
+        train_x, train_y_plus, train_y_cross = _make_synthetic_training_data(
+            n_per_q=30, mass_ratios=(0.5, 1.0)
+        )
+        model = ExactGPSurrogate(
+            train_x=train_x,
+            train_y_plus=train_y_plus,
+            train_y_cross=train_y_cross,
+            warping="chirp",
+            output_scale=1.0,
+            mean_module=NewtonianInspiralMean(
+                total_mass=60.0, distance=100.0, output_scale=1.0
+            ),
+            training_iterations=5,
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "checkpoint.pt"
+            model.save(path)
+
+            # Rewrite as a legacy (format_version <= 6) checkpoint: single
+            # shared "mean_function", no "mean_functions".
+            checkpoint = torch.load(path, weights_only=False)
+            checkpoint["format_version"] = 6
+            checkpoint["mean_function"] = checkpoint.pop("mean_functions")["plus"]
+            torch.save(checkpoint, path)
+
+            loaded = ExactGPSurrogate.load(path)
+            assert type(loaded.models["plus"].mean_module) is NewtonianInspiralMean
+            assert type(loaded.models["cross"].mean_module) is NewtonianInspiralMean
+
+
 class TestNoiseFloorUsesResidualVariance:
     """The noise floor and outputscale/noise init must be scaled by the
     variance of the residual (y - mean(x)), not the raw target. With an

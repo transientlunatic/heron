@@ -153,6 +153,11 @@ class PhaseAmplitudeGPSurrogate(WaveformSurrogate):
         ls_min_q: float = 0.0005,
         noise_floor_rel: float = 1e-6,
         cholesky_size: int = 2000,
+        q_floor_kernel: bool = False,
+        q_floor_lengthscale: float | None = None,
+        q_floor_outputscale_min: float = 0.05,
+        q_floor_outputscale_init: float | None = None,
+        q_warping: str | None = None,
     ):
         self._device = torch.device(device)
         self.nu = nu
@@ -162,6 +167,11 @@ class PhaseAmplitudeGPSurrogate(WaveformSurrogate):
         self.ls_min_q = ls_min_q
         self.noise_floor_rel = noise_floor_rel
         self.cholesky_size = cholesky_size
+        self.q_floor_kernel = q_floor_kernel
+        self.q_floor_lengthscale = q_floor_lengthscale
+        self.q_floor_outputscale_min = q_floor_outputscale_min
+        self.q_floor_outputscale_init = q_floor_outputscale_init
+        self.q_warping = q_warping
 
         if isinstance(warping, str):
             self.warping = get_warping(warping)
@@ -222,6 +232,11 @@ class PhaseAmplitudeGPSurrogate(WaveformSurrogate):
                 nu=nu,
                 ls_min_per_dim=ls_min_per_dim,
                 noise_floor_rel=noise_floor_rel,
+                q_floor_kernel=q_floor_kernel,
+                q_floor_lengthscale=q_floor_lengthscale,
+                q_floor_outputscale_min=q_floor_outputscale_min,
+                q_floor_outputscale_init=q_floor_outputscale_init,
+                q_warping=q_warping,
             ).to(self._device)
             model.likelihood.to(self._device)
             self.models[name] = model
@@ -483,6 +498,11 @@ class PhaseAmplitudeGPSurrogate(WaveformSurrogate):
             "ls_min_q": self.ls_min_q,
             "noise_floor_rel": self.noise_floor_rel,
             "cholesky_size": self.cholesky_size,
+            "q_floor_kernel": self.q_floor_kernel,
+            "q_floor_lengthscale": self.q_floor_lengthscale,
+            "q_floor_outputscale_min": self.q_floor_outputscale_min,
+            "q_floor_outputscale_init": self.q_floor_outputscale_init,
+            "q_warping": self.q_warping,
         }
         torch.save(checkpoint, path)
         logger.info(f"Saved checkpoint to {path} (heron {heron_version})")
@@ -540,6 +560,11 @@ class PhaseAmplitudeGPSurrogate(WaveformSurrogate):
             ls_min_q=checkpoint.get("ls_min_q", 0.0005),
             noise_floor_rel=checkpoint.get("noise_floor_rel", 1e-6),
             cholesky_size=checkpoint.get("cholesky_size", 2000),
+            q_floor_kernel=checkpoint.get("q_floor_kernel", False),
+            q_floor_lengthscale=checkpoint.get("q_floor_lengthscale"),
+            q_floor_outputscale_min=checkpoint.get("q_floor_outputscale_min", 0.05),
+            q_floor_outputscale_init=checkpoint.get("q_floor_outputscale_init"),
+            q_warping=checkpoint.get("q_warping"),
         )
 
         for name, state in checkpoint["model_states"].items():
