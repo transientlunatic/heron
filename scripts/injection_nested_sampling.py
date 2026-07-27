@@ -161,6 +161,10 @@ def main() -> None:
         from heron.models.gp.delta import DeltaGPSurrogate
 
         surrogate = DeltaGPSurrogate.load(args.checkpoint, device=args.device)
+    elif model_class == "DemodGPSurrogate":
+        from heron.models.gp.demod import DemodGPSurrogate
+
+        surrogate = DemodGPSurrogate.load(args.checkpoint, device=args.device)
     else:
         from heron.models.gp.exact import ExactGPSurrogate
 

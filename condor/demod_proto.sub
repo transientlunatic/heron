@@ -1,0 +1,13 @@
+# Demodulated-residual ExactGP prototype — single GPU job on wiay.
+universe        = vanilla
+executable      = condor/run_demod_proto.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk")
+request_gpus    = 1
+request_cpus    = 2
+request_memory  = 8192
+should_transfer_files = NO
+getenv          = false
+output          = condor_logs/demod_proto.out
+error           = condor_logs/demod_proto.err
+log             = condor_logs/demod_proto.log
+queue

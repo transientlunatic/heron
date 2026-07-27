@@ -1,10 +1,12 @@
 """
 Training pipeline for heron waveform surrogate models.
 
-Supports three training modes:
-  - fixed:  Generate training data at fixed mass ratios from a reference approximant
-  - active: Iterative active learning with uncertainty-guided refinement
-  - data:   Load pre-existing training data from HDF5
+Supports four training modes:
+  - fixed:     Generate training data at a grid of fixed mass ratios
+  - scattered: Generate training data at quasi-random (low-discrepancy)
+               mass ratios — many distinct q's to break the tensor grid
+  - active:    Iterative active learning with uncertainty-guided refinement
+  - data:      Load pre-existing training data from HDF5
 
 Usage:
   heron train --settings config.yaml
@@ -173,6 +175,51 @@ def _build_mean_module(settings: dict, warping=None, target: str = "strain"):
         return getattr(mean_module, classes[mean_type])(**kwargs)
 
 
+def _sample_waveform_at_q(q, approximant, warping, total_mass, distance,
+                          n_samples, f_low=20.0):
+    """Generate one waveform at mass ratio ``q`` and resample ``n_samples``
+    points uniformly in warped time.
+
+    Shared by :func:`generate_training_data_fixed` and
+    :func:`generate_training_data_scattered` so the two paths sample each
+    mass ratio identically — the only thing that differs between them is
+    *which* mass ratios are chosen.
+
+    Returns
+    -------
+    physical_times, plus_sampled, cross_sampled : ndarray, shape (n_samples,)
+    """
+    from astropy import units as u
+
+    params = {
+        "mass_ratio": q,
+        "total_mass": total_mass * u.solMass,
+        "luminosity_distance": distance * u.Mpc,
+        "f_min": f_low * u.Hertz,
+        "delta_t": (1.0 / 4096) * u.second,
+    }
+
+    waveform = approximant.time_domain(params)
+
+    times = waveform["plus"].times
+    plus_strain = waveform["plus"].data
+    cross_strain = waveform["cross"].data
+
+    # Sample uniformly in warped space
+    times_tensor = torch.tensor(times, dtype=torch.float32)
+    warped_times = warping.warp(times_tensor, mass_ratio=q).numpy()
+
+    uniform_warped = np.linspace(warped_times[0], warped_times[-1], n_samples)
+    plus_sampled = np.interp(uniform_warped, warped_times, plus_strain)
+    cross_sampled = np.interp(uniform_warped, warped_times, cross_strain)
+
+    physical_times = warping.unwarp(
+        torch.tensor(uniform_warped, dtype=torch.float32), mass_ratio=q
+    ).numpy()
+
+    return physical_times, plus_sampled, cross_sampled
+
+
 def generate_training_data_fixed(settings: dict) -> TrainingSet:
     """Generate training data at fixed mass ratios from a reference approximant.
 
@@ -182,12 +229,11 @@ def generate_training_data_fixed(settings: dict) -> TrainingSet:
         Must contain: mass_ratios, total_mass, distance.
         Optional: n_samples (default 200), warping, approximant.
     """
-    from astropy import units as u
-
     mass_ratios = settings["mass_ratios"]
     total_mass = settings["total_mass"]
     distance = settings["distance"]
     n_samples = settings.get("n_samples", 200)
+    f_low = settings.get("f_low", 20.0)
 
     warping_cfg = settings.get("warping", {})
     warping = get_warping(
@@ -206,31 +252,9 @@ def generate_training_data_fixed(settings: dict) -> TrainingSet:
     for q in mass_ratios:
         logger.info(f"Generating waveform for q={q}")
 
-        params = {
-            "mass_ratio": q,
-            "total_mass": total_mass * u.solMass,
-            "luminosity_distance": distance * u.Mpc,
-            "f_min": 20.0 * u.Hertz,
-            "delta_t": (1.0 / 4096) * u.second,
-        }
-
-        waveform = approximant.time_domain(params)
-
-        times = waveform["plus"].times
-        plus_strain = waveform["plus"].data
-        cross_strain = waveform["cross"].data
-
-        # Sample uniformly in warped space
-        times_tensor = torch.tensor(times, dtype=torch.float32)
-        warped_times = warping.warp(times_tensor, mass_ratio=q).numpy()
-
-        uniform_warped = np.linspace(warped_times[0], warped_times[-1], n_samples)
-        plus_sampled = np.interp(uniform_warped, warped_times, plus_strain)
-        cross_sampled = np.interp(uniform_warped, warped_times, cross_strain)
-
-        physical_times = warping.unwarp(
-            torch.tensor(uniform_warped, dtype=torch.float32), mass_ratio=q
-        ).numpy()
+        physical_times, plus_sampled, cross_sampled = _sample_waveform_at_q(
+            q, approximant, warping, total_mass, distance, n_samples, f_low=f_low
+        )
 
         all_q.extend([q] * n_samples)
         all_t.extend(physical_times)
@@ -252,6 +276,142 @@ def generate_training_data_fixed(settings: dict) -> TrainingSet:
             "total_mass": total_mass,
             "distance": distance,
             "n_mass_ratios": len(mass_ratios),
+        },
+    )
+
+
+def generate_training_data_scattered(settings: dict) -> TrainingSet:
+    """Generate training data at *quasi-random* mass ratios.
+
+    Identical to :func:`generate_training_data_fixed` in every respect
+    except the choice of mass ratios: rather than a small grid of distinct
+    values each repeated ``n_samples`` times (a tensor product with, e.g.,
+    only 30 distinct q's — the source of the training-grid-periodic
+    posterior-variance "comb" that drives the log-det grid-snap bias; see
+    CLAUDE.md), it draws ``n_mass_ratios`` distinct q's from a
+    low-discrepancy design over ``q_bounds`` and generates a full waveform
+    (its own per-q time series) at each. More distinct q's ⇒ a flatter
+    q-marginal posterior variance ⇒ the comb is attacked at its root rather
+    than smoothed at inference time.
+
+    Each q still gets a *full, uniformly-warped-in-time* series, so time
+    resolution stays controllable (waveform generation is one LAL call per
+    distinct q, not per point) — this suits the strain-domain
+    ``ExactGPSurrogate``. The budget trade-off is fine-t vs fine-q at fixed
+    N: prefer many distinct q's with enough time samples to resolve the
+    oscillation (e.g. ~90 q × ~65 t), not a full 2-D scatter that would
+    undersample time at low q.
+
+    A **low-discrepancy** design (Sobol / Latin-hypercube / jittered grid)
+    is used deliberately, never pure random: Poisson-random draws clump and
+    leave voids, and a void is a locally deep variance spike — a new,
+    *irregular* attractor, worse for inference than a predictable periodic
+    comb.
+
+    Parameters
+    ----------
+    settings : dict
+        Must contain: total_mass, distance, and either ``q_bounds``
+        ([lower, upper]) or ``mass_ratio_bounds``. Optional:
+        n_mass_ratios (default 90), n_samples (time samples per q,
+        default 65), q_sampling ('sobol' | 'lhs' | 'jittered', default
+        'sobol'), seed, warping, approximant.
+    """
+    from heron.training.sampling import (
+        sobol_sample,
+        latin_hypercube_sample,
+        jittered_grid_sample,
+    )
+
+    total_mass = settings["total_mass"]
+    distance = settings["distance"]
+    n_mass_ratios = settings.get("n_mass_ratios", 90)
+    n_samples = settings.get("n_samples", 65)
+    f_low = settings.get("f_low", 20.0)
+    seed = settings.get("seed")
+
+    q_bounds = settings.get("q_bounds") or settings.get("mass_ratio_bounds")
+    if q_bounds is None:
+        raise ValueError(
+            "scattered mode requires 'q_bounds' (or 'mass_ratio_bounds'): "
+            "[lower, upper] mass-ratio range to sample."
+        )
+    q_bounds = tuple(q_bounds)
+
+    method = settings.get("q_sampling", "sobol").lower()
+    samplers = {
+        "sobol": sobol_sample,
+        "lhs": latin_hypercube_sample,
+        "latin_hypercube": latin_hypercube_sample,
+        "jittered": jittered_grid_sample,
+        "jittered_grid": jittered_grid_sample,
+    }
+    if method not in samplers:
+        raise ValueError(
+            f"Unknown q_sampling '{method}'. Available: {sorted(set(samplers))}"
+        )
+
+    mass_ratios = samplers[method](
+        {"mass_ratio": q_bounds}, n_mass_ratios, seed=seed
+    )["mass_ratio"]
+    # Sort purely for readable logs / reproducible ordering; the GP is
+    # order-invariant.
+    mass_ratios = np.sort(np.asarray(mass_ratios, dtype=np.float64))
+
+    logger.info(
+        f"Scattered sampling: {len(mass_ratios)} distinct q's via '{method}' "
+        f"over {q_bounds}, {n_samples} time samples each "
+        f"(N={len(mass_ratios) * n_samples})"
+    )
+    diffs = np.diff(mass_ratios)
+    logger.info(
+        f"  q spacing (min/mean/max): {diffs.min():.4f} / "
+        f"{diffs.mean():.4f} / {diffs.max():.4f}"
+    )
+
+    warping_cfg = settings.get("warping", {})
+    warping = get_warping(
+        warping_cfg.get("type", "chirp"),
+        **{k: v for k, v in warping_cfg.items() if k != "type"},
+    )
+
+    approximant_name = settings.get("approximant", "IMRPhenomPv2")
+    approximant = _get_approximant(approximant_name)
+
+    all_q = []
+    all_t = []
+    all_plus = []
+    all_cross = []
+
+    for q in mass_ratios:
+        q = float(q)
+        logger.info(f"Generating waveform for q={q:.4f}")
+
+        physical_times, plus_sampled, cross_sampled = _sample_waveform_at_q(
+            q, approximant, warping, total_mass, distance, n_samples, f_low=f_low
+        )
+
+        all_q.extend([q] * n_samples)
+        all_t.extend(physical_times)
+        all_plus.extend(plus_sampled)
+        all_cross.extend(cross_sampled)
+
+    coords = np.column_stack([all_q, all_t]).astype(np.float32)
+
+    return TrainingSet(
+        x=torch.tensor(coords, dtype=torch.float32),
+        y_plus=torch.tensor(np.array(all_plus), dtype=torch.float32),
+        y_cross=torch.tensor(np.array(all_cross), dtype=torch.float32),
+        parameter_names=["mass_ratio"],
+        metadata={
+            "source": "scattered",
+            "q_sampling": method,
+            "approximant": settings.get("approximant", "IMRPhenomPv2"),
+            "total_mass": total_mass,
+            "distance": distance,
+            "n_mass_ratios": len(mass_ratios),
+            "n_samples_per_q": n_samples,
+            "seed": seed if seed is not None else -1,
         },
     )
 
@@ -289,6 +449,9 @@ def heron_train(settings):
     if mode == "fixed":
         logger.info("Generating training data (fixed grid)")
         training_set = generate_training_data_fixed(train_settings)
+    elif mode == "scattered":
+        logger.info("Generating training data (scattered / quasi-random q)")
+        training_set = generate_training_data_scattered(train_settings)
     elif mode == "active":
         logger.info("Running active learning loop")
         from heron.training.active import active_learning_loop
@@ -347,7 +510,9 @@ def heron_train(settings):
         logger.info(f"Loading training data from {data_path}")
         training_set = TrainingSet.load(data_path)
     else:
-        raise ValueError(f"Unknown training mode '{mode}'. Use: fixed, active, data")
+        raise ValueError(
+            f"Unknown training mode '{mode}'. Use: fixed, scattered, active, data"
+        )
 
     logger.info(f"Training data: {len(training_set)} samples")
 

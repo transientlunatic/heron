@@ -1,0 +1,13 @@
+# Train DemodGPSurrogate on the dense30 IMRPhenomD targets -- single GPU job on wiay.
+universe        = vanilla
+executable      = condor/run_train_demod.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk")
+request_gpus    = 1
+request_cpus    = 2
+request_memory  = 8192
+should_transfer_files = NO
+getenv          = false
+output          = condor_logs/train_demod.out
+error           = condor_logs/train_demod.err
+log             = condor_logs/train_demod.log
+queue

@@ -1,0 +1,32 @@
+# Train checkpoints/phenomd_nonspinning_scattered_q90_exact_xas.pt -- the
+# first quasi-random (Sobol, 90 distinct q x 65 t) ExactGPSurrogate+XAS
+# checkpoint, to test whether scattering the mass ratios flattens the
+# training-grid-periodic posterior-variance comb at its root (baseline grid
+# comb: node/antinode=2.035, spectral comb fraction=1.000 on
+# exact_xas_lsminq006 -- results/q_variance_comb_baseline_grid30.*).
+# Submit from /scratch/wiay/daniel/heron-dense45 on wiay.
+#
+# BEFORE SUBMITTING: rsync the updated heron/ and examples/ across (this is
+# new code) and confirm the env's gpytorch is 1.14.3 (matches local, so the
+# trained checkpoint loads back for probing -- see wiay_remote_training.md).
+#
+# AFTER IT FINISHES: rsync the .pt (and _data.h5) back to local checkpoints/,
+# then run LOCALLY (no GPU needed):
+#   python scripts/probe_q_variance_comb.py \
+#     checkpoints/phenomd_nonspinning_scattered_q90_exact_xas.pt --label scatter_q90
+# Success = spectral comb fraction << 1.0 AND node/antinode -> ~1.0 AND the
+# trained time-lengthscale is NOT pinned on its 0.035 floor. Only then is a
+# nested-sampling comparison at q=0.50/0.60/0.80 worthwhile.
+universe        = vanilla
+executable      = condor/train_scattered_q90.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk")
+request_gpus    = 1
+request_cpus    = 2
+request_memory  = 8192
+should_transfer_files = NO
+getenv          = false
+output          = condor_logs/train_scattered_q90.out
+error           = condor_logs/train_scattered_q90.err
+log             = condor_logs/train_scattered_q90.log
+
+queue

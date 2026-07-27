@@ -80,3 +80,55 @@ def latin_hypercube_sample(
     samples = lower + unit_samples * (upper - lower)
 
     return {name: samples[:, i] for i, name in enumerate(names)}
+
+
+def jittered_grid_sample(
+    bounds: dict[str, tuple[float, float]],
+    n_samples: int,
+    seed: int | None = None,
+) -> dict[str, np.ndarray]:
+    """Generate a stratified ("jittered grid") sample in a parameter space.
+
+    Each dimension independently is split into ``n_samples`` equal-width
+    cells and one uniform-random point is drawn per cell. This guarantees
+    no clumps and no voids (unlike pure random sampling) while remaining
+    irregular (unlike a fixed grid) — the important property when the aim
+    is to break a tensor-product training grid without introducing new,
+    *irregular* posterior-variance spikes where the sampler happens to
+    leave a gap.
+
+    For a single dimension this is exactly one-dimensional stratified
+    sampling; for several dimensions the per-dimension marginals are each
+    stratified (the cells are shuffled independently per dimension, so the
+    joint design is Latin-hypercube-like rather than a full tensor grid).
+
+    Parameters
+    ----------
+    bounds : dict
+        Parameter names → (lower, upper) bounds.
+    n_samples : int
+        Number of samples (= number of strata per dimension).
+    seed : int or None
+        Random seed for reproducibility.
+
+    Returns
+    -------
+    dict
+        Parameter names → arrays of sample values.
+    """
+    names = list(bounds.keys())
+    rng = np.random.default_rng(seed)
+
+    out = {}
+    for name in names:
+        lower, upper = bounds[name]
+        edges = np.linspace(lower, upper, n_samples + 1)
+        # One uniform draw inside each [edges[i], edges[i+1]) cell.
+        jitter = rng.uniform(size=n_samples)
+        values = edges[:-1] + jitter * (edges[1:] - edges[:-1])
+        # Independent per-dimension shuffle so that, in >1D, dimensions do
+        # not stay co-sorted (which would collapse the design back onto the
+        # grid diagonal).
+        rng.shuffle(values)
+        out[name] = values
+    return out

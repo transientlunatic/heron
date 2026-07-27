@@ -46,6 +46,9 @@ def load_surrogate(path: str, device: str = "cpu"):
     if model_class == "DeltaGPSurrogate":
         from heron.models.gp.delta import DeltaGPSurrogate
         return DeltaGPSurrogate.load(path, device=device)
+    if model_class == "DemodGPSurrogate":
+        from heron.models.gp.demod import DemodGPSurrogate
+        return DemodGPSurrogate.load(path, device=device)
     from heron.models.gp.exact import ExactGPSurrogate
     return ExactGPSurrogate.load(path, device=device)
 
