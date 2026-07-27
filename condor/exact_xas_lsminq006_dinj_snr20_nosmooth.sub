@@ -1,0 +1,24 @@
+# k-smoothing validation, SNR~20 arm (distance=1500 Mpc), WITH-K, NO smoothing.
+# Baseline that should exhibit the grid-snap: at realistic SNR the posterior is
+# wide enough to feel the training-grid-periodic K-variance dip, so the log-det
+# term pulls the with-K posterior toward the nearest training node. Compare
+# against the _ksmooth counterpart (same seed=42 => same noise realization).
+# Checkpoint: ls_min_q=0.06 plus/cross ExactGPSurrogate+XAS (IMRPhenomD inject).
+universe        = vanilla
+executable      = condor/run_ns_exact_xas_lsminq006_dinj.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk")
+request_gpus    = 1
+request_cpus    = 2
+request_memory  = 4096
+should_transfer_files = NO
+getenv          = false
+arguments       = $(q) $(qtag) --distance 1500
+output          = condor_logs/ns_exact_lsminq006_dinj_$(qtag).out
+error           = condor_logs/ns_exact_lsminq006_dinj_$(qtag).err
+log             = condor_logs/ns_exact_lsminq006_dinj_$(qtag).log
+
+queue q,qtag from (
+    0.50, q050_snr20_nosmooth
+    0.60, q060_snr20_nosmooth
+    0.80, q080_snr20_nosmooth
+)

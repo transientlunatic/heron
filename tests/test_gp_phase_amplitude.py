@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import gpytorch
 import pytest
 
 from heron.types import Waveform, WaveformDict
@@ -300,3 +301,87 @@ class TestMeanFunctionSaveLoad:
             model.save(path)
             loaded = PhaseAmplitudeGPSurrogate.load(path)
         assert type(loaded.models["phase"].mean_module).__name__ == "ZeroMean"
+
+
+class _CountingZeroMean(gpytorch.means.ZeroMean):
+    """ZeroMean counting forward() calls via a class-level (deepcopy-surviving)
+    counter — see the identical helper in tests/test_gp_exact.py."""
+
+    calls = 0
+
+    def forward(self, xx):
+        type(self).calls += 1
+        return super().forward(xx)
+
+
+class TestEnvelopeCovarianceDiagonal:
+    """Variance-only k-smoothing envelope for the phase-amplitude model: the
+    grid-periodic oscillation lives in the (logA, phase) GP variances, so the
+    offsets envelope those (cheap, mean-free) and propagate through a single
+    true-point delta-method Jacobian."""
+
+    @pytest.fixture(scope="class")
+    def model(self):
+        train_x, yp, yc = _make_synthetic_training_data(
+            n_per_q=30, mass_ratios=(0.5, 1.0)
+        )
+        return PhaseAmplitudeGPSurrogate(
+            train_x=train_x, train_y_plus=yp, train_y_cross=yc,
+            warping="chirp", nu=2.5, device="cpu",
+            total_mass=60.0, distance=100.0, training_iterations=20,
+        )
+
+    @staticmethod
+    def _base_params():
+        return {"mass_ratio": 0.7,
+                "time": {"lower": -0.3, "upper": 0.02, "number": 60}}
+
+    def test_empty_offsets_match_predict_diagonal(self, model):
+        """No offsets: the delta-method-propagated envelope diagonal must equal
+        predict()'s covariance diagonal at the same point."""
+        params = self._base_params()
+        env = model.envelope_covariance_diagonal(params, [])
+        wf = model.predict(params)
+        for pol in ("plus", "cross"):
+            np.testing.assert_allclose(
+                env[pol], wf[pol].covariance.diagonal(), rtol=1e-8, atol=1e-30,
+            )
+
+    def test_envelope_is_upper_bound(self, model):
+        params = self._base_params()
+        base = model.envelope_covariance_diagonal(params, [])
+        env = model.envelope_covariance_diagonal(
+            params, [0.01, -0.01, 0.02, -0.02]
+        )
+        for pol in ("plus", "cross"):
+            assert np.all(env[pol] >= base[pol] - 1e-30)
+
+    def test_mean_evaluations_constant_in_number_of_offsets(self):
+        """The offsets add no mean evaluations: only the single true-point
+        Jacobian uses the mean, so the count is the same for 1 offset or 5."""
+        train_x, yp, yc = _make_synthetic_training_data(
+            n_per_q=30, mass_ratios=(0.5, 1.0)
+        )
+        model = PhaseAmplitudeGPSurrogate(
+            train_x=train_x, train_y_plus=yp, train_y_cross=yc,
+            warping="chirp", nu=2.5, device="cpu",
+            total_mass=60.0, distance=100.0, training_iterations=5,
+            mean_module_amplitude=_CountingZeroMean(),
+            mean_module_phase=_CountingZeroMean(),
+        )
+        params = {"mass_ratio": 0.7,
+                  "time": {"lower": -0.3, "upper": 0.02, "number": 40}}
+        model.predict(params)  # warm the float64 clones
+
+        _CountingZeroMean.calls = 0
+        model.envelope_covariance_diagonal(params, [0.01])
+        one = _CountingZeroMean.calls
+
+        _CountingZeroMean.calls = 0
+        model.envelope_covariance_diagonal(
+            params, [0.01, -0.01, 0.02, -0.02, 0.03]
+        )
+        five = _CountingZeroMean.calls
+
+        assert one > 0          # the true-point Jacobian does use the mean
+        assert one == five      # offsets add no further mean evaluations

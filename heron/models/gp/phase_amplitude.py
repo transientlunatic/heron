@@ -354,14 +354,17 @@ class PhaseAmplitudeGPSurrogate(WaveformSurrogate):
                 self._predict_models[name] = pm
         return self._predict_models
 
-    def predict(self, parameters: dict) -> WaveformDict:
-        """Generate waveform with uncertainty.
+    def _build_eval_points(self, parameters: dict):
+        """Build the warped (mass_ratio, time) evaluation grid.
 
-        Parameters
-        ----------
-        parameters : dict
-            Must contain 'mass_ratio' and 'time' (dict with lower/upper/number)
-            or 'times' (array). Optional: 'total_mass', 'luminosity_distance'.
+        Shared by :meth:`predict` and the covariance-only paths used for
+        k-smoothing so they agree exactly on times, warping and scaling.
+
+        Returns
+        -------
+        points_warped : torch.Tensor, shape (N, D), float64, on self._device
+        times_np : ndarray, shape (N,)
+        distance_factor : float
         """
         mass_ratio = parameters.get("mass_ratio")
         total_mass = parameters.get("total_mass", self.mass_factor)
@@ -380,7 +383,6 @@ class PhaseAmplitudeGPSurrogate(WaveformSurrogate):
             raise ValueError("parameters must contain 'times' or 'time'")
 
         n_times = len(times)
-
         points = torch.column_stack([
             torch.full((n_times,), mass_ratio, dtype=torch.float64),
             times,
@@ -390,8 +392,96 @@ class PhaseAmplitudeGPSurrogate(WaveformSurrogate):
         points_warped[:, -1] = self.warping.warp(
             points_warped[:, -1], mass_ratio=points_warped[:, 0]
         )
+        return points_warped, times.numpy(), distance_factor
 
-        times_np = times.numpy()
+    def _gp_variance_diags(self, parameters: dict):
+        """Diagonal posterior variance of the log-amplitude and phase GPs.
+
+        Returns ``(var_logA, var_phase)`` as 1-D numpy arrays. The GP
+        posterior covariance is independent of the mean module, so a
+        ``ZeroMean`` is swapped in temporarily to avoid evaluating the
+        expensive (LAL-backed) mean that would otherwise be discarded — this
+        is what makes k-smoothing offsets cheap for this representation.
+        """
+        points_warped, _, _ = self._build_eval_points(parameters)
+        predict_models = self._get_predict_models()
+        zero_mean = gpytorch.means.ZeroMean().to(self._device)
+
+        diags = {}
+        for name in ("log_amplitude", "phase"):
+            model = predict_models[name]
+            saved_mean = model.mean_module
+            model.mean_module = zero_mean
+            try:
+                with torch.no_grad(), gpytorch.settings.fast_pred_var(), \
+                        gpytorch.settings.max_cholesky_size(self.cholesky_size):
+                    cov = model(points_warped).covariance_matrix
+                diags[name] = cov.diagonal().cpu().numpy()
+            finally:
+                model.mean_module = saved_mean
+        return diags["log_amplitude"], diags["phase"]
+
+    def envelope_covariance_diagonal(
+        self, parameters: dict, offsets, offset_param: str = "mass_ratio",
+    ) -> dict:
+        """Grid-snap-suppressed diagonal strain variance for plus/cross.
+
+        Returns ``{'plus': (N,), 'cross': (N,)}``. The grid-spacing-periodic
+        oscillation lives entirely in the (log-amplitude, phase) GP variances,
+        which are cheap and mean-independent; the delta-method Jacobian is the
+        mean waveform, which is smooth in ``offset_param`` and needs no
+        enveloping. So we envelope the GP-space variances over the offsets and
+        propagate the result through the single true-point Jacobian — one mean
+        evaluation total, regardless of the number of offsets.
+        """
+        points_warped, _, distance_factor = self._build_eval_points(parameters)
+        predict_models = self._get_predict_models()
+
+        # True-point mean (LAL-backed, but cached from the predict() call in
+        # the same likelihood evaluation) → delta-method Jacobian.
+        with torch.no_grad(), gpytorch.settings.fast_pred_var(), \
+                gpytorch.settings.max_cholesky_size(self.cholesky_size):
+            mean_logA = predict_models["log_amplitude"](points_warped).mean.cpu()
+            mean_phase = predict_models["phase"](points_warped).mean.cpu()
+        amplitude = torch.exp(mean_logA)
+        cos_phase = torch.cos(mean_phase)
+        sin_phase = torch.sin(mean_phase)
+        d_hp_dlogA = (amplitude * cos_phase).numpy()
+        d_hp_dphase = (-amplitude * sin_phase).numpy()
+        d_hc_dlogA = (amplitude * sin_phase).numpy()
+        d_hc_dphase = (amplitude * cos_phase).numpy()
+
+        # Enveloped GP-space variances (no mean evaluated at the offsets).
+        base = float(parameters[offset_param])
+        param_sets = [parameters]
+        for off in offsets:
+            p = dict(parameters)
+            p[offset_param] = base + float(off)
+            param_sets.append(p)
+
+        logA_diags, phase_diags = [], []
+        for p in param_sets:
+            var_logA, var_phase = self._gp_variance_diags(p)
+            logA_diags.append(var_logA)
+            phase_diags.append(var_phase)
+        var_logA = np.maximum.reduce(logA_diags)
+        var_phase = np.maximum.reduce(phase_diags)
+
+        scale = distance_factor**2
+        var_plus = (d_hp_dlogA**2 * var_logA + d_hp_dphase**2 * var_phase) / scale
+        var_cross = (d_hc_dlogA**2 * var_logA + d_hc_dphase**2 * var_phase) / scale
+        return {"plus": var_plus, "cross": var_cross}
+
+    def predict(self, parameters: dict) -> WaveformDict:
+        """Generate waveform with uncertainty.
+
+        Parameters
+        ----------
+        parameters : dict
+            Must contain 'mass_ratio' and 'time' (dict with lower/upper/number)
+            or 'times' (array). Optional: 'total_mass', 'luminosity_distance'.
+        """
+        points_warped, times_np, distance_factor = self._build_eval_points(parameters)
         predict_models = self._get_predict_models()
 
         with torch.no_grad(), gpytorch.settings.fast_pred_var(), \

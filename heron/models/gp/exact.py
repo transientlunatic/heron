@@ -516,14 +516,17 @@ class ExactGPSurrogate(WaveformSurrogate):
                 self._predict_models[name] = pm
         return self._predict_models
 
-    def predict(self, parameters: dict) -> WaveformDict:
-        """Generate waveform with uncertainty.
+    def _build_eval_points(self, parameters: dict):
+        """Build the warped (mass_ratio, time) evaluation grid.
 
-        Parameters
-        ----------
-        parameters : dict
-            Must contain 'mass_ratio' and 'time' (dict with lower/upper/number)
-            or 'times' (array). Optional: 'total_mass', 'luminosity_distance'.
+        Shared by :meth:`predict` and the covariance-only paths used for
+        k-smoothing so they agree exactly on times, warping and scaling.
+
+        Returns
+        -------
+        points_warped : torch.Tensor, shape (N, D), float64, on self._device
+        times_np : ndarray, shape (N,)
+        distance_factor : float
         """
         mass_ratio = parameters.get("mass_ratio")
         total_mass = parameters.get("total_mass", self.mass_factor)
@@ -531,8 +534,8 @@ class ExactGPSurrogate(WaveformSurrogate):
         distance = parameters.get("luminosity_distance", self.distance_factor)
         distance_factor = distance / self.distance_factor
 
-        # Build time array. Evaluation happens in float64 — see
-        # _predict_models below — so build points in float64 from the start.
+        # Evaluation happens in float64 (see _get_predict_models) — build in
+        # float64 from the start.
         if "times" in parameters:
             times = torch.tensor(parameters["times"], dtype=torch.float64) / mass_factor
         elif "time" in parameters:
@@ -544,21 +547,88 @@ class ExactGPSurrogate(WaveformSurrogate):
             raise ValueError("parameters must contain 'times' or 'time'")
 
         n_times = len(times)
-
-        # Build evaluation points: (mass_ratio, time)
         points = torch.column_stack([
             torch.full((n_times,), mass_ratio, dtype=torch.float64),
             times,
         ]).to(self._device)
 
-        # Warp the time column
         points_warped = points.clone()
         points_warped[:, -1] = self.warping.warp(
             points_warped[:, -1], mass_ratio=points_warped[:, 0]
         )
+        return points_warped, times.numpy(), distance_factor
+
+    def _covariance_diag(self, parameters: dict) -> dict:
+        """Per-polarisation diagonal predictive variance, without the mean.
+
+        The exact-GP posterior covariance ``k** - k_*ᵀ(K+σ²I)⁻¹k_*`` is
+        independent of the mean module, so we temporarily swap in a
+        ``ZeroMean`` to avoid evaluating an expensive (e.g. LAL-backed) mean
+        that would otherwise be computed and discarded. Returns the same
+        scaled variance as ``predict()[pol].covariance.diagonal()``.
+        """
+        points_warped, _, distance_factor = self._build_eval_points(parameters)
+        predict_models = self._get_predict_models()
+        zero_mean = gpytorch.means.ZeroMean().to(self._device)
+
+        out = {}
+        for pol_name in ("plus", "cross"):
+            model = predict_models[pol_name]
+            saved_mean = model.mean_module
+            model.mean_module = zero_mean
+            try:
+                with torch.no_grad(), gpytorch.settings.fast_pred_var(), \
+                        gpytorch.settings.max_cholesky_size(self.cholesky_size):
+                    covar = model(points_warped).covariance_matrix
+                diag = covar.diagonal().cpu().numpy()
+            finally:
+                model.mean_module = saved_mean
+            out[pol_name] = diag / self.output_scale**2 / distance_factor**2
+        return out
+
+    def envelope_covariance_diagonal(
+        self, parameters: dict, offsets, offset_param: str = "mass_ratio",
+    ) -> dict:
+        """Grid-snap-suppressed diagonal variance for plus/cross.
+
+        Returns ``{'plus': (N,), 'cross': (N,)}`` — the elementwise-max
+        ("upper envelope") of the diagonal predictive variance over the base
+        point plus each ``offset_param`` offset. See ``k_smoothing_offsets`` in
+        :class:`heron.gw_likelihood.GWLikelihood` for the rationale.
+
+        The mean is never evaluated (see :meth:`_covariance_diag`), so the cost
+        is independent of the (possibly expensive) mean function and grows only
+        with the cheap kernel algebra — unlike calling ``predict()`` per offset.
+        """
+        base = float(parameters[offset_param])
+        param_sets = [parameters]
+        for off in offsets:
+            p = dict(parameters)
+            p[offset_param] = base + float(off)
+            param_sets.append(p)
+
+        diags_plus, diags_cross = [], []
+        for p in param_sets:
+            d = self._covariance_diag(p)
+            diags_plus.append(d["plus"])
+            diags_cross.append(d["cross"])
+        return {
+            "plus": np.maximum.reduce(diags_plus),
+            "cross": np.maximum.reduce(diags_cross),
+        }
+
+    def predict(self, parameters: dict) -> WaveformDict:
+        """Generate waveform with uncertainty.
+
+        Parameters
+        ----------
+        parameters : dict
+            Must contain 'mass_ratio' and 'time' (dict with lower/upper/number)
+            or 'times' (array). Optional: 'total_mass', 'luminosity_distance'.
+        """
+        points_warped, times_np, distance_factor = self._build_eval_points(parameters)
 
         # Predict
-        times_np = times.numpy()
         output = WaveformDict(
             parameters={k: v for k, v in parameters.items() if k != "time" and k != "times"}
         )

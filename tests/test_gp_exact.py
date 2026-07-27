@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import gpytorch
 import pytest
 
 from heron.types import Waveform, WaveformDict
@@ -294,3 +295,104 @@ class TestNoiseFloorUsesResidualVariance:
         # residual (~1e-7), not the raw target (~80).
         assert sloped_floor < 1e-5
         assert floor < 1e-5
+
+
+class _CountingZeroMean(gpytorch.means.ZeroMean):
+    """A ZeroMean that counts forward() calls via a class-level counter.
+
+    The counter is a class attribute so it survives the float64 deepcopy that
+    ``_get_predict_models`` performs — instance attributes would be copied, a
+    class attribute is shared across all copies.
+    """
+
+    calls = 0
+
+    def forward(self, xx):
+        type(self).calls += 1
+        return super().forward(xx)
+
+
+class TestEnvelopeCovarianceDiagonal:
+    """The variance-only k-smoothing envelope (``envelope_covariance_diagonal``)
+    that avoids re-evaluating the mean at each offset."""
+
+    @pytest.fixture(scope="class")
+    def model(self):
+        train_x, yp, yc = _make_synthetic_training_data(
+            n_per_q=30, mass_ratios=(0.5, 1.0)
+        )
+        return ExactGPSurrogate(
+            train_x=train_x, train_y_plus=yp, train_y_cross=yc,
+            warping="chirp", nu=2.5, output_scale=1.0, device="cpu",
+            total_mass=60.0, distance=100.0, training_iterations=20,
+        )
+
+    @staticmethod
+    def _base_params():
+        return {"mass_ratio": 0.7,
+                "time": {"lower": -0.3, "upper": 0.02, "number": 60}}
+
+    def test_empty_offsets_match_predict_diagonal(self, model):
+        """With no offsets the covariance-only path must reproduce the full
+        predict() covariance diagonal exactly (the exact-GP covariance is
+        mean-independent, so swapping the mean off changes nothing)."""
+        params = self._base_params()
+        env = model.envelope_covariance_diagonal(params, [])
+        wf = model.predict(params)
+        for pol in ("plus", "cross"):
+            np.testing.assert_allclose(
+                env[pol], wf[pol].covariance.diagonal(), rtol=1e-9, atol=1e-30,
+            )
+
+    def test_envelope_is_upper_bound(self, model):
+        params = self._base_params()
+        base = model.envelope_covariance_diagonal(params, [])
+        env = model.envelope_covariance_diagonal(
+            params, [0.01, -0.01, 0.02, -0.02]
+        )
+        for pol in ("plus", "cross"):
+            assert np.all(env[pol] >= base[pol] - 1e-30)
+
+    def test_envelope_equals_max_over_offsets(self, model):
+        params = self._base_params()
+        offsets = [0.013, -0.017, 0.023]
+        env = model.envelope_covariance_diagonal(params, offsets)
+        q0 = params["mass_ratio"]
+        stacked = {"plus": [], "cross": []}
+        for off in [0.0] + offsets:
+            p = dict(params)
+            p["mass_ratio"] = q0 + off
+            d = model._covariance_diag(p)
+            stacked["plus"].append(d["plus"])
+            stacked["cross"].append(d["cross"])
+        for pol in ("plus", "cross"):
+            np.testing.assert_allclose(
+                env[pol], np.maximum.reduce(stacked[pol]),
+                rtol=1e-12, atol=1e-30,
+            )
+
+    def test_mean_never_evaluated_in_envelope(self):
+        """The whole point of the variance-only path: the (expensive) mean is
+        never evaluated during enveloping, so cost is independent of the number
+        of offsets."""
+        train_x, yp, yc = _make_synthetic_training_data(
+            n_per_q=20, mass_ratios=(0.5, 1.0)
+        )
+        model = ExactGPSurrogate(
+            train_x=train_x, train_y_plus=yp, train_y_cross=yc,
+            warping="chirp", nu=2.5, output_scale=1.0, device="cpu",
+            total_mass=60.0, distance=100.0, training_iterations=5,
+            mean_module=_CountingZeroMean(),
+        )
+        params = {"mass_ratio": 0.7,
+                  "time": {"lower": -0.3, "upper": 0.02, "number": 40}}
+
+        _CountingZeroMean.calls = 0
+        model.predict(params)  # warms the float64 clone and uses the mean
+        assert _CountingZeroMean.calls > 0  # sanity: predict evaluates the mean
+
+        _CountingZeroMean.calls = 0
+        model.envelope_covariance_diagonal(
+            params, [0.01, -0.01, 0.02, -0.02, 0.03]
+        )
+        assert _CountingZeroMean.calls == 0

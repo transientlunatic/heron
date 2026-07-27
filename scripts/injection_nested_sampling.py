@@ -39,6 +39,38 @@ from heron.train import _get_approximant
 from heron.sampling import Parameter, UniformPrior, DynestySampler
 
 
+class _SurrogateInjector:
+    """Adapts a WaveformSurrogate to the .time_domain(params, times) interface
+    make_injection expects, so the injected signal is the surrogate's OWN
+    prediction at q_true (mismatch = 0 by construction).
+
+    This is a clean control: if the inference pipeline is unbiased, recovery
+    MUST return truth at ~0 sigma. It isolates "is the machinery/likelihood
+    itself unbiased" from "does the surrogate differ from the injected waveform
+    family" -- which D- and XAS-injection conflate. Contrast with the
+    ExactGPSurrogate+XAS D-injection runs, which show a ~+6-16 sigma offset at
+    SNR~300 attributable (via the identical no-K result) to the surrogate-vs-D
+    template mismatch, not to K.
+    """
+
+    def __init__(self, surrogate):
+        self.surrogate = surrogate
+
+    def time_domain(self, params, times):
+        def _val(x, unit):
+            return float(x.to_value(unit)) if hasattr(x, "to_value") else float(x)
+
+        p = {
+            "mass_ratio": float(params["mass_ratio"]),
+            "times": np.asarray(times, dtype=float),
+        }
+        if "total_mass" in params:
+            p["total_mass"] = _val(params["total_mass"], u.solMass)
+        if "luminosity_distance" in params:
+            p["luminosity_distance"] = _val(params["luminosity_distance"], u.Mpc)
+        return self.surrogate.predict(p)
+
+
 def make_injection(approximant, times, tc_true, q_true, total_mass, distance,
                     fp, fc, rng, C):
     """Inject the reference LALSuite waveform (not the surrogate's own mean)
@@ -75,6 +107,12 @@ def main() -> None:
     parser.add_argument("--tc-half-ms", type=float, default=5.0,
                          help="Half-width of the tc prior in milliseconds")
     parser.add_argument("--approximant", default="IMRPhenomD")
+    parser.add_argument("--self-inject", action="store_true",
+                         help="Inject the surrogate's OWN prediction at q_true "
+                              "(mismatch=0 by construction) instead of a LAL "
+                              "approximant -- a clean control that must recover "
+                              "truth at ~0 sigma if the inference pipeline is "
+                              "unbiased. Overrides --approximant for the injection.")
     parser.add_argument("--total-mass", type=float, default=60.0)
     parser.add_argument("--distance", type=float, default=100.0)
     parser.add_argument("--sample-rate", type=float, default=512.0)
@@ -134,9 +172,14 @@ def main() -> None:
     print("Building noise covariance matrix ...")
     C = noise_covariance(times, aligo_design_psd, f_low=20.0, jitter_rel=1e-8)
 
-    print(f"Injecting signal at q={args.q_true}, tc={tc_true} "
-          f"(reference approximant: {args.approximant}) ...")
-    approximant = _get_approximant(args.approximant)
+    if args.self_inject:
+        print(f"Self-injection: injecting the surrogate's OWN prediction at "
+              f"q={args.q_true}, tc={tc_true} (mismatch=0 at truth by construction) ...")
+        approximant = _SurrogateInjector(surrogate)
+    else:
+        print(f"Injecting signal at q={args.q_true}, tc={tc_true} "
+              f"(reference approximant: {args.approximant}) ...")
+        approximant = _get_approximant(args.approximant)
     data, signal = make_injection(
         approximant, times, tc_true, args.q_true,
         args.total_mass, args.distance, fp, fc, rng, C,

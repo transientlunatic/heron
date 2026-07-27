@@ -183,7 +183,23 @@ class GWLikelihood:
         See ``k_smoothing_offsets`` in the class docstring for why this
         removes a spurious, grid-spacing-periodic oscillation in K(theta)
         rather than reflecting a real feature of the surrogate's uncertainty.
+
+        When the surrogate exposes ``envelope_covariance_diagonal`` it computes
+        the enveloped variance without re-evaluating the (potentially very
+        expensive, e.g. LAL-backed) mean at each offset — the oscillation lives
+        entirely in the GP variance, which is cheap kernel algebra. Otherwise
+        we fall back to a full ``predict()`` per offset.
         """
+        surrogate = self.surrogate
+        if hasattr(surrogate, "envelope_covariance_diagonal"):
+            diags = surrogate.envelope_covariance_diagonal(
+                surrogate_params, self._k_smoothing_offsets, self._k_smoothing_param,
+            )
+            var = fp**2 * diags["plus"] + fc**2 * diags["cross"]
+            return np.diag(var)
+
+        # Fallback: works for any surrogate but pays the full predict() cost
+        # (mean included) per offset.
         variances = [center_K.diagonal()]
         base = float(surrogate_params[self._k_smoothing_param])
         for offset in self._k_smoothing_offsets:

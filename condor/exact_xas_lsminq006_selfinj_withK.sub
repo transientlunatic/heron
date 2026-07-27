@@ -1,0 +1,21 @@
+# SELF-INJECTION control, WITH-K: inject the surrogate's own prediction, recover.
+# Must land at ~0 sigma if the pipeline is unbiased AND K adds no bias when the
+# template exactly matches the signal. Part of dag_exact_xas_selfinj.dag.
+universe        = vanilla
+executable      = condor/run_ns_exact_xas_lsminq006_selfinj.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk")
+request_gpus    = 1
+request_cpus    = 2
+request_memory  = 4096
+should_transfer_files = NO
+getenv          = false
+arguments       = $(q) $(qtag)
+output          = condor_logs/ns_exact_lsminq006_selfinj_$(qtag).out
+error           = condor_logs/ns_exact_lsminq006_selfinj_$(qtag).err
+log             = condor_logs/ns_exact_lsminq006_selfinj_$(qtag).log
+
+queue q,qtag from (
+    0.50, q050_selfinj_withK
+    0.60, q060_selfinj_withK
+    0.80, q080_selfinj_withK
+)
