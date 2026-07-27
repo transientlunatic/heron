@@ -39,6 +39,16 @@ _J2000_GPS: float = 630763213.0
 _GMST_J2000: float = 4.894961212823756
 _OMEGA_EARTH: float = 7.2921150e-5  # rad/s
 
+_C_SI: float = 299792458.0  # speed of light [m/s]
+
+# Earth-fixed (ECEF) detector positions in metres, from LAL DetectorSite.c.
+# Used for inter-detector / geocentre arrival-time delays.
+_DETECTOR_LOCATIONS: dict[str, np.ndarray] = {
+    "H1": np.array([-2.16141492636e06, -3.83469517889e06, 4.60035022664e06]),
+    "L1": np.array([-7.42760447238e04, -5.49628371971e06, 3.22425701575e06]),
+    "V1": np.array([4.54637409900e06, 8.42989697626e05, 4.37857696241e06]),
+}
+
 
 def gmst_at_gps(gps_time: float) -> float:
     """Greenwich Mean Sidereal Time in radians at the given GPS time."""
@@ -155,3 +165,57 @@ def project_waveform(
     K = f_plus**2 * h_plus.covariance + f_cross**2 * h_cross.covariance
 
     return mu, K
+
+
+def detector_location(detector: str) -> np.ndarray:
+    """Return the Earth-fixed (ECEF) position of *detector* in metres.
+
+    Uses ``lal.cached_detector_by_prefix`` when LAL is available (exact LAL
+    values); falls back to the hardcoded positions in ``_DETECTOR_LOCATIONS``
+    otherwise.  Both agree to sub-metre precision.
+    """
+    try:
+        import lal
+
+        return np.asarray(lal.cached_detector_by_prefix[detector].location, dtype=float)
+    except ImportError:
+        return _DETECTOR_LOCATIONS[detector]
+
+
+def time_delay_from_geocentre(
+    ra: float,
+    dec: float,
+    gps_time: float,
+    detector: str,
+) -> float:
+    """Signal arrival-time delay at *detector* relative to the geocentre [s].
+
+    Matches LAL's ``XLALTimeDelayFromEarthCenter`` convention: the returned
+    value is ``t_detector − t_geocentre`` for a plane wave from sky position
+    ``(ra, dec)``.  A source directly along the detector's position vector
+    arrives *earlier* at the detector (negative delay).
+
+    Parameters
+    ----------
+    ra : float
+        Right ascension in radians.
+    dec : float
+        Declination in radians.
+    gps_time : float
+        GPS time of the event in seconds.
+    detector : str
+        Detector name: ``'H1'``, ``'L1'``, or ``'V1'``.
+
+    Returns
+    -------
+    float
+        Arrival-time delay in seconds; ``|delay| <= |r_det| / c ≈ 21 ms``.
+    """
+    gha = gmst_at_gps(gps_time) - ra  # Greenwich hour angle
+    ehat_src = np.array([
+        np.cos(dec) * np.cos(gha),
+        -np.cos(dec) * np.sin(gha),
+        np.sin(dec),
+    ])
+    r_det = detector_location(detector)
+    return float(-np.dot(ehat_src, r_det) / _C_SI)

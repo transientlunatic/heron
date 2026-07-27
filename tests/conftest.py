@@ -35,3 +35,56 @@ def tiny_gp():
         training_iterations=3,
         optimizer="adam",
     )
+
+
+# ---------------------------------------------------------------------------
+# Shared stubs for the inference (PE) layer tests
+# ---------------------------------------------------------------------------
+
+class StubSurrogate:
+    """Deterministic, parameter-light surrogate for PE-layer tests.
+
+    ``h+(t) = A sin(2π f0 t)``, ``h×(t) = A cos(2π f0 t)`` (face-on quadratures),
+    with a constant diagonal covariance ``var·I``.  Exposes ``distance_factor``
+    so the projection/likelihood distance scaling is exercised.  Ignores all
+    parameters except ``times`` (and, optionally, a variance that dips at a given
+    mass ratio — see ``dip_at``).
+    """
+
+    distance_factor = 100.0
+
+    def __init__(self, f0=50.0, amplitude=1.0, var=1e-6, dip_at=None, dip_var=1e-12):
+        self.f0 = f0
+        self.amplitude = amplitude
+        self.var = var
+        self.dip_at = dip_at
+        self.dip_var = dip_var
+
+    def predict(self, params):
+        from heron.types import Waveform, WaveformDict
+
+        t = np.asarray(params["times"], dtype=float)
+        n = len(t)
+        phase = 2.0 * np.pi * self.f0 * t
+        A = self.amplitude
+        var = self.var
+        if self.dip_at is not None and abs(params.get("mass_ratio", self.dip_at) - self.dip_at) < 1e-9:
+            var = self.dip_var
+        cov = np.eye(n) * var
+        return WaveformDict(
+            plus=Waveform(A * np.sin(phase), t, cov),
+            cross=Waveform(A * np.cos(phase), t, cov),
+        )
+
+
+@pytest.fixture
+def stub_surrogate():
+    return StubSurrogate()
+
+
+@pytest.fixture
+def flat_psd():
+    """Flat PSD S(f)=1 for f>=20 Hz (test units keep numbers O(1))."""
+    def _psd(freqs):
+        return np.where(np.asarray(freqs, dtype=float) >= 20.0, 1.0, 0.0)
+    return _psd
