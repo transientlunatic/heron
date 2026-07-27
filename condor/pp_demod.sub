@@ -1,0 +1,21 @@
+# DemodGPSurrogate PP (coverage) test, SNR~20, grid posteriors. ONE job, 300
+# injections: the template grid is precomputed once and shared across all
+# injections, so splitting into parallel jobs would only duplicate the (~23 min)
+# precompute -- a single job is the efficient layout. Produces no-K and with-K
+# PP curves + npz.
+universe        = vanilla
+executable      = condor/run_pp_demod.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk")
+request_gpus    = 1
+request_cpus    = 2
+request_memory  = 8192
+should_transfer_files = NO
+getenv          = false
+arguments       = $(seed) $(ninj) $(tag)
+output          = condor_logs/pp_demod_$(tag).out
+error           = condor_logs/pp_demod_$(tag).err
+log             = condor_logs/pp_demod_$(tag).log
+
+queue seed,ninj,tag from (
+    0, 300, main
+)

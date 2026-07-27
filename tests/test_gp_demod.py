@@ -211,6 +211,34 @@ class TestDemodGPSurrogate:
             atol=1e-12, rtol=1e-6,
         )
 
+    def test_covariance_inflation_scales_covariance_not_mean(self):
+        """covariance_inflation multiplies the returned covariance by the given
+        scalar and leaves the mean untouched; it survives save/load."""
+        reference, oracle = _make_models()
+        train_x, y_plus, y_cross = _make_training_data(oracle)
+        common = dict(
+            train_x=train_x, train_y_plus=y_plus, train_y_cross=y_cross,
+            base_approximant=reference, oracle_approximant=None,
+            phase_correction=0.0, output_scale=1.0, training_iterations=15,
+        )
+        base = DemodGPSurrogate(**common, covariance_inflation=1.0)
+        infl = DemodGPSurrogate(**common, covariance_inflation=9.0)
+
+        params = {"mass_ratio": 0.6, "times": np.linspace(-0.25, 0.01, 40)}
+        wf0 = base.predict(params)
+        wf9 = infl.predict(params)
+        # Mean identical, covariance scaled by exactly 9.
+        np.testing.assert_allclose(wf9["plus"].data, wf0["plus"].data, atol=1e-12)
+        np.testing.assert_allclose(
+            wf9["plus"].covariance, 9.0 * wf0["plus"].covariance, rtol=1e-9, atol=1e-30
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "infl.pt"
+            infl.save(path)
+            loaded = DemodGPSurrogate.load(path, device="cpu", base_approximant=reference)
+            assert loaded.covariance_inflation == pytest.approx(9.0)
+
     def test_parameter_names(self, models_and_surrogate):
         _, _, surrogate = models_and_surrogate
         assert "mass_ratio" in surrogate.parameter_names

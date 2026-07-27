@@ -31,6 +31,7 @@ MODEL_REGISTRY = {
     "sparse": ("heron.models.gp.sparse", "SparseGPSurrogate"),
     "phase_amplitude": ("heron.models.gp.phase_amplitude", "PhaseAmplitudeGPSurrogate"),
     "delta": ("heron.models.gp.delta", "DeltaGPSurrogate"),
+    "demod": ("heron.models.gp.demod", "DemodGPSurrogate"),
 }
 
 # Approximant registry — maps config string to (module, class) for lazy import
@@ -590,6 +591,21 @@ def heron_train(settings):
             "phase_alignment", "anchor"
         )
         model_kwargs["amp_floor_rel"] = train_settings.get("amp_floor_rel", 1e-4)
+    elif model_type == "demod":
+        # Heterodyned residual against a reference approximant. Uses
+        # output_scale like exact (raw strain ~1e-21), but the reference
+        # approximant IS the mean (no mean_module), and the training
+        # approximant is the oracle whose strain the demod GPs reproduce.
+        model_kwargs["output_scale"] = train_settings.get("output_scale", 1e27)
+        model_kwargs["base_approximant"] = train_settings.get(
+            "base_approximant", "IMRPhenomXAS"
+        )
+        model_kwargs["oracle_approximant"] = train_settings.get("approximant", "IMRPhenomD")
+        model_kwargs["f_low"] = train_settings.get("f_low", 20.0)
+        if "phase_correction" in train_settings:
+            model_kwargs["phase_correction"] = train_settings["phase_correction"]
+        if "covariance_inflation" in train_settings:
+            model_kwargs["covariance_inflation"] = train_settings["covariance_inflation"]
     else:
         model_kwargs["output_scale"] = train_settings.get("output_scale", 1e27)
         mean_cfg = train_settings.get("mean_function") or {}

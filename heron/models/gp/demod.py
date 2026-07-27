@@ -110,6 +110,13 @@ class DemodGPSurrogate(WaveformSurrogate):
     f_low : float
         Low-frequency cutoff for reference-waveform generation; match the
         training data's ``f_min``.
+    covariance_inflation : float
+        Scalar multiplier applied to the returned plus/cross covariance
+        (default 1.0 = the bare GP posterior). The smooth demod targets make
+        the raw K a severe under-estimate of the true surrogate error; set
+        this (via `scripts/calibrate_demod_k.py`) to recalibrate K to a
+        trustworthy uncertainty for coverage/PP-plot work. Never affects the
+        mean.
     """
 
     def __init__(
@@ -134,6 +141,7 @@ class DemodGPSurrogate(WaveformSurrogate):
         ls_min_q: float = 0.0005,
         noise_floor_rel: float = 1e-6,
         cholesky_size: int = 2000,
+        covariance_inflation: float = 1.0,
     ):
         self._device = torch.device(device)
         self.output_scale = output_scale
@@ -145,6 +153,16 @@ class DemodGPSurrogate(WaveformSurrogate):
         self.ls_min_q = ls_min_q
         self.noise_floor_rel = noise_floor_rel
         self.cholesky_size = cholesky_size
+        # Scalar recalibration of the returned covariance. The demod GPs
+        # interpolate the smooth Re/Im targets very confidently, so the raw
+        # posterior K under-reports the true between-node surrogate error by
+        # orders of magnitude (var/err^2 ~ 1e-17 on dense30). Left at 1.0 the
+        # reported K is the bare GP posterior (tiny, K << C -- this is what
+        # gives log-det-bias-free point-estimate PE); set >1 (via
+        # scripts/calibrate_demod_k.py) to inflate K to a trustworthy
+        # uncertainty for coverage/PP-plot work. Applied only to the returned
+        # covariance, never to the mean.
+        self.covariance_inflation = float(covariance_inflation)
 
         if isinstance(warping, str):
             self.warping = get_warping(warping)
@@ -313,8 +331,9 @@ class DemodGPSurrogate(WaveformSurrogate):
         # no covariance.
         cc = np.outer(cosP, cosP)
         ss = np.outer(sinP, sinP)
-        cov_plus = (cc * cov_re + ss * cov_im) / distance_factor**2
-        cov_cross = (ss * cov_re + cc * cov_im) / distance_factor**2
+        infl = self.covariance_inflation
+        cov_plus = infl * (cc * cov_re + ss * cov_im) / distance_factor**2
+        cov_cross = infl * (ss * cov_re + cc * cov_im) / distance_factor**2
 
         output = WaveformDict(
             parameters={
@@ -378,6 +397,7 @@ class DemodGPSurrogate(WaveformSurrogate):
             "ls_min_q": self.ls_min_q,
             "noise_floor_rel": self.noise_floor_rel,
             "cholesky_size": self.cholesky_size,
+            "covariance_inflation": self.covariance_inflation,
         }
         torch.save(checkpoint, path)
         logger.info(f"Saved checkpoint to {path} (heron {heron_version})")
@@ -440,6 +460,7 @@ class DemodGPSurrogate(WaveformSurrogate):
             ls_min_q=checkpoint.get("ls_min_q", 0.0005),
             noise_floor_rel=checkpoint.get("noise_floor_rel", 1e-6),
             cholesky_size=checkpoint.get("cholesky_size", 2000),
+            covariance_inflation=checkpoint.get("covariance_inflation", 1.0),
         )
 
         for name, state in checkpoint["model_states"].items():
