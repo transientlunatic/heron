@@ -1,0 +1,21 @@
+# Wave 1: cheaper/faster network-injection PE tests (2-D and 5-D, H1+L1).
+# DemodGPSurrogate, IMRPhenomD injection, distance=1500 Mpc (net SNR ~18),
+# nessai nlive=250, CPU. Fast-feedback wave -- validates the new heron.inference
+# network PE layer end-to-end before the expensive 8-D sky-localization runs.
+universe        = vanilla
+executable      = condor/run_net_injection.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk")
+request_cpus    = 4
+request_memory  = 6144
+should_transfer_files = NO
+getenv          = false
+arguments       = $(tag)
+output          = condor_logs/net_$(tag).out
+error           = condor_logs/net_$(tag).err
+log             = condor_logs/net_$(tag).log
+
+queue tag from (
+    net2d_h1l1_withK
+    net2d_h1l1_noK
+    net5d_h1l1_withK
+)
