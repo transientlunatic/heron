@@ -1,6 +1,5 @@
 """Tests for heron.inference.projection — analytic extrinsic projection."""
 import numpy as np
-import pytest
 
 from heron.detector import antenna_patterns, project_waveform
 from heron.inference.projection import project_polarisations, project_variances
@@ -80,12 +79,7 @@ class TestCoalescencePhase:
         """The φc rotation is orthogonal, so for equal plus/cross variance the
         projected variance is unchanged (before antenna weighting differences)."""
         n = 64
-        t = np.linspace(-0.2, 0.02, n)
         v = 3e-4
-        wf = WaveformDict(
-            plus=Waveform(np.zeros(n), t, np.diag(np.full(n, v))),
-            cross=Waveform(np.zeros(n), t, np.diag(np.full(n, v))),
-        )
         k0 = project_variances(np.full(n, v), np.full(n, v), f_plus=1.0, f_cross=1.0)
         k = project_variances(
             np.full(n, v), np.full(n, v), f_plus=1.0, f_cross=1.0,

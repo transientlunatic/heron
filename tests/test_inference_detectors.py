@@ -37,14 +37,35 @@ class TestTimeDelay:
         d = time_delay_from_geocentre(ra, dec, GPS, prefix)
         assert d == pytest.approx(-np.linalg.norm(r) / _C_SI, rel=1e-6)
 
-    def test_matches_lal_when_available(self):
+    def test_formula_matches_lal_with_shared_gmst(self):
+        """The delay FORMULA matches LAL exactly when fed the same GMST — this
+        isolates the geometry from heron's linear-GMST approximation."""
         lal = pytest.importorskip("lal")
         for prefix in ("H1", "L1", "V1"):
             det = lal.cached_detector_by_prefix[prefix]
-            gmst = lal.GreenwichMeanSiderealTime(lal.LIGOTimeGPS(GPS))
-            expected = lal.TimeDelayFromEarthCenter(det.location, RA, DEC, lal.LIGOTimeGPS(GPS))
+            t = lal.LIGOTimeGPS(GPS)
+            gha = lal.GreenwichMeanSiderealTime(t) - RA
+            ehat = np.array([
+                np.cos(DEC) * np.cos(gha),
+                -np.cos(DEC) * np.sin(gha),
+                np.sin(DEC),
+            ])
+            mine = float(-np.dot(ehat, np.asarray(det.location)) / _C_SI)
+            expected = lal.TimeDelayFromEarthCenter(det.location, RA, DEC, t)
+            assert mine == pytest.approx(expected, abs=1e-9)
+
+    def test_within_gmst_approximation_of_lal(self):
+        """heron's own delay uses its linear GMST (see
+        test_detector.TestGMST.test_close_to_lal, < 0.01 rad), so it agrees with
+        LAL only to ~|r|/c * 0.01 ≈ 2e-4 s — not to machine precision."""
+        lal = pytest.importorskip("lal")
+        for prefix in ("H1", "L1", "V1"):
+            det = lal.cached_detector_by_prefix[prefix]
+            expected = lal.TimeDelayFromEarthCenter(
+                det.location, RA, DEC, lal.LIGOTimeGPS(GPS)
+            )
             got = time_delay_from_geocentre(RA, DEC, GPS, prefix)
-            assert got == pytest.approx(expected, abs=1e-6)
+            assert got == pytest.approx(expected, abs=3e-4)
 
 
 class TestDetector:

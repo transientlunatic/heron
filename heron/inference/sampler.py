@@ -122,7 +122,10 @@ class NessaiSampler(BaseSampler):
         # nessai returns equal-weight posterior samples.
         log_weights = np.full(n, -np.log(max(n, 1)))
 
-        log_z = float(getattr(sampler, "log_evidence", getattr(sampler.ns, "log_evidence", np.nan)))
+        log_z = float(
+            getattr(sampler, "log_evidence",
+                    getattr(sampler.ns, "log_evidence", np.nan))
+        )
         log_z_err = float(
             getattr(sampler, "log_evidence_error",
                     getattr(sampler.ns, "log_evidence_error", np.nan))
