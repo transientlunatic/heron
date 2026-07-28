@@ -22,6 +22,10 @@ from heron.models.gp.delta import (
 )
 
 
+def _zero_delta(q, t):
+    return np.zeros_like(t)
+
+
 class ToyChirpModel:
     """Analytic chirplet approximant with injectable amplitude/phase deltas.
 
@@ -31,8 +35,11 @@ class ToyChirpModel:
     """
 
     def __init__(self, dlogA=None, dphi=None, phase_offset=0.0, f0=30.0):
-        self.dlogA = dlogA if dlogA is not None else (lambda q, t: np.zeros_like(t))
-        self.dphi = dphi if dphi is not None else (lambda q, t: np.zeros_like(t))
+        # Module-level defaults (not lambdas) so the stub stays picklable —
+        # DemodGPSurrogate/DeltaGPSurrogate carry a non-registry reference
+        # instance through pickle (see their __getstate__).
+        self.dlogA = dlogA if dlogA is not None else _zero_delta
+        self.dphi = dphi if dphi is not None else _zero_delta
         self.phase_offset = phase_offset
         self.f0 = f0
 

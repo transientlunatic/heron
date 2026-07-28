@@ -28,6 +28,14 @@ class Waveform:
         Sample spacing. Inferred from times if not given.
     t0 : float
         Epoch / reference time.
+    variance : np.ndarray or None
+        Diagonal predictive variance, shape (N,). Supply this (with
+        ``covariance=None``) for a *diagonal-only* prediction that never
+        formed the full N×N covariance — the marginal likelihood only ever
+        uses the diagonal, so a diagonal-mode ``predict()`` skips the O(N²)
+        matrix entirely. When ``covariance`` is given, ``variance`` is derived
+        from its diagonal automatically, so ``.variance`` / ``.std`` behave as
+        before.
     """
 
     data: np.ndarray
@@ -35,26 +43,27 @@ class Waveform:
     covariance: np.ndarray | None = None
     dt: float | None = None
     t0: float = 0.0
+    variance: np.ndarray | None = None
 
     def __post_init__(self):
         self.data = np.asarray(self.data, dtype=np.float64)
         self.times = np.asarray(self.times, dtype=np.float64)
         if self.covariance is not None:
             self.covariance = np.asarray(self.covariance, dtype=np.float64)
+        # An explicit diagonal wins (diagonal-only prediction); otherwise fall
+        # back to the diagonal of the full covariance so the public interface
+        # is unchanged for full-covariance waveforms.
+        if self.variance is not None:
+            self.variance = np.asarray(self.variance, dtype=np.float64)
+        elif self.covariance is not None:
+            self.variance = np.diag(self.covariance)
         if self.dt is None and len(self.times) > 1:
             self.dt = float(self.times[1] - self.times[0])
 
     @property
-    def variance(self) -> np.ndarray | None:
-        if self.covariance is not None:
-            return np.diag(self.covariance)
-        return None
-
-    @property
     def std(self) -> np.ndarray | None:
-        v = self.variance
-        if v is not None:
-            return np.sqrt(np.maximum(v, 0.0))
+        if self.variance is not None:
+            return np.sqrt(np.maximum(self.variance, 0.0))
         return None
 
     @property

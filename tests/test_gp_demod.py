@@ -122,6 +122,77 @@ class TestDemodGPSurrogate:
             wf["cross"].covariance, ss * cov_re + cc * cov_im, atol=1e-12, rtol=1e-6
         )
 
+    def test_diagonal_mode_matches_full_diagonal(self, models_and_surrogate):
+        """covariance='diagonal' returns exactly the diagonal of the full
+        covariance (and no N×N matrix), and the mean is unchanged."""
+        _, _, surrogate = models_and_surrogate
+        params = {"mass_ratio": 0.6, "times": np.linspace(-0.3, 0.02, 90)}
+        full = surrogate.predict(params, covariance="full")
+        diag = surrogate.predict(params, covariance="diagonal")
+        for pol in ("plus", "cross"):
+            assert diag[pol].covariance is None
+            assert diag[pol].variance is not None
+            np.testing.assert_array_equal(diag[pol].data, full[pol].data)
+            np.testing.assert_allclose(
+                diag[pol].variance, np.diag(full[pol].covariance), rtol=1e-9, atol=1e-30
+            )
+
+    def test_none_mode_is_mean_only(self, models_and_surrogate):
+        """covariance='none' returns the same mean with no covariance work."""
+        _, _, surrogate = models_and_surrogate
+        params = {"mass_ratio": 0.6, "times": np.linspace(-0.3, 0.02, 90)}
+        full = surrogate.predict(params, covariance="full")
+        none = surrogate.predict(params, covariance="none")
+        for pol in ("plus", "cross"):
+            assert none[pol].covariance is None and none[pol].variance is None
+            np.testing.assert_array_equal(none[pol].data, full[pol].data)
+
+    def test_covariance_diagonal_matches_predict(self, models_and_surrogate):
+        """covariance_diagonal() equals the diagonal predict variance at the
+        reference distance."""
+        _, _, surrogate = models_and_surrogate
+        params = {"mass_ratio": 0.6, "times": np.linspace(-0.3, 0.02, 90)}
+        cd = surrogate.covariance_diagonal(params)
+        diag = surrogate.predict(params, covariance="diagonal")
+        for pol in ("plus", "cross"):
+            np.testing.assert_allclose(cd[pol], diag[pol].variance, rtol=1e-9, atol=1e-30)
+
+    def test_envelope_covariance_diagonal_empty_offsets(self, models_and_surrogate):
+        """With no offsets the envelope equals the plain diagonal variance."""
+        _, _, surrogate = models_and_surrogate
+        params = {"mass_ratio": 0.6, "times": np.linspace(-0.3, 0.02, 60)}
+        env = surrogate.envelope_covariance_diagonal(params, [], "mass_ratio")
+        cd = surrogate.covariance_diagonal(params)
+        for pol in ("plus", "cross"):
+            np.testing.assert_allclose(env[pol], cd[pol], rtol=1e-9, atol=1e-30)
+
+    def test_envelope_covariance_diagonal_is_upper_bound(self, models_and_surrogate):
+        """The enveloped variance dominates the base-point variance pointwise
+        (it is an elementwise max over the offsets)."""
+        _, _, surrogate = models_and_surrogate
+        params = {"mass_ratio": 0.6, "times": np.linspace(-0.3, 0.02, 60)}
+        base = surrogate.covariance_diagonal(params)
+        env = surrogate.envelope_covariance_diagonal(
+            params, [-0.05, 0.05], "mass_ratio"
+        )
+        for pol in ("plus", "cross"):
+            assert (env[pol] >= base[pol] - 1e-30).all()
+
+    def test_pickle_roundtrip(self, models_and_surrogate):
+        """The surrogate must pickle (for nessai/bilby n_pool workers) even
+        with a non-registry reference approximant and after predict() has
+        materialised its caches."""
+        import pickle
+
+        _, _, surrogate = models_and_surrogate
+        params = {"mass_ratio": 0.6, "times": np.linspace(-0.3, 0.02, 70)}
+        wf = surrogate.predict(params)  # materialise caches
+        restored = pickle.loads(pickle.dumps(surrogate))
+        wf2 = restored.predict(params)
+        for pol in ("plus", "cross"):
+            np.testing.assert_array_equal(wf[pol].data, wf2[pol].data)
+            np.testing.assert_array_equal(wf[pol].covariance, wf2[pol].covariance)
+
     def test_beats_reference_at_held_out_mass_ratio(self, models_and_surrogate):
         """At a q between training nodes, the demod surrogate must reproduce
         the oracle substantially better than the raw reference approximant."""

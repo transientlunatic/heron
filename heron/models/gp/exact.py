@@ -579,8 +579,10 @@ class ExactGPSurrogate(WaveformSurrogate):
             try:
                 with torch.no_grad(), gpytorch.settings.fast_pred_var(), \
                         gpytorch.settings.max_cholesky_size(self.cholesky_size):
-                    covar = model(points_warped).covariance_matrix
-                diag = covar.diagonal().cpu().numpy()
+                    # `.variance` (LOVE, under fast_pred_var) computes only the
+                    # diagonal — O(N·rank) — instead of forming the full N×N
+                    # `.covariance_matrix` just to take its diagonal.
+                    diag = model(points_warped).variance.cpu().numpy()
             finally:
                 model.mean_module = saved_mean
             out[pol_name] = diag / self.output_scale**2 / distance_factor**2
@@ -617,7 +619,7 @@ class ExactGPSurrogate(WaveformSurrogate):
             "cross": np.maximum.reduce(diags_cross),
         }
 
-    def predict(self, parameters: dict) -> WaveformDict:
+    def predict(self, parameters: dict, covariance: str = "full") -> WaveformDict:
         """Generate waveform with uncertainty.
 
         Parameters
@@ -625,7 +627,21 @@ class ExactGPSurrogate(WaveformSurrogate):
         parameters : dict
             Must contain 'mass_ratio' and 'time' (dict with lower/upper/number)
             or 'times' (array). Optional: 'total_mass', 'luminosity_distance'.
+        covariance : str
+            How much of the predictive covariance to return:
+
+            - ``"full"`` (default): the dense N×N ``Waveform.covariance``.
+            - ``"diagonal"``: only the per-sample variance (``Waveform.variance``,
+              ``covariance=None``), computed via ``.variance`` (LOVE) without ever
+              forming the N×N matrix. The marginal likelihood uses only the
+              diagonal, so this is the cheap path for PE.
+            - ``"none"``: mean only (no covariance work at all) — for the
+              matched-filter/no-K likelihood.
         """
+        if covariance not in ("full", "diagonal", "none"):
+            raise ValueError(
+                f"covariance must be 'full', 'diagonal' or 'none'; got {covariance!r}"
+            )
         points_warped, times_np, distance_factor = self._build_eval_points(parameters)
 
         # Predict
@@ -634,6 +650,8 @@ class ExactGPSurrogate(WaveformSurrogate):
         )
 
         predict_models = self._get_predict_models()
+        scale = self.output_scale * distance_factor
+        var_scale = self.output_scale**2 * distance_factor**2
 
         for pol_name in ("plus", "cross"):
             model = predict_models[pol_name]
@@ -652,15 +670,53 @@ class ExactGPSurrogate(WaveformSurrogate):
                 # uncertainty is the latent posterior covariance K_latent.
                 latent = model(points_warped)
                 mean = latent.mean.cpu()
-                covar = latent.covariance_matrix.cpu()
+                if covariance == "full":
+                    cov = latent.covariance_matrix.cpu()
+                elif covariance == "diagonal":
+                    # Diagonal only — O(N·rank), no N×N matrix formed.
+                    var = latent.variance.cpu()
 
-            output[pol_name] = Waveform(
-                data=(mean / self.output_scale / distance_factor).numpy(),
-                times=times_np,
-                covariance=(covar / self.output_scale**2 / distance_factor**2).numpy(),
-            )
+            data = (mean / scale).numpy()
+            if covariance == "full":
+                output[pol_name] = Waveform(
+                    data=data, times=times_np,
+                    covariance=(cov / var_scale).numpy(),
+                )
+            elif covariance == "diagonal":
+                output[pol_name] = Waveform(
+                    data=data, times=times_np,
+                    variance=(var / var_scale).numpy(),
+                )
+            else:  # "none"
+                output[pol_name] = Waveform(data=data, times=times_np)
 
         return output
+
+    def __getstate__(self):
+        """Pickle via the checkpoint format, not the live GPyTorch modules.
+
+        A normal pickle of a trained surrogate fails twice over: GPyTorch's
+        ``register_prior`` stashes un-picklable *local closures* on every kernel
+        submodule (and on the cached float64 predict clones), and LAL-backed
+        mean functions hold a SWIG ``lal.Dict``. The checkpoint carries only
+        tensors + config (means/approximants by name), so it round-trips
+        cleanly and stays valid across GPyTorch versions. This is what lets the
+        whole likelihood be sent to nessai/bilby ``n_pool`` workers.
+        """
+        import io
+
+        buf = io.BytesIO()
+        self.save(buf)
+        return {"_heron_checkpoint": buf.getvalue(), "_device": str(self._device)}
+
+    def __setstate__(self, state):
+        import io
+
+        obj = type(self).load(
+            io.BytesIO(state["_heron_checkpoint"]),
+            device=state.get("_device", "cpu"),
+        )
+        self.__dict__.update(obj.__dict__)
 
     def save(self, path: str | Path) -> None:
         """Save checkpoint."""

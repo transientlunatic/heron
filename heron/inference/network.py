@@ -33,6 +33,8 @@ Usage::
 """
 from __future__ import annotations
 
+import inspect
+
 import numpy as np
 import torch
 
@@ -140,6 +142,19 @@ class NetworkLikelihood:
         self._k_smoothing_param = k_smoothing_param
         self._distance_ref = getattr(surrogate, "distance_factor", None)
 
+        # Only the diagonal of K is ever used (project_variances). If the
+        # surrogate's predict() accepts a `covariance` mode, request the cheap
+        # one: 'diagonal' (per-sample variance, no N×N matrix) with K, or 'none'
+        # (mean only) without K / when the variance comes from the k-smoothing
+        # envelope. Surrogates without the kwarg fall back to the full path.
+        try:
+            self._predict_cov_kw = (
+                "covariance" in inspect.signature(surrogate.predict).parameters
+            )
+        except (ValueError, TypeError):
+            self._predict_cov_kw = False
+        self._has_envelope = hasattr(surrogate, "envelope_covariance_diagonal")
+
         # Shared high-pass mask (all detectors share the time grid).
         dt = float(self.times[1] - self.times[0])
         self._freqs = np.fft.rfftfreq(self._n, d=dt)
@@ -168,6 +183,18 @@ class NetworkLikelihood:
         x_f = np.fft.rfft(x)
         x_f[~self._hp_mask] = 0.0
         return np.fft.irfft(x_f, n=self._n)
+
+    def _predict(self, params: dict, mode: str):
+        """Call the surrogate, requesting covariance ``mode`` when supported.
+
+        ``mode`` is one of ``'full'`` / ``'diagonal'`` / ``'none'``. Surrogates
+        whose ``predict`` lacks the ``covariance`` kwarg get the full path (the
+        resulting Waveform still exposes ``.variance``, so consumers are
+        unaffected — only the cost is higher).
+        """
+        if self._predict_cov_kw:
+            return self.surrogate.predict(params, covariance=mode)
+        return self.surrogate.predict(params)
 
     @staticmethod
     def _split_params(params: dict) -> tuple[dict, dict]:
@@ -210,7 +237,7 @@ class NetworkLikelihood:
         for offset in self._k_smoothing_offsets:
             p = dict(surrogate_params)
             p[self._k_smoothing_param] = base + offset
-            wf_off = surrogate.predict(p)
+            wf_off = self._predict(p, "diagonal")
             var_p = np.maximum(var_p, _waveform_variance(wf_off["plus"]))
             var_c = np.maximum(var_c, _waveform_variance(wf_off["cross"]))
         return var_p, var_c
@@ -225,13 +252,24 @@ class NetworkLikelihood:
         tc = extr["tc"]
         total = 0.0
 
+        # Choose the cheapest predict() covariance mode that still supplies what
+        # this call needs. K's diagonal is all the likelihood uses, so we never
+        # need the full N×N: 'none' (mean only) without K or when the variance
+        # is supplied by the k-smoothing envelope, else 'diagonal'.
+        if not self.use_waveform_uncertainty:
+            predict_mode = "none"
+        elif self._k_smoothing_offsets and self._has_envelope:
+            predict_mode = "none"
+        else:
+            predict_mode = "diagonal"
+
         for ch in self._channels:
             det = ch.detector
             dt_geo = det.time_delay_from_geocentre(extr["ra"], extr["dec"], tc)
             t_rel = self.times - (tc + dt_geo)
 
             surrogate_params = {**intrinsic, "times": t_rel}
-            wf = self.surrogate.predict(surrogate_params)
+            wf = self._predict(surrogate_params, predict_mode)
 
             fp, fc = det.antenna_patterns(extr["ra"], extr["dec"], extr["psi"], tc)
             mu, k_diag = project_polarisations(

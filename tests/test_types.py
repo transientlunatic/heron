@@ -30,6 +30,23 @@ class TestWaveform:
         np.testing.assert_allclose(wf.variance, np.full(n, 0.01))
         np.testing.assert_allclose(wf.std, np.full(n, 0.1))
 
+    def test_explicit_variance_without_covariance(self):
+        """A diagonal-only prediction supplies `variance` directly and never
+        forms the N×N covariance (see ExactGPSurrogate/DemodGPSurrogate
+        predict(covariance='diagonal'))."""
+        n = 40
+        times = np.linspace(0, 1, n)
+        var = np.linspace(0.01, 0.04, n)
+        wf = Waveform(data=np.zeros(n), times=times, variance=var)
+
+        assert wf.covariance is None
+        np.testing.assert_allclose(wf.variance, var)
+        np.testing.assert_allclose(wf.std, np.sqrt(var))
+
+    def test_explicit_variance_cast_to_float64(self):
+        wf = Waveform(data=[0, 0, 0], times=[0.0, 0.1, 0.2], variance=[1, 2, 3])
+        assert wf.variance.dtype == np.float64
+
     def test_duration(self):
         wf = Waveform(data=np.zeros(10), times=np.linspace(0, 2, 10))
         assert wf.duration == pytest.approx(2.0)
