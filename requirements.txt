@@ -7,7 +7,7 @@ emcee
 pyyaml
 jinja2
 cython
-george
+george==0.4.3
 nestle
 elk-waveform>=0.13
 lalsuite
