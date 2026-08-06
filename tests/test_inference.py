@@ -13,12 +13,11 @@ import unittest
 
 import numpy as np
 import astropy.units as u
-import bilby.gw.prior
 
-from heron.models.lalsimulation import SEOBNRv3, IMRPhenomPv2, IMRPhenomPv2_FakeUncertainty
+from heron.models.lalsimulation import IMRPhenomPv2, IMRPhenomPv2_FakeUncertainty
 from heron.models.lalnoise import AdvancedLIGO
 from heron.injection import make_injection, make_injection_zero_noise
-from heron.detector import Detector, AdvancedLIGOHanford, AdvancedLIGOLivingston, AdvancedVirgo
+from heron.detector import AdvancedLIGOHanford
 from heron.likelihood import MultiDetector, TimeDomainLikelihood, TimeDomainLikelihoodModelUncertainty, TimeDomainLikelihoodPyTorch
 #, TimeDomainLikelihoodModelUncertaintyPyTorch
 
@@ -69,7 +68,7 @@ class Test_Likelihood_ZeroNoise(unittest.TestCase):
 
         log_like = likelihood.log_likelihood(projected_waveform, norm=False)
 
-        self.assertTrue(log_like <= 1e-5)
+        self.assertLessEqual(log_like, 1e-5)
 
 
     def test_likelihood_maximum_at_true_value_mass_ratio(self):
@@ -93,7 +92,7 @@ class Test_Likelihood_ZeroNoise(unittest.TestCase):
                                                        iota=0)
 
             log_likes.append(likelihood.log_likelihood(projected_waveform))
-        self.assertTrue(mass_ratios[np.argmax(log_likes)] == 0.6)
+        self.assertEqual(mass_ratios[np.argmax(log_likes)], 0.6)
 
 
 # class Test_PyTorch_Likelihood_ZeroNoise(unittest.TestCase):
@@ -167,29 +166,6 @@ class Test_Likelihood_ZeroNoise(unittest.TestCase):
 
 #         likelihood = TimeDomainLikelihoodPyTorch(data, psd=self.psd_model)
 #         numpy_likelihood = TimeDomainLikelihood(data, psd=self.psd_model)
-#         mass_ratios = np.linspace(0.1, 1.0, 100)
-
-#         log_likes = []
-#         log_likes_n = []
-#         for mass_ratio in mass_ratios:
-        
-#             test_waveform = self.waveform.time_domain(parameters={"distance": 1000*u.megaparsec,
-#                                                                    "mass_ratio": mass_ratio,
-#                                                                   "gpstime": 0,
-#                                                                    "total_mass": 60 * u.solMass}, times=likelihood.times)
-#             projected_waveform = test_waveform.project(AdvancedLIGOHanford(),
-#                                                        ra=0, dec=0,
-#                                                        gpstime=0,
-#                                                        phi_0=0, psi=0,
-#                                                        iota=0)
-
-#             log_likes.append(likelihood.log_likelihood(projected_waveform).cpu().numpy())
-#             log_likes_n.append(numpy_likelihood.log_likelihood(projected_waveform))
-
-#         self.assertTrue(mass_ratios[np.argmax(log_likes)] == 0.6)
-#         self.assertTrue(np.all((np.array(log_likes) - np.array(log_likes_n)) < 0.001))
-
-
 
 class Test_Filter(unittest.TestCase):
     """Test that filters can be applied correctly to data."""
@@ -250,22 +226,7 @@ class Test_Filter(unittest.TestCase):
     #     print("SNR", snr)
     #     self.assertTrue(snr > 40 and snr < 45)
         
-#     # def test_snr_f(self):
-#     #     data = self.injections['H1']
-
-#     #     likelihood = TimeDomainLikelihood(data, psd=self.psd_model)
-        
-#     #     test_waveform = self.waveform.time_domain(parameters={"m1": 35*u.solMass,
-#     #                                                           "m2": 30*u.solMass,
-#     #                                                           "distance": 410 * u.megaparsec}, times=data.times)
-        
-#     #     snr = likelihood.snr_f(test_waveform.project(AdvancedLIGOHanford(),
-#     #                                                ra=0, dec=0,
-#     #                                                phi_0=0, psi=0,
-#     #                                                iota=0))
-#     #     print("f-domain snr", snr)
-#     #     self.assertTrue(snr > 80 and snr < 90)
-
+# Note: a previous frequency-domain SNR test (test_snr_f) has been intentionally disabled.
         
         
     def test_likelihood(self):
@@ -356,8 +317,8 @@ class TestInference(unittest.TestCase):
 
     def test_parser(self):
         outputs, _ = parse_dict(self.settings)
-        self.assertFalse("inference" in outputs)
-        self.assertTrue("psds" in outputs)
+        self.assertNotIn("inference", outputs)
+        self.assertIn("psds", outputs)
     
     def test_parser_psds(self):
         outputs, _ = parse_dict(self.settings)
@@ -387,7 +348,7 @@ class Test_PyTorch(unittest.TestCase):
 
 #     def test_timedomain_psd(self):
 #         noise = self.psd_model.time_domain(times=self.injections['H1'].times)
-#         #print(noise)
+#         # Inspect the generated noise here during debugging if needed.
         
     def test_snr(self):
         data = self.injections['H1']

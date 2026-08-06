@@ -18,11 +18,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 matplotlib.use("agg")
 
-import unittest
-from unittest.mock import Mock, patch, MagicMock
-import numpy as np
-from astropy import units as u
-import lal
+from unittest.mock import Mock, patch
 import lalsimulation
 
 from heron.models.lalsimulation import (
