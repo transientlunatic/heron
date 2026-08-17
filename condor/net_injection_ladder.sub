@@ -20,9 +20,15 @@
 # self-injection/SNR targets, UNSMOOTHED (no --k-smoothing-grid-spacing) so
 # the raw bias mechanism is directly comparable against demod's clean result
 # at matched SNRs.
+#
+# No Machine== pin (unlike earlier sessions' condor files): confirmed 2026-08-17
+# that /scratch/wiay/daniel and its micromamba env are NFS-visible pool-wide
+# (tested from balta.physics.gla.ac.uk), and the wiay HOST ITSELF was fully
+# saturated (0 free CPUs -- other users' jobs, not just ours) while the rest of
+# the ~9-machine pool had free capacity (deneb 10, hermes/balta 9, etc.) --
+# pinning to one host is not required and left these jobs stuck Idle for 2h.
 universe        = vanilla
 executable      = condor/run_net_injection.sh
-requirements    = (Machine == "wiay.astro.gla.ac.uk")
 request_cpus    = 10
 request_memory  = 18432
 should_transfer_files = NO
