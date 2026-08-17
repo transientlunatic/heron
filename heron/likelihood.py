@@ -88,6 +88,34 @@ class MarginalLogLikelihood:
         self.dtype = dtype
         self.device = dev
 
+    @property
+    def log_det(self) -> float:
+        """``log|C + K|`` for the factorisation this instance was built with."""
+        return self._log_det
+
+    @property
+    def n(self) -> int:
+        """Dimensionality ``N`` of the covariance."""
+        return self._n
+
+    def whiten(self, v) -> torch.Tensor:
+        """Return ``L_A^{-1} L_C^{-1} v``, the whitening transform for this ``C + K``.
+
+        For any two vectors ``v``, ``w``: ``v^T (C+K)^{-1} w == whiten(v) . whiten(w)``.
+        Exposed so callers that need bilinear forms other than the residual
+        Mahalanobis distance computed by :meth:`__call__` (e.g. analytic
+        marginalisation over a parameter that enters the mean linearly, as
+        coalescence phase does — see ``heron.inference.network``) can reuse this
+        instance's O(N^3) factorisation instead of repeating it.
+        """
+        v_ = torch.as_tensor(np.asarray(v, dtype=float), dtype=self.dtype, device=self.device)
+        u = torch.linalg.solve_triangular(
+            self._L_C, v_.unsqueeze(-1), upper=False
+        ).squeeze(-1)
+        return torch.linalg.solve_triangular(
+            self._L_A, u.unsqueeze(-1), upper=False
+        ).squeeze(-1)
+
     def __call__(self, d) -> float:
         """Return the full scalar log density log N(d; mu, C + K).
 

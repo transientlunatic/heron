@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Heron is a Gaussian Process Regression (GPR) toolkit for gravitational waveform modelling. It produces waveform surrogates with built-in uncertainty estimates. The key innovation is returning full covariance matrices alongside mean predictions, enabling uncertainty-aware parameter estimation.
 
-The current active model is `ExactGPSurrogate` (Matérn kernel + chirp-time warping) in `heron/models/gp/exact.py`. The older `HeronNonSpinningApproximantMatern` in `heron/models/gpytorch.py` is a legacy class kept for checkpoint backward-compatibility.
+The primary strain-domain model is `ExactGPSurrogate` (Matérn kernel + chirp-time warping) in `heron/models/gp/exact.py`. The current **recommended representation for parameter estimation** is `DemodGPSurrogate` (`heron/models/gp/demod.py`) — a heterodyned-residual model that is NS- and coverage-validated log-det-bias-free at realistic SNR (see Architecture and Known Issues). The older `HeronNonSpinningApproximantMatern` in `heron/models/gpytorch.py` is a legacy class kept for checkpoint backward-compatibility.
 
 ## Commands
 
@@ -56,6 +56,7 @@ heron/                      Main Python package
       exact.py              ExactGPSurrogate — the primary model
       phase_amplitude.py    PhaseAmplitudeGPSurrogate — alternative model (GP on log-amplitude + phase, not h(t) directly)
       delta.py              DeltaGPSurrogate — residual model (exact base approximant + GP on oracle-base deltas)
+      demod.py              DemodGPSurrogate — heterodyned-residual model (GP on demodulated oracle-ref residual; recommended for PE)
       mean.py               NewtonianInspiralMean, TaylorT2Mean (PN mean functions) + amplitude/phase-only variants
       sparse.py             SparseGPSurrogate (inducing-point approximation)
     warping.py              ChirpTimeWarping, SimpleWarping, get_warping()
@@ -76,6 +77,7 @@ tests/
   test_gp_exact.py          ExactGPSurrogate — train, predict, save/load roundtrip
   test_gp_phase_amplitude.py  PhaseAmplitudeGPSurrogate — decomposition, train, predict, save/load roundtrip
   test_gp_delta.py          DeltaGPSurrogate — delta targets, alignment, train, predict, save/load (synthetic base/oracle pair, no lalsuite needed)
+  test_gp_demod.py          DemodGPSurrogate — demod targets, exact-inverse reconstruction + covariance congruence, covariance_inflation, train/predict/save-load (synthetic base/oracle, no lalsuite)
   test_types.py             Waveform and WaveformDict
   test_training.py          TrainingSet, sobol_sample, latin_hypercube_sample
   test_warping.py           ChirpTimeWarping, SimpleWarping
@@ -182,6 +184,19 @@ A third model (2026-07-15), same `WaveformSurrogate` interface. The GP does not 
 - Checkpoints store the base approximant *by name*; `load(path, base_approximant=instance)` overrides for non-registry bases.
 - YAML: `model: delta`, `approximant:` is the oracle, plus `base_approximant`, `phase_alignment`, `f_low`. No `output_scale`, no mean-function keys. Example: `examples/train_delta_phenomd_xas_dense10.yaml` (oracle IMRPhenomXAS, base IMRPhenomD, dense10 grid for comparability). **Not yet trained on real LAL data** — the example config is untested end-to-end; trained lengthscales are expected to sit *above* their floors here (smooth targets) — floor-pinning would be a red flag for this model, unlike the chronic pinning in the strain-domain models.
 
+### DemodGPSurrogate (`heron/models/gp/demod.py`)
+
+A fourth model (2026-07-27), same `WaveformSurrogate` interface. **The current recommended representation for point-estimate + coverage PE** (see the log-det bias close-out in Known Issues). Like `DeltaGPSurrogate` it fits the oracle−reference residual, but in a different *representation*: it **heterodynes** (demodulates) the complex strain residual by the reference phase,
+
+    z(t) = (h_oracle(t) − h_ref(t)) · exp(+i·Φ_ref(t)) ≈ A_ref·(δ − i·δΦ)
+
+which rotates out the carrier oscillation, leaving `Re(z)`, `Im(z)` smooth AND Cartesian/bounded (no log, no phase unwrapping — the two things that broke the phase-amplitude representation's K). Two GPs fit Re/Im; `predict()` reconstructs `h = h_ref + Re·cosΦ + Im·sinΦ`, which is **linear** in the GP outputs, so the plus/cross covariance is an *exact* congruence of the (independent) Re/Im covariances — not the delta-method approximation `DeltaGPSurrogate`/`PhaseAmplitudeGPSurrogate` use. Φ_ref is the reference phase minus the same `phase_correction` constant the XAS strain means apply. Standard relative-binning/heterodyned-likelihood transform, applied to the GP target rather than the likelihood.
+
+- **Implementation**: composes ONE inner `ExactGPSurrogate` whose plus/cross channels ARE the Re(z)/Im(z) GPs (reuses all its train / float64-predict / Cholesky machinery, and `output_scale` like the strain model), plus `delta.py`'s `_ApproximantEvaluator` for the reference (native-grid logA/phase; accepts a registry name or any `time_domain` stub → LAL-free tests). Only mass_ratio + time are modelled.
+- **Results (dense30, IMRPhenomD oracle / IMRPhenomXAS reference, `checkpoints/phenomd_nonspinning_dense30_demod.pt`)**: mismatch vs D **median 1.19e-5** — the best of the three residual representations (exact-XAS 3.2e-3, phase-amp 7.6e-5) — with `ls_q` trained *off* its 0.06 floor (0.10/0.56), the de-oscillation signature. **NS-validated at SNR~20**: with-K ≈ no-K at q=0.50/0.60/0.80 (no log-det/grid-snap bias, WITHOUT k-smoothing — because the accurate mean + smooth targets make K genuinely small, K≪C). **PP-plot coverage-validated** (300 injections, SNR~20, `scripts/pp_plot_demod.py`): calibrated for both q and tc, both with-K and no-K (KS p 0.25-0.48, curves within 1-2σ bands).
+- **`covariance_inflation`** (constructor kwarg / YAML, default 1.0): scalar applied to the returned covariance only (never the mean), serialized. The bare K is small AND — measured correctly (`scripts/calibrate_demod_k.py`) — mildly *conservative* (var/err²≈94 median at antinodes), NOT the "overconfident by 8 orders" the prototype's err²-floor artifact suggested. So keep 1.0 for PE / SNR~20 coverage; the tool exists to recalibrate for higher-SNR coverage if the heavy tail bites.
+- YAML: `model: demod`, `approximant:` is the oracle (drives `phase_correction` auto-compute), `base_approximant:` is the reference (default IMRPhenomXAS), plus `f_low`, `output_scale`, optional `phase_correction`/`covariance_inflation`. Example: `examples/train_phenomd_hf_dense30_demod.yaml` (data mode on the dense30 D HDF5). Train script: `scripts/train_demod.py` (bootstraps D targets + phase_correction from an exact-XAS checkpoint).
+
 ### Time Warping (`heron/models/warping.py`)
 
 - `ChirpTimeWarping(alpha, t_ref)`: `t_warp = sign(t) * |t/t_ref|^alpha * t_ref`
@@ -233,7 +248,7 @@ training:
   warping:
     type: chirp
     alpha: 0.625        # best empirical value; 0.375 is Newtonian
-  model: exact          # exact | sparse | phase_amplitude | delta
+  model: exact          # exact | sparse | phase_amplitude | delta | demod
   nu: 2.5
   output_scale: 1.0e27
   optimizer: lbfgs      # lbfgs (default) | adam
@@ -316,6 +331,7 @@ A worked example: `examples/train_phenomd_hf.yaml` (5 mass ratios, N=1000, ls_mi
     2. **`q_warping: eta`** (symmetric-mass-ratio input warp, see Architecture section above; `examples/train_phenomd_dense30_phase_amplitude_xas_qwarp_eta.yaml`, `checkpoints/..._qwarp_eta.pt`) — trained cleanly on the first attempt (with a deliberately aggressive `noise_floor_rel=0.3`, anticipating the ~100× `eta`-spacing compression near q=1 on this uniform-in-q grid). **-6.2σ/+9.8σ/-16.0σ → +1.10σ/+0.50σ/-0.22σ** — comparable to `lsminq012`, and the best of any checkpoint at q=0.80. Both validated via full histograms, not just median+CI: clean, single-peaked, no bimodality or edge pileup.
     3. **Adaptive-density 16-point grid** (dense at q<0.3, sparse above, subsampled from `dense30` — `checkpoints/phenomd_nonspinning_adaptive16_phase_amplitude_data.h5`) — **failed twice, deprioritized.** First attempt (`ls_min_q=0.06` unchanged) reintroduced the original grid-snap pathology almost exactly: -49.5σ/-266.7σ at q=0.50/0.80, posteriors pinned essentially exactly on the nearest training node — because the sparse region's spacing (~0.09) exceeded the unchanged 0.06 floor, the same undersized-floor condition the original grid-snap fix addressed. Second attempt (`ls_min_q=0.18`, `noise_floor_rel=0.1`) avoided that but hit `NotPSDError` instead — and after a second `NotPSDError` even with that bump, this line was dropped in favour of the two approaches that already worked, rather than a third training cycle. The `ls_min_q`/`noise_floor_rel` combination that would make a mixed-density grid train *and* avoid grid-snap is still unresolved; if revisited, needs a floor sized for the *sparsest* local spacing plus enough noise headroom for the resulting ratio at the *densest* spacing simultaneously — a harder joint constraint than either single-density checkpoint has faced.
   - **Practical implication: `q_warping: eta` and `ls_min_q=0.12` are both now recommended over `lsminq006`/`noisefloor`/every kernel-side attempt for the phase-amplitude+XAS representation** — an order-of-magnitude bias reduction from either, achieved by measuring the manifold rather than iterating on guesses. Not yet tried: stacking either with `k_smoothing_offsets` (still independent, unexplored — see the noise-floor entry above), or applying `q_warping` to the exact-GP+XAS representation (much better native K-calibration per the phase-correction entry above — untested whether it needs this fix at all). Results: `results/injection_ns_pa_xas_{lsminq012,qwarp_eta}_q0{50,60,80}.{npz,png}`.
+- **Log-det bias — resolved at the representation level by the demodulated-residual model (2026-07-27); this is now the recommended answer, above all the phase-amplitude+XAS likelihood-/kernel-side fixes above.** Every fix above (`k_smoothing_offsets`, `q_warping: eta`, `ls_min_q=0.12`, higher `noise_floor_rel`) attacks the *symptom* — the training-grid-periodic K-variance dip that the log-det term rewards — on a representation (phase-amplitude+XAS, or exact+XAS) whose K is large enough for that dip to bias PE. `DemodGPSurrogate` (see Architecture) removes the *cause*: heterodyning the oracle−reference residual by the reference phase gives smooth, de-oscillated Re/Im targets, so the mass-ratio kernel trains *off* its floor (ls_q 0.10/0.56, not pinned) and the reproduction mismatch drops to ~1.2e-5 — which makes K genuinely small (K≪C) rather than needing to be smoothed. NS-validated at SNR~20: with-K ≈ no-K (no grid-snap) at q=0.50/0.60/0.80 with NO k-smoothing; and PP-plot-validated (300 injections, `scripts/pp_plot_demod.py`) as calibrated coverage for q and tc, both with-K and no-K. So for new PE work prefer `model: demod`; the phase-amplitude fixes above remain valid and documented for that representation, but demod sidesteps the whole log-det/grid-snap axis by construction. Still open: coverage at SNR≫20 (bare K is mildly conservative with a heavy tail — `scripts/calibrate_demod_k.py` + `covariance_inflation` are the lever), and low-q (<0.4) is unchanged (a mean/kernel-capacity limit, not a log-det one — see design.md).
 
 ## Environment
 

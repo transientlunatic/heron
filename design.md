@@ -24,6 +24,22 @@ subsequent work. Options:
 - Frequency-domain: GP on |h̃(f)| and arg(h̃(f)) — naturally connects to matched filtering
   and avoids the oscillatory time-domain problem entirely
 
+**RESOLVED (2026-07-27): the demodulated-residual representation
+(`DemodGPSurrogate`) is the current answer for PE.** With a full-IMR reference
+approximant (IMRPhenomXAS) as the thing we fit the residual *against*, heterodyne
+the oracle−reference strain residual by the reference phase — z = (h_oracle −
+h_ref)·e^{+iΦ_ref} — so Re(z), Im(z) are smooth and Cartesian/bounded (no log, no
+unwrapping). This is a strict improvement on both the raw-strain and the
+amplitude-phase forks: the Matérn kernel sees de-oscillated targets (its
+mass-ratio lengthscale finally trains *off* its floor), the reconstruction h =
+h_ref + Re·cosΦ + Im·sinΦ is linear so the covariance is *exact* (no delta
+method), and it removes the two things that wrecked amplitude-phase's K (the log
+and the unwrap). Result: mismatch ~1.2e-5 (best of all reps), and — crucially —
+NS- and PP-plot-validated log-det-bias-free, well-calibrated PE at SNR~20 with no
+k-smoothing needed. See CLAUDE.md's DemodGPSurrogate + log-det-bias close-out. The
+frequency-domain fork remains genuinely unexplored and is the natural next
+representation experiment if demod ever hits a wall.
+
 ## Architectural improvements
 
 + A reduced-basis model

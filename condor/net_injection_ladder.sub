@@ -1,0 +1,30 @@
+# SNR ladder: does with-K differ from no-K, and stay unbiased, as K/C grows?
+# DemodGPSurrogate, H1+L1, 2-D (mass_ratio, tc), nessai nlive=250, n_pool=8.
+#
+# SELF-injection (inject the surrogate's own prediction, mismatch=0) so any
+# with-K vs no-K difference is PURELY the K-marginalisation, not template
+# systematics. Distance sets the SNR: K/C grows ~ SNR^2, so the rungs span from
+# C-dominated (SNR~20, with-K == no-K expected) to K-appreciable (SNR~250).
+# Directly tests the demod model's documented-open "coverage at SNR>>20".
+# Same seed => same noise realisation across rungs and across with-K/no-K, so
+# the comparison is controlled (single-realisation caveat as always).
+universe        = vanilla
+executable      = condor/run_net_injection.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk")
+request_cpus    = 10
+request_memory  = 18432
+should_transfer_files = NO
+getenv          = false
+arguments       = $(tag) 8
+output          = condor_logs/net_$(tag).out
+error           = condor_logs/net_$(tag).err
+log             = condor_logs/net_$(tag).log
+
+queue tag from (
+    netladder_snr20_withK
+    netladder_snr20_noK
+    netladder_snr75_withK
+    netladder_snr75_noK
+    netladder_snr250_withK
+    netladder_snr250_noK
+)

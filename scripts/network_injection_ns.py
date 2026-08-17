@@ -47,6 +47,22 @@ from heron.inference import (
 )
 
 
+class _FixedParamLikelihood:
+    """Picklable likelihood callable: merge sampled params with the fixed truth.
+
+    A module-level class (not a lambda/closure) so nessai's ``n_pool`` can pickle
+    it to worker processes -- which works now that ``NetworkLikelihood`` and its
+    surrogate/approximant define ``__getstate__``.
+    """
+
+    def __init__(self, like, fixed):
+        self.like = like
+        self.fixed = fixed
+
+    def __call__(self, p):
+        return self.like({**self.fixed, **p})
+
+
 # Injected truth for every parameter the layer understands.  --distance and
 # --q-true override the two most-varied ones; the rest are a fixed, generic
 # (loud-ish, off-axis) source so the extrinsic recovery is a real test.
@@ -179,13 +195,20 @@ def main() -> None:
         k_smoothing_offsets=k_offsets,
     )
     fixed = {k: v for k, v in truth.items() if k not in sample}
-    log_likelihood = lambda p: like({**fixed, **p})
+    log_likelihood = _FixedParamLikelihood(like, fixed)
 
     prior = build_prior(sample, truth, args)
     print(f"Sampling {sample}  ({'with' if use_unc else 'without'} K)  "
           f"via {args.sampler}, nlive={args.nlive}")
 
     # --- run ----------------------------------------------------------------
+    # With an n_pool, each worker forks the main process; if torch is left free
+    # to spawn its default (all-core) intra-op thread pool, N workers x N
+    # threads catastrophically oversubscribe the CPU and the run crawls. Pin to
+    # one thread per worker (the condor wrapper also sets OMP_NUM_THREADS=1).
+    if args.n_pool:
+        import torch
+        torch.set_num_threads(1)
     t_start = time.time()
     if args.sampler == "nessai":
         sampler = NessaiSampler(log_likelihood, prior)
