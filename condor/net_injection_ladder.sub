@@ -1,13 +1,25 @@
 # SNR ladder: does with-K differ from no-K, and stay unbiased, as K/C grows?
-# DemodGPSurrogate, H1+L1, 2-D (mass_ratio, tc), nessai nlive=250, n_pool=8.
+# H1+L1, 2-D (mass_ratio, tc), nessai nlive=250, n_pool=8.
 #
 # SELF-injection (inject the surrogate's own prediction, mismatch=0) so any
 # with-K vs no-K difference is PURELY the K-marginalisation, not template
 # systematics. Distance sets the SNR: K/C grows ~ SNR^2, so the rungs span from
 # C-dominated (SNR~20, with-K == no-K expected) to K-appreciable (SNR~250).
-# Directly tests the demod model's documented-open "coverage at SNR>>20".
 # Same seed => same noise realisation across rungs and across with-K/no-K, so
 # the comparison is controlled (single-realisation caveat as always).
+#
+# netladder_* (DemodGPSurrogate) already ran 2026-07-28 -- see
+# results/net_netladder_snr{20,75,250}_{no,with}K*. Confirmed: with-K~=no-K at
+# every rung, no bias to SNR~250 -- closes "coverage at SNR>>20" for demod, but
+# demod's K is negligible by design so this can't show the log-det bias
+# actually appearing.
+#
+# exactxasladder_* (production exact_xas_lsminq006 checkpoint, K 3-8 orders
+# larger, the representation the k_smoothing/q_warping/noise-floor fix stack
+# was built against) is the new, currently-queued rung: same distances/
+# self-injection/SNR targets, UNSMOOTHED (no --k-smoothing-grid-spacing) so
+# the raw bias mechanism is directly comparable against demod's clean result
+# at matched SNRs.
 universe        = vanilla
 executable      = condor/run_net_injection.sh
 requirements    = (Machine == "wiay.astro.gla.ac.uk")
@@ -21,10 +33,10 @@ error           = condor_logs/net_$(tag).err
 log             = condor_logs/net_$(tag).log
 
 queue tag from (
-    netladder_snr20_withK
-    netladder_snr20_noK
-    netladder_snr75_withK
-    netladder_snr75_noK
-    netladder_snr250_withK
-    netladder_snr250_noK
+    exactxasladder_snr20_withK
+    exactxasladder_snr20_noK
+    exactxasladder_snr75_withK
+    exactxasladder_snr75_noK
+    exactxasladder_snr250_withK
+    exactxasladder_snr250_noK
 )
