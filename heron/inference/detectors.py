@@ -15,10 +15,15 @@ Usage::
     h1 = Detector.from_name("H1")                 # default aLIGO design PSD
     l1 = Detector.from_name("L1", psd_fn=my_psd)  # custom / estimated PSD
     network = [h1, l1]
+
+    # Real-event PSDs generated externally (e.g. BayesWave) rather than
+    # estimated in-repo:
+    v1 = Detector.from_name("V1", psd_fn=load_psd_ascii("V1_psd.dat"))
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
@@ -39,7 +44,8 @@ class Detector:
     psd_fn : callable
         One-sided PSD [strain²/Hz] as a function of frequency [Hz].  Defaults
         to :func:`heron.evaluation.psd.aligo_design_psd`.  Pass an estimated
-        PSD (e.g. from :func:`estimate_psd_welch`) for real data.
+        (:func:`estimate_psd_welch`) or externally-generated
+        (:func:`load_psd_ascii`, e.g. BayesWave) PSD for real data.
     """
 
     prefix: str
@@ -125,6 +131,61 @@ def estimate_psd_welch(
         query = np.asarray(query, dtype=float)
         out = np.interp(query, freqs, pxx, left=np.inf, right=np.inf)
         out[query < f_low] = np.inf
+        out[query > f_max] = np.inf
+        return out
+
+    return psd_fn
+
+
+def load_psd_ascii(
+    path: str | Path,
+    f_low: float = 20.0,
+    kind: str = "psd",
+) -> Callable[[np.ndarray], np.ndarray]:
+    """Load a two-column ASCII PSD (e.g. a BayesWave ``*_psd.dat`` file) as a psd_fn.
+
+    Reads whitespace-delimited ``frequency  value`` rows (``#``-prefixed
+    comment lines are skipped) and returns an interpolating callable with the
+    same ``psd_fn(freqs) -> array`` signature as
+    :func:`heron.evaluation.psd.aligo_design_psd` and
+    :func:`estimate_psd_welch`, so it drops straight into ``Detector(psd_fn=...)``.
+    Frequencies below ``f_low`` or outside the file's covered range return
+    ``np.inf`` (zero weight), matching the analytic-PSD convention used
+    throughout this codebase.
+
+    Parameters
+    ----------
+    path : str or Path
+        Path to the ASCII PSD file.
+    f_low : float
+        Low-frequency cutoff; below this the returned PSD is ``inf``.
+    kind : str
+        ``"psd"`` (default — strain²/Hz, BayesWave's convention) or ``"asd"``
+        (strain/√Hz, squared on load — the convention some published
+        detector noise-curve text files use instead).
+
+    Returns
+    -------
+    callable
+        ``psd_fn(freqs)`` returning one-sided PSD values [strain²/Hz].
+    """
+    data = np.loadtxt(path, comments="#", usecols=(0, 1))
+    freqs, values = data[:, 0], data[:, 1]
+    order = np.argsort(freqs)
+    freqs, values = freqs[order], values[order]
+
+    if kind == "asd":
+        values = values**2
+    elif kind != "psd":
+        raise ValueError(f"kind must be 'psd' or 'asd', got {kind!r}")
+
+    f_min, f_max = float(freqs[0]), float(freqs[-1])
+    band_low = max(f_low, f_min)
+
+    def psd_fn(query: np.ndarray) -> np.ndarray:
+        query = np.asarray(query, dtype=float)
+        out = np.interp(query, freqs, values, left=np.inf, right=np.inf)
+        out[query < band_low] = np.inf
         out[query > f_max] = np.inf
         return out
 
