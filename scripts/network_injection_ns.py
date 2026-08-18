@@ -146,6 +146,9 @@ def main() -> None:
     ap.add_argument("--no-uncertainty", action="store_true",
                     help="K=0 matched filter instead of GP-marginalised.")
     ap.add_argument("--k-smoothing-grid-spacing", type=float, default=None)
+    ap.add_argument("--covariance-inflation", type=float, default=1.0,
+                    help="Synthetic multiplier on K's variance (likelihood-level, "
+                         "not the surrogate's own calibration); default 1.0 = no-op.")
     ap.add_argument("--sampler", choices=["nessai", "dynesty"], default="nessai")
     ap.add_argument("--nlive", type=int, default=250)
     ap.add_argument("--n-pool", type=int, default=None,
@@ -193,6 +196,7 @@ def main() -> None:
         data=injres.data, times=times, detectors=network, surrogate=surrogate,
         f_low=20.0, use_waveform_uncertainty=use_unc, device=args.device,
         k_smoothing_offsets=k_offsets,
+        covariance_inflation=args.covariance_inflation,
     )
     fixed = {k: v for k, v in truth.items() if k not in sample}
     log_likelihood = _FixedParamLikelihood(like, fixed)

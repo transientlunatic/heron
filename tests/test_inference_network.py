@@ -171,6 +171,69 @@ class TestKSmoothing:
         assert abs(net_raw(params) - net_env(params)) > 1.0
 
 
+class TestCovarianceInflation:
+    """covariance_inflation is a likelihood-level, experiment-only K multiplier
+    (distinct from DemodGPSurrogate's own attribute of the same name) -- see
+    the network_injection_ns.py driver's --covariance-inflation flag, added
+    to synthetically study with-K vs no-K divergence on representations/points
+    where the surrogate's own (well-calibrated) K is too small to show it."""
+
+    def test_default_is_a_no_op(self, flat_psd):
+        from tests.conftest import StubSurrogate
+        times = _times(n=64)
+        surr = StubSurrogate(dip_at=Q, var=25.0, dip_var=1.0)
+        det = Detector.from_name("H1", psd_fn=flat_psd)
+        params = {"mass_ratio": Q, "tc": TC, "ra": RA, "dec": DEC, "psi": PSI}
+        data = _detector_signal(surr, det, params, times)
+
+        net_default = NetworkLikelihood(data={"H1": data}, times=times,
+                                        detectors=[det], surrogate=surr)
+        net_explicit = NetworkLikelihood(data={"H1": data}, times=times,
+                                         detectors=[det], surrogate=surr,
+                                         covariance_inflation=1.0)
+        assert net_default(params) == pytest.approx(net_explicit(params))
+
+    def test_inflating_k_changes_logl_relative_to_no_k(self, flat_psd):
+        from tests.conftest import StubSurrogate
+        times = _times(n=64)
+        surr = StubSurrogate(dip_at=Q, var=25.0, dip_var=1.0)
+        det = Detector.from_name("H1", psd_fn=flat_psd)
+        params = {"mass_ratio": Q, "tc": TC, "ra": RA, "dec": DEC, "psi": PSI}
+        data = _detector_signal(surr, det, params, times)
+
+        net_nok = NetworkLikelihood(data={"H1": data}, times=times,
+                                    detectors=[det], surrogate=surr,
+                                    use_waveform_uncertainty=False)
+        gap_bare = abs(net_nok(params) - NetworkLikelihood(
+            data={"H1": data}, times=times, detectors=[det], surrogate=surr,
+        )(params))
+        gap_inflated = abs(net_nok(params) - NetworkLikelihood(
+            data={"H1": data}, times=times, detectors=[det], surrogate=surr,
+            covariance_inflation=1e4,
+        )(params))
+        # A much larger K should pull with-K noticeably further from no-K
+        # than the bare (inflation=1) case does.
+        assert gap_inflated > gap_bare + 1.0
+
+    def test_applies_under_phase_marginalisation_too(self, flat_psd):
+        from tests.conftest import StubSurrogate
+        times = _times(n=64)
+        surr = StubSurrogate(dip_at=Q, var=25.0, dip_var=1.0)
+        det = Detector.from_name("H1", psd_fn=flat_psd)
+        params = {"mass_ratio": Q, "tc": TC, "ra": RA, "dec": DEC, "psi": PSI,
+                  "distance": 1.0, "inclination": 0.0}
+        data = _detector_signal(surr, det, params, times)
+
+        net_bare = NetworkLikelihood(data={"H1": data}, times=times,
+                                     detectors=[det], surrogate=surr,
+                                     marginalize_phase=True)
+        net_inflated = NetworkLikelihood(data={"H1": data}, times=times,
+                                         detectors=[det], surrogate=surr,
+                                         marginalize_phase=True,
+                                         covariance_inflation=1e4)
+        assert net_bare(params) != pytest.approx(net_inflated(params))
+
+
 class TestPhaseMarginalisation:
     """Analytic phase marginalisation vs. brute-force numerical integration.
 

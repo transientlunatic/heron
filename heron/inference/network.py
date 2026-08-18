@@ -141,6 +141,16 @@ class NetworkLikelihood:
         module docstring for the exact/approximate distinction. When enabled,
         ``params`` passed to ``__call__`` must NOT contain
         ``coalescence_phase``/``phase`` (raises ``ValueError`` if present).
+    covariance_inflation : float
+        Scalar multiplier applied to K's variance (not the mean) wherever it
+        is used, after any k-smoothing envelope. Default 1.0 (no-op). Unlike
+        :class:`~heron.models.gp.demod.DemodGPSurrogate`'s own attribute of
+        the same name, this is a likelihood-level, experiment-only knob —
+        not part of the surrogate's calibration and never serialized with a
+        checkpoint — for synthetically studying "what would with-K vs no-K
+        look like if K were N times larger," e.g. on representations/points
+        where the surrogate's own (well-calibrated) K is too small relative
+        to C for the effect to show up naturally at any realistic SNR.
     """
 
     def __init__(
@@ -159,6 +169,7 @@ class NetworkLikelihood:
         k_smoothing_offsets: list[float] | None = None,
         k_smoothing_param: str = "mass_ratio",
         marginalize_phase: bool = False,
+        covariance_inflation: float = 1.0,
     ):
         # Normalise detectors and data into aligned lists keyed by prefix.
         if not isinstance(detectors, (list, tuple)):
@@ -181,6 +192,7 @@ class NetworkLikelihood:
         self._k_smoothing_param = k_smoothing_param
         self._distance_ref = getattr(surrogate, "distance_factor", None)
         self._marginalize_phase = marginalize_phase
+        self._covariance_inflation = float(covariance_inflation)
 
         # Only the diagonal of K is ever used (project_variances). If the
         # surrogate's predict() accepts a `covariance` mode, request the cheap
@@ -384,7 +396,7 @@ class NetworkLikelihood:
                         inclination=extr["inclination"],
                         coalescence_phase=extr["coalescence_phase"],
                     )
-                K = self._project_diag(k_diag)
+                K = self._project_diag(self._covariance_inflation * k_diag)
             else:
                 K = np.zeros((self._n, self._n))
 
@@ -452,7 +464,7 @@ class NetworkLikelihood:
                         distance=extr["distance"], distance_ref=self._distance_ref,
                         inclination=extr["inclination"], coalescence_phase=0.0,
                     )
-                K = self._project_diag(k_diag)
+                K = self._project_diag(self._covariance_inflation * k_diag)
             else:
                 K = np.zeros((self._n, self._n))
 
