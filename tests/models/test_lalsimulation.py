@@ -10,6 +10,7 @@ try:
         IMRPhenomD,
         IMRPhenomPv2,
         SEOBNRv3,
+        SEOBNRv4,
     )
     HAS_LAL = True
 except ImportError:
@@ -54,6 +55,20 @@ class TestSEOBNRv3(unittest.TestCase):
 
     def test_initialization(self):
         self.assertIsNotNone(self.approx._args["approximant"])
+
+
+@pytest.mark.skipif(not HAS_LAL, reason="lalsuite not installed")
+class TestSEOBNRv4(unittest.TestCase):
+
+    def setUp(self):
+        self.approx = SEOBNRv4()
+
+    def test_initialization(self):
+        self.assertIsNotNone(self.approx._args["approximant"])
+
+    def test_approximant_type(self):
+        expected = lalsimulation.GetApproximantFromString("SEOBNRv4")
+        self.assertEqual(self.approx._args["approximant"], expected)
 
 
 @pytest.mark.skipif(not HAS_LAL, reason="lalsuite not installed")

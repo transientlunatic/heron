@@ -218,6 +218,12 @@ class SEOBNRv3(LALSimulationApproximant):
         self._args["approximant"] = lalsimulation.GetApproximantFromString("SEOBNRv3")
 
 
+class SEOBNRv4(LALSimulationApproximant):
+    def __init__(self):
+        super().__init__()
+        self._args["approximant"] = lalsimulation.GetApproximantFromString("SEOBNRv4")
+
+
 class IMRPhenomD(LALSimulationApproximant):
     def __init__(self):
         super().__init__()

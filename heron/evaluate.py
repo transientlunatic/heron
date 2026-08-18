@@ -28,6 +28,7 @@ APPROXIMANT_REGISTRY = {
     "IMRPhenomD": ("heron.models.lalsimulation", "IMRPhenomD"),
     "IMRPhenomXAS": ("heron.models.lalsimulation", "IMRPhenomXAS"),
     "SEOBNRv3": ("heron.models.lalsimulation", "SEOBNRv3"),
+    "SEOBNRv4": ("heron.models.lalsimulation", "SEOBNRv4"),
     "SineGaussian": ("heron.models.testing", "SineGaussianWaveform"),
 }
 
