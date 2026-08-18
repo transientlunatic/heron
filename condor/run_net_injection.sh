@@ -70,6 +70,28 @@ case "$TAG" in
   exactxasladder_snr250_noK)
     SAMPLE="mass_ratio,tc"; DIST=110; EXTRA="--self-inject --no-uncertainty"
     CHECKPOINT="checkpoints/phenomd_nonspinning_dense30_exact_xas_lsminq006.pt"; APPROXIMANT="IMRPhenomXAS" ;;
+  # --- SAME ladder, with-K only, K's variance synthetically x100 -----------
+  # The bare exact+XAS ladder above showed with-K~=no-K at every rung: K/C at
+  # the peak-amplitude sample measured only ~5e-4/7e-3/8e-2 at SNR 20/75/250
+  # (scaling exactly as SNR^2, as expected) -- genuinely too small to bite,
+  # not a bug (this checkpoint's K is known to be 3-8 orders BETTER calibrated
+  # than phase-amplitude+XAS's, the representation that actually showed the
+  # historical -6/+10/-16 sigma bias). x100 variance brings peak K/C to
+  # ~0.05/0.7/8 across the three rungs -- negligible, mild, and clearly
+  # K-dominated respectively -- so the ladder should show the with-K/no-K gap
+  # growing with SNR, the qualitative effect being demonstrated, without
+  # switching representation or needing a fresh checkpoint. no-K is unaffected
+  # by inflation, so only with-K needs rerunning; reuse the existing
+  # exactxasladder_snr*_noK results as the baseline.
+  exactxasladder_snr20_withK_infl100)
+    SAMPLE="mass_ratio,tc"; DIST=1400; EXTRA="--self-inject --covariance-inflation 100"
+    CHECKPOINT="checkpoints/phenomd_nonspinning_dense30_exact_xas_lsminq006.pt"; APPROXIMANT="IMRPhenomXAS" ;;
+  exactxasladder_snr75_withK_infl100)
+    SAMPLE="mass_ratio,tc"; DIST=370; EXTRA="--self-inject --covariance-inflation 100"
+    CHECKPOINT="checkpoints/phenomd_nonspinning_dense30_exact_xas_lsminq006.pt"; APPROXIMANT="IMRPhenomXAS" ;;
+  exactxasladder_snr250_withK_infl100)
+    SAMPLE="mass_ratio,tc"; DIST=110; EXTRA="--self-inject --covariance-inflation 100"
+    CHECKPOINT="checkpoints/phenomd_nonspinning_dense30_exact_xas_lsminq006.pt"; APPROXIMANT="IMRPhenomXAS" ;;
   *)
     echo "unknown TAG: $TAG" >&2; exit 2 ;;
 esac

@@ -14,12 +14,19 @@
 # demod's K is negligible by design so this can't show the log-det bias
 # actually appearing.
 #
-# exactxasladder_* (production exact_xas_lsminq006 checkpoint, K 3-8 orders
-# larger, the representation the k_smoothing/q_warping/noise-floor fix stack
-# was built against) is the new, currently-queued rung: same distances/
-# self-injection/SNR targets, UNSMOOTHED (no --k-smoothing-grid-spacing) so
-# the raw bias mechanism is directly comparable against demod's clean result
-# at matched SNRs.
+# exactxasladder_* (production exact_xas_lsminq006 checkpoint) already ran
+# 2026-08-17 -- see results/net_exactxasladder_snr{20,75,250}_{no,with}K*.
+# Result: with-K~=no-K at EVERY rung, including SNR~250 (unlike phase-amp+XAS's
+# historical -6/+10/-16 sigma). Root cause confirmed, not a bug: K/C at the
+# peak-amplitude sample measured only ~5e-4/7e-3/8e-2 at SNR 20/75/250 for this
+# checkpoint at q=0.8 -- genuinely too small to bite at any of these SNRs.
+#
+# exactxasladder_*_infl100 (currently queued) reruns the with-K arm only
+# (no-K is unaffected by inflation -- reuses the existing noK results above as
+# baseline) with K's variance synthetically x100 via NetworkLikelihood's new
+# covariance_inflation knob, bringing peak K/C to ~0.05/0.7/8 across the three
+# rungs. Point: demonstrate with-K vs no-K actually diverging, and growing
+# with SNR, without switching representation or needing a new checkpoint.
 #
 # No Machine== pin (unlike earlier sessions' condor files): confirmed 2026-08-17
 # that /scratch/wiay/daniel and its micromamba env are NFS-visible pool-wide
@@ -39,10 +46,7 @@ error           = condor_logs/net_$(tag).err
 log             = condor_logs/net_$(tag).log
 
 queue tag from (
-    exactxasladder_snr20_withK
-    exactxasladder_snr20_noK
-    exactxasladder_snr75_withK
-    exactxasladder_snr75_noK
-    exactxasladder_snr250_withK
-    exactxasladder_snr250_noK
+    exactxasladder_snr20_withK_infl100
+    exactxasladder_snr75_withK_infl100
+    exactxasladder_snr250_withK_infl100
 )
