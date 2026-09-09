@@ -1,0 +1,7 @@
+{
+    "nlive": 250,
+    "seed": 42,
+    "eps": null,
+    "torch_dtype": "torch.float32",
+    "importance_sampler": false
+}
