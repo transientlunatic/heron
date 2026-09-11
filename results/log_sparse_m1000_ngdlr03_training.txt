@@ -1,0 +1,94 @@
+Training heron surrogate model
+INFO:heron.train:Generating training data (fixed grid)
+INFO:heron.train:Generating waveform for q=0.1
+INFO:heron.train:  Sampled 200 points for q=0.1
+INFO:heron.train:Generating waveform for q=0.13
+INFO:heron.train:  Sampled 200 points for q=0.13
+INFO:heron.train:Generating waveform for q=0.16
+INFO:heron.train:  Sampled 200 points for q=0.16
+INFO:heron.train:Generating waveform for q=0.19
+INFO:heron.train:  Sampled 200 points for q=0.19
+INFO:heron.train:Generating waveform for q=0.22
+INFO:heron.train:  Sampled 200 points for q=0.22
+INFO:heron.train:Generating waveform for q=0.25
+INFO:heron.train:  Sampled 200 points for q=0.25
+INFO:heron.train:Generating waveform for q=0.28
+INFO:heron.train:  Sampled 200 points for q=0.28
+INFO:heron.train:Generating waveform for q=0.31
+INFO:heron.train:  Sampled 200 points for q=0.31
+INFO:heron.train:Generating waveform for q=0.34
+INFO:heron.train:  Sampled 200 points for q=0.34
+INFO:heron.train:Generating waveform for q=0.37
+INFO:heron.train:  Sampled 200 points for q=0.37
+INFO:heron.train:Generating waveform for q=0.4
+INFO:heron.train:  Sampled 200 points for q=0.4
+INFO:heron.train:Generating waveform for q=0.43
+INFO:heron.train:  Sampled 200 points for q=0.43
+INFO:heron.train:Generating waveform for q=0.46
+INFO:heron.train:  Sampled 200 points for q=0.46
+INFO:heron.train:Generating waveform for q=0.49
+INFO:heron.train:  Sampled 200 points for q=0.49
+INFO:heron.train:Generating waveform for q=0.52
+INFO:heron.train:  Sampled 200 points for q=0.52
+INFO:heron.train:Generating waveform for q=0.55
+INFO:heron.train:  Sampled 200 points for q=0.55
+INFO:heron.train:Generating waveform for q=0.58
+INFO:heron.train:  Sampled 200 points for q=0.58
+INFO:heron.train:Generating waveform for q=0.61
+INFO:heron.train:  Sampled 200 points for q=0.61
+INFO:heron.train:Generating waveform for q=0.64
+INFO:heron.train:  Sampled 200 points for q=0.64
+INFO:heron.train:Generating waveform for q=0.67
+INFO:heron.train:  Sampled 200 points for q=0.67
+INFO:heron.train:Generating waveform for q=0.7
+INFO:heron.train:  Sampled 200 points for q=0.7
+INFO:heron.train:Generating waveform for q=0.73
+INFO:heron.train:  Sampled 200 points for q=0.73
+INFO:heron.train:Generating waveform for q=0.76
+INFO:heron.train:  Sampled 200 points for q=0.76
+INFO:heron.train:Generating waveform for q=0.79
+INFO:heron.train:  Sampled 200 points for q=0.79
+INFO:heron.train:Generating waveform for q=0.82
+INFO:heron.train:  Sampled 200 points for q=0.82
+INFO:heron.train:Generating waveform for q=0.85
+INFO:heron.train:  Sampled 200 points for q=0.85
+INFO:heron.train:Generating waveform for q=0.88
+INFO:heron.train:  Sampled 200 points for q=0.88
+INFO:heron.train:Generating waveform for q=0.91
+INFO:heron.train:  Sampled 200 points for q=0.91
+INFO:heron.train:Generating waveform for q=0.94
+INFO:heron.train:  Sampled 200 points for q=0.94
+INFO:heron.train:Generating waveform for q=0.97
+INFO:heron.train:  Sampled 200 points for q=0.97
+INFO:heron.train:Training data: 6000 samples
+INFO:heron.train:Training sparse GP (nu=2.5, iterations=400)
+INFO:heron.models.gp.sparse:  [plus] step 1/400  loss=1012.3335
+INFO:heron.models.gp.sparse:  [plus] step 40/400  loss=338.1125
+INFO:heron.models.gp.sparse:  [plus] step 80/400  loss=337.6223
+INFO:heron.models.gp.sparse:  [plus] step 120/400  loss=314.2123
+/home/daniel/repositories/ligo/heron/environment/lib/python3.13/site-packages/gpytorch/distributions/multivariate_normal.py:376: NumericalWarning: Negative variance values detected. This is likely due to numerical instabilities. Rounding negative variances up to 1e-06.
+  warnings.warn(
+INFO:heron.models.gp.sparse:  [plus] step 160/400  loss=326.4637
+INFO:heron.models.gp.sparse:  [plus] step 200/400  loss=324.3128
+INFO:heron.models.gp.sparse:  [plus] step 240/400  loss=328.2192
+INFO:heron.models.gp.sparse:  [plus] step 280/400  loss=350.2336
+INFO:heron.models.gp.sparse:  [plus] step 320/400  loss=343.5322
+INFO:heron.models.gp.sparse:  [plus] step 360/400  loss=352.7514
+INFO:heron.models.gp.sparse:  [plus] step 400/400  loss=356.2041
+INFO:heron.models.gp.sparse:Trained plus SVGP for 400 iterations
+INFO:heron.models.gp.sparse:  [cross] step 1/400  loss=1012.7276
+INFO:heron.models.gp.sparse:  [cross] step 40/400  loss=307.5599
+INFO:heron.models.gp.sparse:  [cross] step 80/400  loss=303.4156
+INFO:heron.models.gp.sparse:  [cross] step 120/400  loss=304.7863
+INFO:heron.models.gp.sparse:  [cross] step 160/400  loss=317.6733
+INFO:heron.models.gp.sparse:  [cross] step 200/400  loss=310.9644
+INFO:heron.models.gp.sparse:  [cross] step 240/400  loss=332.1519
+INFO:heron.models.gp.sparse:  [cross] step 280/400  loss=336.2578
+INFO:heron.models.gp.sparse:  [cross] step 320/400  loss=325.2935
+INFO:heron.models.gp.sparse:  [cross] step 360/400  loss=325.7073
+INFO:heron.models.gp.sparse:  [cross] step 400/400  loss=334.7187
+INFO:heron.models.gp.sparse:Trained cross SVGP for 400 iterations
+INFO:heron.models.gp.sparse:Saved SVGP checkpoint to checkpoints/phenomd_nonspinning_sparse_dense_m1000_ngdlr03.pt
+INFO:heron.train:Checkpoint saved to checkpoints/phenomd_nonspinning_sparse_dense_m1000_ngdlr03.pt
+INFO:heron.train:Training data saved to checkpoints/phenomd_nonspinning_sparse_dense_m1000_ngdlr03_data.h5
+Training complete

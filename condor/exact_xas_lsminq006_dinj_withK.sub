@@ -1,0 +1,23 @@
+# CLEAN IMRPhenomD-injection, WITH-K, against the ls_min_q=0.06 plus/cross
+# ExactGPSurrogate+XAS checkpoint. Part of dag_exact_xas_dinj.dag. Confirms the
+# local profile-scan finding that exact-XAS has no with-K (log-det) bias --
+# see condor/run_ns_exact_xas_lsminq006_dinj.sh header and memory
+# exact_xas_no_logdet_bias.
+universe        = vanilla
+executable      = condor/run_ns_exact_xas_lsminq006_dinj.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk")
+request_gpus    = 1
+request_cpus    = 2
+request_memory  = 4096
+should_transfer_files = NO
+getenv          = false
+arguments       = $(q) $(qtag)
+output          = condor_logs/ns_exact_lsminq006_dinj_$(qtag).out
+error           = condor_logs/ns_exact_lsminq006_dinj_$(qtag).err
+log             = condor_logs/ns_exact_lsminq006_dinj_$(qtag).log
+
+queue q,qtag from (
+    0.50, q050_withK
+    0.60, q060_withK
+    0.80, q080_withK
+)

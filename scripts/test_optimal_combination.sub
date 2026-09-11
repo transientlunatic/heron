@@ -1,0 +1,48 @@
+#!/usr/bin/env condor_submit
+# HTCondor submission file for comprehensive kernel-warping grid search
+#
+# Tests combinations of:
+# - Matérn with ν ∈ {1.5, 2.5, 3.5}
+# - Chirp warping with α ∈ {3/8, 1/2, 5/8}
+# - 5000 iterations each
+#
+# Goal: Find optimal combination to break below 10% mismatch
+
+universe = vanilla
+executable = /home/daniel/repositories/ligo/heron/scripts/run_with_gpu.sh
+should_transfer_files = NO
+
+# Request GPU
+request_gpus = 1
+request_cpus = 1
+request_memory = 8GB
+
+# Arguments: wrapper script will run Python with these args
+arguments = test_kernel_warping_grid.py matern $(nu) chirp $(alpha) 5000
+initialdir = /home/daniel/repositories/ligo/heron/scripts
+
+# Logging
+log = condor_logs/optimal_$(Cluster).$(Process).log
+output = condor_logs/optimal_nu$(nu)_alpha$(alpha).out
+error = condor_logs/optimal_nu$(nu)_alpha$(alpha).err
+
+# Test matrix: Matérn ν values × Chirp α values
+# ν = 1.5 (once-differentiable, most flexible)
+# ν = 2.5 (twice-differentiable, current default)
+# ν = 3.5 (three-times differentiable, smoothest)
+#
+# α = 0.375 (3/8 - Newtonian chirp time, current default)
+# α = 0.5   (1/2 - intermediate)
+# α = 0.625 (5/8 - stronger warping)
+
+queue nu, alpha from (
+    1.5, 0.375
+    1.5, 0.5
+    1.5, 0.625
+    2.5, 0.375
+    2.5, 0.5
+    2.5, 0.625
+    3.5, 0.375
+    3.5, 0.5
+    3.5, 0.625
+)

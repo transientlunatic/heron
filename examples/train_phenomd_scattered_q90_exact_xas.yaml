@@ -1,0 +1,102 @@
+# Scattered / quasi-random mass-ratio training for the strain-domain
+# ExactGPSurrogate + IMRPhenomXAS mean.
+#
+# WHY: the production dense30 checkpoints train on a tensor-product grid --
+# only 30 DISTINCT mass ratios (spacing 0.03), each repeated over 200 time
+# samples. A GP posterior variance is always minimised at/near training
+# inputs, so 30 distinct q's => 30 evenly-spaced posterior-variance dips =>
+# a period-0.03 "comb" in the q-marginal variance. That comb feeds the
+# with-K likelihood's log-det term and snaps nested-sampling posteriors
+# onto the nearest training node (the log-det grid-snap bias; see
+# CLAUDE.md, [[logdet_bias_isolated]], [[scattered_manifold_sampling_idea]]).
+# k_smoothing_offsets / q_warping='eta' / ls_min_q=0.12 all *launder* this
+# at inference or via hyperparameters; this config attacks it at the root
+# by training on many more distinct, quasi-random q's so the q-marginal
+# variance is flat to begin with.
+#
+# DESIGN (see generate_training_data_scattered in heron/train.py):
+#   - 90 distinct q's drawn by a Sobol (low-discrepancy) design over
+#     [0.10, 0.97] -- the SAME range as dense30 -- NOT pure random (random
+#     clumps/voids would create new *irregular* variance spikes, worse than
+#     a predictable periodic comb).
+#   - 65 time samples per q (uniform in warped time, exactly as the grid
+#     path). 90 x 65 = 5850 ~= dense30's N=6000, so exact-GP GPU Cholesky
+#     cost is comparable. The fine-t/fine-q trade-off is deliberate: we
+#     spend the budget on 3x more distinct q's at the cost of coarser time.
+#
+# ADDITIVE: mode: scattered is a new code path; mode: fixed / data (and
+# every existing checkpoint) are untouched, so this can be compared
+# directly against checkpoints/phenomd_nonspinning_dense30_exact_xas_lsminq006.pt.
+#
+# FIRST-EXPERIMENT PROTOCOL (cheap, no NS): train this one checkpoint, then
+#   python scripts/probe_q_variance_comb.py <this checkpoint> --label scatter_q90
+#   python scripts/probe_q_variance_comb.py \
+#       checkpoints/phenomd_nonspinning_dense30_exact_xas_lsminq006.pt --label grid30
+# and compare the comb metrics (node/antinode ratio, spectral comb
+# fraction). If the comb flattens AND the trained time-lengthscale is not
+# pinned hard on ls_min_time -> then it is worth a full nested-sampling run.
+#
+# HYPERPARAMETER NOTES (the values most likely to need a tuning pass):
+#   - ls_min_q = 0.01 ~ the mean scattered q-spacing (0.87/90 = 0.0097).
+#     Deliberately near the mean spacing, NOT above it: we WANT to see
+#     whether the extra q's let the trained lengthscale rise off this floor
+#     (a floor-pinned ls_q would say the extra data isn't being used).
+#   - ls_min_time = 0.035 ~ 2x the warped-time spacing at 65 samples/q
+#     (dense30's 0.0035-0.0062 at 200 samples => ~0.011-0.019 at 65, so
+#     ~2x = ~0.035). Same "2x warped-time spacing" rule as every other
+#     config; recompute if you change n_samples.
+#   - noise_floor_rel = 1e-2. Quasi-random draws produce some closely
+#     spaced q pairs (min spacing << mean), which over-correlate K; the
+#     floor keeps (K+sigma^2 I) conditioned. If training hits NotPSDError,
+#     raise this (5e-2, then 1e-1) before touching lengthscales.
+#
+# Requires: lalsuite (the IMRPhenomXAS mean + IMRPhenomD oracle generate
+# waveforms at train/predict time). Train on a GPU (device: cuda,
+# cholesky_size 6000) -- see [[wiay_remote_training]].
+#
+# Usage: heron train --settings examples/train_phenomd_scattered_q90_exact_xas.yaml
+
+logging:
+  level: info
+
+training:
+  mode: scattered
+  model: exact
+
+  # Oracle for the training targets (matches dense30: targets are D, mean
+  # is XAS -- the GP fits the small D-XAS difference).
+  approximant: IMRPhenomD
+
+  # Quasi-random mass-ratio sampling
+  q_bounds: [0.10, 0.97]
+  n_mass_ratios: 90
+  q_sampling: sobol       # sobol | lhs | jittered
+  n_samples: 65           # time samples per q
+  seed: 20260727
+
+  total_mass: 60.0        # solar masses
+  distance: 100.0         # Mpc
+  f_low: 20.0
+
+  nu: 2.5
+  output_scale: 1.0e+27
+  optimizer: lbfgs
+  iterations: 80
+  device: cuda
+
+  warping:
+    type: chirp
+    alpha: 0.625
+
+  ls_min_q: 0.01
+  ls_min_time: 0.035
+  noise_floor_rel: 1.0e-2
+
+  cholesky_size: 6000
+
+  mean_function:
+    type: approximant
+    approximant: IMRPhenomXAS
+
+  checkpoint: checkpoints/phenomd_nonspinning_scattered_q90_exact_xas.pt
+  save_training_data: checkpoints/phenomd_nonspinning_scattered_q90_data.h5

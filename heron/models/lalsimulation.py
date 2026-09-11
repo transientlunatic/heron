@@ -1,31 +1,44 @@
+"""
+LALSimulation-based reference waveform approximants.
+
+These are used to generate training data for surrogate models.
+Requires lalsuite (optional dependency).
+"""
+
 import logging
 
-import numpy as array_library
 import numpy as np
 import torch
 from scipy.interpolate import CubicSpline
-import scipy
-import scipy.spatial.distance
-
-# Astropy to handle units sanely
 from astropy import units as u
 
-# Import LAL tools
-import lalsimulation
-import lal
-from lal import cached_detector_by_prefix, TimeDelayFromEarthCenter, LIGOTimeGPS
+from ..types import Waveform, WaveformDict
+from . import WaveformApproximant
 
-# Import heron types
-from ..types import Waveform, WaveformDict, PSD
-from . import WaveformApproximant, PSDApproximant
+try:
+    import lalsimulation
+    import lal
+
+    HAS_LAL = True
+except ImportError:
+    HAS_LAL = False
+
+logger = logging.getLogger("heron.models.lalsimulation")
+
+
+def _require_lal():
+    if not HAS_LAL:
+        raise ImportError(
+            "lalsuite is required for LALSimulation waveforms. "
+            "Install with: pip install lalsuite"
+        )
 
 
 class LALSimulationApproximant(WaveformApproximant):
-    """
-    This is the base class for LALSimulation-based approximants.
-    """
+    """Base class for LALSimulation-based approximants."""
 
     def __init__(self):
+        _require_lal()
         self._cache_key = {}
         self._args = {
             "m1": None,
@@ -56,12 +69,36 @@ class LALSimulationApproximant(WaveformApproximant):
             "luminosity_distance",
         }
 
-        self.logger = logger = logging.getLogger(
+        self.logger = logging.getLogger(
             "heron.models.LALSimulationApproximant"
         )
 
-    def _convert_units(self, args):
+    def __getstate__(self):
+        """Drop the un-picklable SWIG state so the approximant (and anything
+        holding it -- surrogates, mean functions, likelihoods) can be sent to
+        a multiprocessing worker.
 
+        ``_args["params"]`` is a ``lal.Dict`` (SWIG-wrapped, not picklable),
+        and ``_cache``/``_cache_key`` hold SWIG-backed waveform data and a copy
+        of that dict. All are cheap to rebuild, so we serialise everything else
+        and reconstruct them in ``__setstate__``. This is what unblocks
+        ``n_pool`` process parallelism in nessai/bilby, where the whole
+        likelihood object is pickled to each worker.
+        """
+        state = self.__dict__.copy()
+        args = dict(state.get("_args", {}))
+        args["params"] = None  # lal.Dict -- rebuilt on load
+        state["_args"] = args
+        state["_cache_key"] = {}
+        state.pop("_cache", None)  # SWIG-backed WaveformDict -- regenerated lazily
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        if HAS_LAL and self._args.get("params") is None:
+            self._args["params"] = lal.CreateDict()
+
+    def _convert_units(self, args):
         default_units = {
             "mass": u.solMass,
             "distance": u.megaparsec,
@@ -88,10 +125,9 @@ class LALSimulationApproximant(WaveformApproximant):
         }
 
         for name, argument in args.items():
-            if isinstance(argument, u.quantity.Quantity) and name in mappings.keys():
-                args[name] = argument.to_value(units[mappings[name]])
-            elif name in mappings.keys() and argument:
-                # This is commented out as it causes problems if e.g. lalnative values are passed
+            if isinstance(argument, u.quantity.Quantity) and name in mappings:
+                args[name] = float(argument.to_value(units[mappings[name]]))
+            elif name in mappings and argument:
                 args[name] = (argument * default_units[mappings[name]]).to_value(
                     units[mappings[name]]
                 )
@@ -100,83 +136,70 @@ class LALSimulationApproximant(WaveformApproximant):
 
     @property
     def args(self):
-        """
-        Provide the arguments list converted to appropriate units.
-        """
         args = {}
         args.update(self._args)
-        # Convert total mass and mass ratio to the component masses
         args = self._convert_units(args)
         args = self._convert(args)
-        # Remove sky and extrinsic parameters
         for par in ("ra", "dec", "phase", "psi", "theta_jn"):
             if par in args:
                 args.pop(par)
 
         for key in list(args.keys()):
-            if not key in self.allowed_parameters:
+            if key not in self.allowed_parameters:
                 args.pop(key)
         return args
 
     def time_domain(self, parameters, times=None):
-        """
-        Retrieve a time domain waveform for a given set of parameters.
-        """
+        """Generate a time-domain waveform for given parameters."""
         epoch = parameters.get("gpstime", parameters.get("epoch", 0))
         self._args.update(parameters)
         if not (self._args == self._cache_key):
-            #self.logger.info(f"Generating new waveform at {self.args}")
             self._cache_key = self.args.copy()
 
-            try:
-                hp, hx = lalsimulation.SimInspiralChooseTDWaveform(
-                    *list(self.args.values())
-                )
-            except:
-                print(self.args)
+            hp, hx = lalsimulation.SimInspiralChooseTDWaveform(
+                *list(self.args.values())
+            )
 
-            if not isinstance(times, type(None)):
-                # If we provide times then we'll need to interpolate the waveform generated by
-                # lalsimulation in order to evaluate it at the same points.
+            if times is not None:
                 times_wf = (
-                    array_library.arange(len(hp.data.data)) * hp.deltaT
-                    + epoch + hp.epoch.ns()/1e9
+                    np.arange(len(hp.data.data)) * hp.deltaT
+                    + epoch + hp.epoch.ns() / 1e9
                 )
-
-
-
 
                 spl_hp = CubicSpline(times_wf, hp.data.data, extrapolate=False)
                 spl_hx = CubicSpline(times_wf, hx.data.data, extrapolate=False)
 
                 hp_data = np.nan_to_num(spl_hp(times))
                 hx_data = np.nan_to_num(spl_hx(times))
-                hp_ts = Waveform(data=hp_data, times=times)
-                hx_ts = Waveform(data=hx_data, times=times)
+                hp_ts = Waveform(data=hp_data, times=np.asarray(times))
+                hx_ts = Waveform(data=hx_data, times=np.asarray(times))
 
             elif "time" in parameters:
                 t = parameters["time"]
                 times_wf = (
-                    array_library.arange(len(hp.data.data)) * hp.deltaT
+                    np.arange(len(hp.data.data)) * hp.deltaT
                     + hp.epoch
                     + epoch
                 )
 
-                times = array_library.linspace(t["lower"], t["upper"], t["number"])
+                times_arr = np.linspace(t["lower"], t["upper"], t["number"])
 
                 spl_hp = CubicSpline(times_wf, hp.data.data)
                 spl_hx = CubicSpline(times_wf, hx.data.data)
-                hp_data = spl_hp(times)
-                hx_data = spl_hx(times)
-                hp_ts = Waveform(data=hp_data, times=times)
-                hx_ts = Waveform(data=hx_data, times=times)
+                hp_data = spl_hp(times_arr)
+                hx_data = spl_hx(times_arr)
+                hp_ts = Waveform(data=hp_data, times=times_arr)
+                hx_ts = Waveform(data=hx_data, times=times_arr)
                 parameters.pop("time")
 
             else:
                 hp_data = hp.data.data
                 hx_data = hx.data.data
-                hp_ts = Waveform(data=hp_data, dt=hp.deltaT, t0=hp.epoch + epoch)
-                hx_ts = Waveform(data=hx_data, dt=hx.deltaT, t0=hx.epoch + epoch)
+                n = len(hp_data)
+                times_arr = np.arange(n) * hp.deltaT + float(hp.epoch)
+                hp_ts = Waveform(data=hp_data, times=times_arr, dt=hp.deltaT, t0=float(hp.epoch) + epoch)
+                hx_ts = Waveform(data=hx_data, times=times_arr, dt=hx.deltaT, t0=float(hx.epoch) + epoch)
+
             self._cache = WaveformDict(parameters=parameters, plus=hp_ts, cross=hx_ts)
         return self._cache
 
@@ -195,26 +218,21 @@ class SEOBNRv3(LALSimulationApproximant):
         self._args["approximant"] = lalsimulation.GetApproximantFromString("SEOBNRv3")
 
 
-class IMRPhenomPv2_FakeUncertainty(IMRPhenomPv2):
-    def __init__(self, covariance=1e-24):
+class SEOBNRv4(LALSimulationApproximant):
+    def __init__(self):
         super().__init__()
-        self.covariance = covariance
+        self._args["approximant"] = lalsimulation.GetApproximantFromString("SEOBNRv4")
 
 
+class IMRPhenomD(LALSimulationApproximant):
+    def __init__(self):
+        super().__init__()
+        self._args["approximant"] = lalsimulation.GetApproximantFromString("IMRPhenomD")
 
-    def time_domain(self, parameters, times=None):
-        waveform_dict = super().time_domain(parameters, times)
 
-        if times is None:
-            times = waveform_dict["plus"].times 
-
-        covariance =  np.exp(
-            -0.5 * scipy.spatial.distance.cdist(np.expand_dims(times, 1),
-                                                np.expand_dims(times, 1), 'sqeuclidean')
-
-        ) * self.covariance**2
-        #covariance = np.eye((len(waveform_dict["plus"].times))) * self.covariance**2
-        for wave in waveform_dict.waveforms.values():
-            # Artificially add a covariance function to each of these
-            wave.covariance = covariance
-        return waveform_dict
+class IMRPhenomXAS(LALSimulationApproximant):
+    def __init__(self):
+        super().__init__()
+        self._args["approximant"] = lalsimulation.GetApproximantFromString(
+            "IMRPhenomXAS"
+        )

@@ -1,0 +1,30 @@
+# NS test for the noise_floor_rel=5e-2 experiment (see
+# condor/train_pa_xas_noisefloor.sub and memory logdet_bias_isolated.md):
+# with-K nested sampling against the retrained checkpoint, at the same
+# three q's as the unsmoothed lsminq006 baseline (q=0.50/0.60/0.80:
+# -6.2/+9.8/-16.0 sigma) so this isolates the effect of the noise-floor
+# increase alone, directly comparable to that baseline and to the
+# k_smoothing_offsets runtime fix (2.7-6.4x reduction on the same points).
+# Same wide prior [0.15, 0.97] and default IMRPhenomD injection.
+#
+# DAG-parented on train_pa_xas_noisefloor.sub in
+# dag_noisefloor.dag -- do not submit standalone before the checkpoint
+# exists.
+universe        = vanilla
+executable      = condor/run_ns_pa_xas_noisefloor.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk") || (Machine == "puck.astro.gla.ac.uk")
+request_gpus    = 1
+request_cpus    = 2
+request_memory  = 4096
+should_transfer_files = NO
+getenv          = false
+arguments       = $(q) $(qtag)
+output          = condor_logs/ns_pa_xas_noisefloor_$(qtag).out
+error           = condor_logs/ns_pa_xas_noisefloor_$(qtag).err
+log             = condor_logs/ns_pa_xas_noisefloor_$(qtag).log
+
+queue q,qtag from (
+    0.50, q050
+    0.60, q060
+    0.80, q080
+)

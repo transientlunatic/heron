@@ -1,0 +1,31 @@
+# Confirmatory NS test for the grid-snap fix (see memory grid_snap_finding.md
+# and CLAUDE.md): with-K nested sampling against the retrained
+# ls_min_q=0.06/noise_floor_rel=1e-2 checkpoint, at the three off-grid q's
+# that snapped exactly onto their nearest training node under the original
+# ls_min_q=0.03 checkpoint (scan_pa_xas.sub: 0.50->0.4900, 0.60->0.6100,
+# 0.80->0.7900, each with posterior std ~3e-5). Same wide prior
+# [0.15, 0.97] and default IMRPhenomD injection as the original run, so
+# this isolates the effect of the hyperparameter change alone.
+#
+# Broadened beyond wiay-only: the retrained checkpoint and code are on
+# shared scratch (/scratch/wiay/daniel), verified reachable and GPU-usable
+# from both wiay and puck (idle RTX 5090) -- letting HTCondor match either
+# avoids queuing behind wiay's own long-running NS batches.
+universe        = vanilla
+executable      = condor/run_ns_pa_xas_lsminq006.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk") || (Machine == "puck.astro.gla.ac.uk")
+request_gpus    = 1
+request_cpus    = 2
+request_memory  = 4096
+should_transfer_files = NO
+getenv          = false
+arguments       = $(q) $(qtag)
+output          = condor_logs/ns_pa_xas_lsminq006_$(qtag).out
+error           = condor_logs/ns_pa_xas_lsminq006_$(qtag).err
+log             = condor_logs/ns_pa_xas_lsminq006_$(qtag).log
+
+queue q,qtag from (
+    0.50, q050
+    0.60, q060
+    0.80, q080
+)

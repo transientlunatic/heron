@@ -1,0 +1,31 @@
+/home/daniel/repositories/ligo/heron/scripts/demo_uncertainty_comparison.py:227: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:836.)
+  ls_q = float(m.covar_module.base_kernel.kernels[0].lengthscale[0, 0])
+Segment: 256 samples @ 512.0 Hz  (0.5 s)
+Loading surrogate from checkpoints/phenomd_nonspinning_dense10.pt ...
+  Learned hyperparams (plus): ls_q=0.1001  ls_t(warp)=0.0300  ls_min_q=0.1  ls_min_time=0.03
+Antenna patterns (H1): F+ = 0.075  F× = -0.887
+Building noise covariance matrix ...
+Injecting signal at q=0.8, tc=1187008882.43
+Optimal SNR (HP-filtered, ≥20 Hz) ≈ 196.2
+GP uncertainty / noise (K_ii/C_ii): min=21  max=75  mean=22
+
+[with K] building likelihood ...
+[with K] scanning q ...
+    [with_K:q] 50/200  (3.6s)    [with_K:q] 100/200  (7.0s)    [with_K:q] 150/200  (10.5s)    [with_K:q] 200/200  (14.2s)
+[with K] scanning tc ...
+    [with_K:tc] 50/200  (3.5s)    [with_K:tc] 100/200  (6.9s)    [with_K:tc] 150/200  (10.4s)    [with_K:tc] 200/200  (13.8s)
+
+[no K] building likelihood ...
+[no K] scanning q ...
+    [without_K:q] 50/200  (3.5s)    [without_K:q] 100/200  (7.3s)    [without_K:q] 150/200  (11.1s)    [without_K:q] 200/200  (14.8s)
+[no K] scanning tc ...
+    [without_K:tc] 50/200  (3.6s)    [without_K:tc] 100/200  (7.3s)    [without_K:tc] 150/200  (10.9s)    [without_K:tc] 200/200  (14.6s)
+
+--- Posterior widths ---
+  [with_K    ]  σ_q = 0.00074  σ_tc = 0.0524 ms
+  [without_K ]  σ_q = 0.00117  σ_tc = 0.0022 ms
+
+  Width ratio with_K / without_K:  σ_q ×0.6  σ_tc ×23.3
+
+Saved figure → results/uncertainty_comparison_dense10.png

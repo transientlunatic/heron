@@ -1,0 +1,55 @@
+#!/usr/bin/env condor_submit
+# Comprehensive comparison of all training data strategies
+#
+# Tests each strategy across multiple mass ratios to find optimal approach
+
+universe = vanilla
+executable = /home/daniel/repositories/ligo/heron/scripts/run_with_gpu.sh
+should_transfer_files = NO
+
+request_gpus = 1
+request_cpus = 1
+request_memory = 8GB
+
+# Arguments: strategy name and test mass ratio
+arguments = compare_strategy.py $(strategy) $(q)
+initialdir = /home/daniel/repositories/ligo/heron/scripts
+
+log = condor_logs/compare_$(Cluster).$(Process).log
+output = condor_logs/compare_$(strategy)_q$(q).out
+error = condor_logs/compare_$(strategy)_q$(q).err
+
+# Test each strategy at all mass ratios
+# Total: 5 strategies × 7 test points = 35 jobs
+queue strategy, q from (
+    A_chebyshev, 0.1
+    A_chebyshev, 0.3
+    A_chebyshev, 0.5
+    A_chebyshev, 0.7
+    A_chebyshev, 0.9
+    A_chebyshev, 1.0
+    B_uniform_linear, 0.1
+    B_uniform_linear, 0.3
+    B_uniform_linear, 0.5
+    B_uniform_linear, 0.7
+    B_uniform_linear, 0.9
+    B_uniform_linear, 1.0
+    C_variation, 0.1
+    C_variation, 0.3
+    C_variation, 0.5
+    C_variation, 0.7
+    C_variation, 0.9
+    C_variation, 1.0
+    D_boundary_mid, 0.1
+    D_boundary_mid, 0.3
+    D_boundary_mid, 0.5
+    D_boundary_mid, 0.7
+    D_boundary_mid, 0.9
+    D_boundary_mid, 1.0
+    E_log_space, 0.1
+    E_log_space, 0.3
+    E_log_space, 0.5
+    E_log_space, 0.7
+    E_log_space, 0.9
+    E_log_space, 1.0
+)

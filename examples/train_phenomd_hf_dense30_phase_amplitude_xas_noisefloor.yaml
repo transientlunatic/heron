@@ -1,0 +1,69 @@
+# Variant of train_phenomd_hf_dense30_phase_amplitude_xas_lsminq006.yaml
+# testing whether raising noise_floor_rel further directly reduces the
+# residual log-det bias left after the ls_min_q=0.06 grid-snap fix (see
+# memory grid_snap_finding.md / logdet_bias_isolated.md, CLAUDE.md).
+#
+# Mechanism: GP posterior variance at a training node is, to leading
+# order, Var_post(x_i) ~ sigma^2 (observation noise) regardless of kernel
+# lengthscale -- a training-grid-periodic dip in K(mass_ratio) this small
+# feeds the marginalised likelihood's log-det term and pulls inference
+# toward the nearest training node. Raising the noise floor directly
+# raises that on-node variance (formula:
+# Var_post(x,x) = k(x,x) - k(x,X)(K+sigma^2 I)^-1 k(X,x), which -> sigma^2
+# at a training input as sigma^2 grows relative to K's scale), flattening
+# the oscillation from below rather than the (tested, ruled out --
+# see heron/models/gp/kernels.py's build_additive_floor_kernel docstring)
+# antinode side.
+#
+# Real cost: sigma^2 also smooths the posterior MEAN (same (K+sigma^2 I)^-1
+# term appears there), so this trades some mean-fit fidelity for reduced
+# log-det bias -- unlike ls_min_q, which was raised together with an
+# order-of-magnitude noise_floor_rel bump last time (0.03->0.06,
+# 1e-3->1e-2) as a numerical-conditioning fix, not a deliberate noise
+# experiment; this config isolates a further, LARGER noise increase on its
+# own (5x, 1e-2->5e-2, one deliberate step past lsminq006's own bump, not
+# the theoretical extreme) to see whether the mechanism holds up in a full
+# NS run. CLAUDE.md's lsmin0075 entry is the cautionary precedent: mean-fit
+# proxies (mismatch, phase-drift) looking fine or better does NOT
+# guarantee NS bias improves -- this needs the full with-K NS check before
+# being trusted, not just a mismatch rescan.
+#
+# Everything else identical to lsminq006, including the same training HDF5
+# (mode: data), so this isolates the effect of noise_floor_rel alone.
+#
+# Usage: heron train --settings examples/train_phenomd_hf_dense30_phase_amplitude_xas_noisefloor.yaml
+
+logging:
+  level: info
+
+training:
+  mode: data
+  data_path: checkpoints/phenomd_nonspinning_dense30_phase_amplitude_data.h5
+  model: phase_amplitude
+
+  total_mass: 60.0        # solar masses
+  distance: 100.0         # Mpc
+
+  nu: 2.5
+  optimizer: lbfgs
+  iterations: 80
+  device: cuda
+
+  warping:
+    type: chirp
+    alpha: 0.625
+
+  ls_min_q: 0.06
+  ls_min_time: 0.015
+  noise_floor_rel: 5.0e-2
+
+  cholesky_size: 6000
+
+  mean_function_amplitude:
+    type: approximant
+    approximant: IMRPhenomXAS
+  mean_function_phase:
+    type: approximant
+    approximant: IMRPhenomXAS
+
+  checkpoint: checkpoints/phenomd_nonspinning_dense30_phase_amplitude_xas_noisefloor.pt

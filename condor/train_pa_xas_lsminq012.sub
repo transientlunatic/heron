@@ -1,0 +1,18 @@
+# Train checkpoints/phenomd_nonspinning_dense30_phase_amplitude_xas_lsminq012.pt
+# (ls_min_q=0.12 experiment, measurement-grounded -- see
+# condor/train_pa_xas_lsminq012.sh). Parent of the NS scan in
+# scan_pa_xas_lsminq012.sub. Submit from /scratch/wiay/daniel/heron-dense45
+# on wiay.
+universe        = vanilla
+executable      = condor/train_pa_xas_lsminq012.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk")
+request_gpus    = 1
+request_cpus    = 2
+request_memory  = 8192
+should_transfer_files = NO
+getenv          = false
+output          = condor_logs/train_pa_xas_lsminq012.out
+error           = condor_logs/train_pa_xas_lsminq012.err
+log             = condor_logs/train_pa_xas_lsminq012.log
+
+queue

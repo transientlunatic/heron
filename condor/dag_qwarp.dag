@@ -1,0 +1,15 @@
+# DAG: eta(q) mass-ratio input-warping experiment (see memory
+# manifold_correlation_length.md). TRAIN builds the eta-warped checkpoint;
+# SCAN is a DAG child (unsmoothed with-K NS at q=0.50/0.60/0.80).
+#
+# Submit from /scratch/wiay/daniel/heron-dense45 on wiay:
+#   condor_submit_dag condor/dag_qwarp.dag
+# Monitor: condor_q daniel -all ; tail -f condor/dag_qwarp.dag.dagman.out
+
+JOB TRAIN condor/train_pa_xas_qwarp_eta.sub
+JOB SCAN  condor/scan_pa_xas_qwarp_eta.sub
+
+PARENT TRAIN CHILD SCAN
+
+RETRY TRAIN 1
+RETRY SCAN 1

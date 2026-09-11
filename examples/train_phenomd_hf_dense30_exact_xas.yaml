@@ -1,0 +1,74 @@
+# ExactGPSurrogate (plus/cross strain domain) with a full-IMR
+# (IMRPhenomXAS) mean function, via the new per-polarisation
+# LALApproximantPlusMean/LALApproximantCrossMean support.
+#
+# Reuses the EXACT same 30-mass-ratio / N=6000 training data as
+# checkpoints/phenomd_nonspinning_dense30_phase_amplitude_xas.pt (mode:
+# data on that checkpoint's saved HDF5) -- same grid, same
+# ls_min_q/ls_min_time/noise_floor_rel/cholesky_size as
+# examples/train_phenomd_hf_dense30_lsmin015.yaml and
+# examples/train_phenomd_hf_dense30_phase_amplitude_xas.yaml. The only
+# things that differ between the three checkpoints trained on this grid
+# are the representation (strain vs phase-amplitude) and the mean
+# function (zero vs XAS) -- an apples-to-apples three-way comparison,
+# specifically for auditing whether ExactGPSurrogate's reported GP
+# uncertainty K is calibrated against the true residual the same way (or
+# differently) than PhaseAmplitudeGPSurrogate's, now that both can use the
+# same mean function class of approximant.
+#
+# Until now ExactGPSurrogate could not use an approximant mean at all (it
+# shared one mean module between plus/cross, and a waveform mean is
+# polarisation-specific -- see CLAUDE.md). This config exercises the new
+# mean_module_plus/mean_module_cross path (heron/train.py routes
+# model: exact + mean_function.type: approximant here automatically).
+#
+# Usage: heron train --settings examples/train_phenomd_hf_dense30_exact_xas.yaml
+# Requires: lalsuite (pip install heron[lal]) -- the mean generates XAS
+# waveforms at train and predict time.
+#
+# SUPERSEDES the first checkpoint trained from this exact config (found
+# 2026-07-17): IMRPhenomD and IMRPhenomXAS differ by a near-constant
+# ~-2.15 rad phase-convention offset (phi_ref/f_ref, not a time-alignment
+# issue -- envelope peaks agree to <1ns) that heron.evaluation.mismatch's
+# fitting-factor overlap correctly maximises over and so never showed up
+# in mismatch scans, but which is NOT invisible to a raw GP residual --
+# cos(Phi) vs cos(Phi+2.15) are two nearly-uncorrelated oscillating
+# functions of comparable magnitude to the signal, so an uncorrected mean
+# made the GP's job harder than ZeroMean (measured: 3.3% median mismatch
+# vs ZeroMean dense30_lsmin015's 0.84%). heron/train.py now measures and
+# applies this correction automatically (`mean.compute_phase_correction`,
+# wired into `_build_mean_module`'s plus/cross branch) -- no YAML change
+# needed here, just retraining with the fixed code.
+
+logging:
+  level: info
+
+training:
+  mode: data
+  data_path: checkpoints/phenomd_nonspinning_dense30_phase_amplitude_data.h5
+  model: exact
+
+  total_mass: 60.0        # solar masses
+  distance: 100.0         # Mpc
+
+  nu: 2.5
+  output_scale: 1.0e+27
+  optimizer: lbfgs
+  iterations: 80
+  device: cuda
+
+  warping:
+    type: chirp
+    alpha: 0.625
+
+  ls_min_q: 0.03
+  ls_min_time: 0.015
+  noise_floor_rel: 1.0e-3
+
+  cholesky_size: 6000
+
+  mean_function:
+    type: approximant
+    approximant: IMRPhenomXAS
+
+  checkpoint: checkpoints/phenomd_nonspinning_dense30_exact_xas.pt

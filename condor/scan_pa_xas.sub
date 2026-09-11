@@ -1,0 +1,27 @@
+# Nested-sampling injection scan against the XAS-mean phase-amplitude
+# checkpoint (with GP-uncertainty marginalisation, use_waveform_uncertainty
+# on). Companion no-K scan: scan_pa_xas_nounc.sub. Submit from
+# /scratch/wiay/daniel/heron-dense45 on wiay.
+universe        = vanilla
+executable      = condor/run_ns_pa_xas.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk")
+request_gpus    = 1
+request_cpus    = 2
+request_memory  = 4096
+should_transfer_files = NO
+getenv          = false
+arguments       = $(q) $(qtag)
+output          = condor_logs/ns_pa_xas_$(qtag).out
+error           = condor_logs/ns_pa_xas_$(qtag).err
+log             = condor_logs/ns_pa_xas_$(qtag).log
+
+queue q,qtag from (
+    0.25, q025
+    0.40, q040
+    0.50, q050
+    0.60, q060
+    0.70, q070
+    0.80, q080
+    0.90, q090
+    0.95, q095
+)

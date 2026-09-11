@@ -1,0 +1,28 @@
+# DAG: SELF-INJECTION control for the exact-GP+XAS representation.
+#
+# Inject the surrogate's OWN prediction at q_true (mismatch=0 by construction),
+# recover, at q=0.50/0.60/0.80, with-K and no-K, SNR~300 (distance=100). 6 jobs.
+#
+# Purpose: isolate inference-machinery bias from surrogate-vs-D template
+# mismatch. The D-injection runs (dag_exact_xas_dinj.dag) show +6-16 sigma
+# offsets at SNR~300, present IDENTICALLY with and without K -> already known to
+# be a template-mismatch systematic, not log-det/K. This control confirms the
+# other half: with a PERFECT template (self-injection), recovery returns truth
+# at ~0 sigma -> the pipeline itself is unbiased and K adds no bias at zero
+# mismatch. Together: the entire D-injection offset is surrogate-vs-D mismatch.
+#
+# PREREQUISITES on wiay (before submitting):
+#   1. Sync scripts/injection_nested_sampling.py (adds _SurrogateInjector +
+#      --self-inject). Smoke-tested locally: fixed-tc logL peaks exactly at truth.
+#   2. Checkpoint present (same as dag_exact_xas_dinj.dag).
+#
+# Submit from /scratch/wiay/daniel/heron-dense45 on wiay:
+#   condor_submit_dag condor/dag_exact_xas_selfinj.dag
+# Results: results/injection_ns_exact_xas_lsminq006_selfinj_q0{50,60,80}_{withK,noK}.{npz,png}
+# Expect all six medians ~= truth (|disp| << 1 sigma).
+
+JOB SELFINJ_WITHK condor/exact_xas_lsminq006_selfinj_withK.sub
+JOB SELFINJ_NOK   condor/exact_xas_lsminq006_selfinj_noK.sub
+
+RETRY SELFINJ_WITHK 1
+RETRY SELFINJ_NOK 1

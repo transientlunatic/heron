@@ -1,69 +1,52 @@
-.. heron documentation 
+.. heron documentation
 
 Heron : The Waveform Emulator
 =============================
 
-`Heron` is a Python package for producing surrogate models for computationally intensive functions, such as numerical relativity
-waveforms.
+`Heron` is a Python package for producing surrogate models of gravitational waveforms
+using Gaussian Process Regression. It emulates waveforms across parameter space with
+built-in uncertainty estimates (full covariance matrices), enabling both fast waveform
+generation and honest error propagation.
 
-This version of heron is implemented slightly differently to older versions, and should allow for a greater degree of flexibility for using different GP libraries for the modelling, and to fit into analysis pipelines better than the earlier development versions.
+Key features:
+
+- **Exact and Sparse GP surrogates** — O(N³) exact GP for small datasets, O(NM²) sparse variational GP for scaling up
+- **Uncertainty quantified** — full covariance matrices from GP posterior, not just point predictions
+- **PN mean functions** — GP learns the residual to a Post-Newtonian inspiral, concentrating uncertainty at merger
+- **Active learning** — iteratively adds training data where the model is most uncertain
+- **Chirp-time warping** — physical coordinate transformation for better GP interpolation
+- **Built-in evaluation** — mismatch distributions and uncertainty calibration metrics
 
 .. warning::
-   This documentation is still being written, and you may find a few places either where documentation is missing, or where the formatting isn't good.
-   If you spot something which has clearly been missed in the documentation please open an issue on the git repository.
-   
+   This documentation is being updated for the modernised heron architecture.
+   Some older pages may reference modules that have been removed.
 
 .. toctree::
    :maxdepth: 2
-   :caption: Basics
-	      
+   :caption: Getting Started
+
    readme
    installation
    getting-started
-   authors
-   
-Tutorials and Examples
-======================
+
 .. toctree::
    :maxdepth: 2
-   :caption: Tutorials
-	     
-   usage
-   theory
+   :caption: Training and Usage
+
    training
-   verification-tutorial
-	likelihood-tutorial
-   
+   usage
 
-Pre-supplied Models
-===================
+.. toctree::
+   :maxdepth: 2
+   :caption: Theory
 
-This package contains a number of different pre-baked waveform models, and the data which is required to reproduce them.
-It's also fairly easy to use the existing framework to implement a new model, using the same training data as pre-supplied models, or using new training data.
+   theory
 
 .. toctree::
    :maxdepth: 2
    :caption: Models
 
-   george
-   gpytorch
-
    model-interface
-   
-
-Inference
-=========
-
-Using waveform models which have uncertainty requires a new likelihood function compared to models without.
-
-.. toctree::
-   :maxdepth: 2
-   :caption: Inference
-
-   likelihood
-   
-Testing and verifying models
-============================
 
 .. toctree::
    :maxdepth: 2
@@ -71,20 +54,17 @@ Testing and verifying models
 
    verification
 
-Theory
-======
-
 .. toctree::
    :maxdepth: 1
-   :caption: Theory
+   :caption: Development
 
-   theory
-   likelihood
-   
+   contributing
+   authors
+   history
+
 Indices and tables
 ==================
 
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
-

@@ -1,0 +1,81 @@
+# Dense-grid SparseGPSurrogate (SVGP), for direct comparison against the
+# zero-mean ExactGP baseline (examples/train_phenomd_hf.yaml, 5 mass ratios,
+# N=1000). CLAUDE.md's log-det bias analysis says an unbiased q-posterior at
+# this SNR needs q-spacing <= 0.02-0.03 (30-45 mass ratios, N=6000-9000).
+# This was originally written assuming that density was out of reach for
+# Cholesky-based ExactGPSurrogate ("safe to N~2000") -- SparseGPSurrogate
+# (O(N*M^2) via inducing points) exists for exactly that case.
+#
+# SUPERSEDED: after M/iterations/ngd_lr tuning all plateaued around
+# K/C~176-194 (best: M=1000, iterations=400, ngd_lr=0.1, r=0.78 -- this
+# config, checkpoint phenomd_nonspinning_sparse_dense_m1000.pt), a GPU was
+# found to be available and the "safe to N~2000" assumption turned out to
+# be an untested, hardcoded default -- see cholesky_size in exact.py and
+# examples/train_phenomd_hf_dense30.yaml, which trains the SAME 30-q grid
+# with exact Cholesky on GPU and gets K/C mean~1.5-2 (vs this config's 176).
+# Kept for reference/comparison, not the recommended path anymore.
+#
+# Same total_mass/distance/warping/n_samples/ls_min_time as the ExactGP
+# baseline, so the only real variables are: (a) 30 mass ratios instead of 5,
+# and (b) sparse variational inference instead of exact Cholesky.
+#
+# Usage: heron train --settings examples/train_phenomd_hf_sparse.yaml
+# Requires: lalsuite (pip install heron[lal])
+
+logging:
+  level: info
+
+training:
+  mode: fixed
+  model: sparse
+
+  approximant: IMRPhenomD
+
+  total_mass: 60.0        # solar masses
+  distance: 100.0         # Mpc
+
+  # 30 mass ratios, spacing 0.03 -> targets K/C < 1 per CLAUDE.md's
+  # log-det bias analysis. N_total = 30 * 200 = 6000.
+  mass_ratios: [0.10, 0.13, 0.16, 0.19, 0.22, 0.25, 0.28, 0.31, 0.34, 0.37,
+                0.40, 0.43, 0.46, 0.49, 0.52, 0.55, 0.58, 0.61, 0.64, 0.67,
+                0.70, 0.73, 0.76, 0.79, 0.82, 0.85, 0.88, 0.91, 0.94, 0.97]
+
+  n_samples: 200
+
+  nu: 2.5
+  output_scale: 1.0e+27
+  device: cuda
+
+  # alpha=0.625 is the project standard (best for ExactGPSurrogate) but was
+  # directly verified to break this dense-grid SVGP fit (corr with truth
+  # 0.08 vs 0.32 at alpha=0.375, same seed/data/everything else) -- alpha
+  # 0.625 gives a wider warped-time range for the same physical span,
+  # spreading n_inducing more thinly. Using the ChirpTimeWarping default here.
+  warping:
+    type: chirp
+    alpha: 0.375
+
+  # Inducing points: M in O(N*M^2). M=300->1000 at 400 iterations moved K/C
+  # 386->176 (best sparse-GP result). iterations=150 and 1200 were both
+  # tried and neither beat 400 (150: r=0.76/K.C=187; 1200: r=0.71/K.C=236,
+  # confirming NGD drifts past the optimum past ~600 steps rather than
+  # converging). ngd_lr swept at 0.03/0.1/0.3, all landed in the same
+  # 176-194 band -- no improvement in any direction. This is the best
+  # config found across all three levers (M, iterations, ngd_lr).
+  n_inducing: 1000
+  iterations: 400      # Adam steps (hyperparameters) / NGD steps (variational)
+  lr: 0.01
+  ngd_lr: 0.1
+
+  # ls_min_q kept at the q-grid spacing (0.03). ls_min_time recomputed for
+  # alpha=0.375's warped-time scale: the widest-duration mass ratio (q=0.1)
+  # warps to a spacing of ~0.0027 (n=200 uniform-in-warped), vs ~0.0147 at
+  # alpha=0.625 -- the old ls_min_time=0.03 was already coarse for 0.625's
+  # spacing (~2x) but would be ~11x too coarse for 0.375's, over-smoothing
+  # again. Set to ~2x the actual 0.375 spacing instead.
+  ls_min_q: 0.03
+  ls_min_time: 0.0053
+  noise_floor_rel: 1.0e-3
+
+  checkpoint: checkpoints/phenomd_nonspinning_sparse_dense_m1000.pt
+  save_training_data: checkpoints/phenomd_nonspinning_sparse_dense_m1000_data.h5

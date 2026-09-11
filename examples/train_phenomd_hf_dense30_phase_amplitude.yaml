@@ -1,0 +1,62 @@
+# Phase-amplitude decomposition GP surrogate (PhaseAmplitudeGPSurrogate) on
+# the same 30-mass-ratio / N=6000 grid as
+# examples/train_phenomd_hf_dense30_lsmin015.yaml, the current best
+# time-domain (ExactGPSurrogate) checkpoint. Purpose: a density-matched
+# comparison between the two representations, motivated by the time-domain
+# model's overfitting-flavoured failures at this density (trained
+# lengthscale pinned exactly at the ls_min_time floor regardless of how far
+# that floor is pushed down -- see CLAUDE.md's lsmin0075-reversal and
+# SNR~100 universal-attractor entries) -- log-amplitude/phase are smooth,
+# non-oscillatory targets, structurally a better match for a Matern kernel
+# than raw oscillatory strain, so may not need as small an ls_min_time to
+# resolve the waveform.
+#
+# ls_min_q/ls_min_time/noise_floor_rel copied unchanged from the exact-GP
+# dense30_lsmin015 config: the grid (mass ratios, n_samples, warping) is
+# identical, so the underlying warped-time/mass-ratio spacing this floor is
+# meant to track is the same regardless of representation. No output_scale
+# (log-amplitude ~O(-50..0), phase ~O(-1000..0) are already well-scaled).
+#
+# Usage: heron train --settings examples/train_phenomd_hf_dense30_phase_amplitude.yaml
+# Requires: lalsuite (pip install heron[lal])
+
+logging:
+  level: info
+
+training:
+  mode: fixed
+  model: phase_amplitude
+
+  approximant: IMRPhenomD
+
+  total_mass: 60.0        # solar masses
+  distance: 100.0         # Mpc
+
+  mass_ratios: [0.10, 0.13, 0.16, 0.19, 0.22, 0.25, 0.28, 0.31, 0.34, 0.37,
+                0.40, 0.43, 0.46, 0.49, 0.52, 0.55, 0.58, 0.61, 0.64, 0.67,
+                0.70, 0.73, 0.76, 0.79, 0.82, 0.85, 0.88, 0.91, 0.94, 0.97]
+
+  n_samples: 200
+
+  nu: 2.5
+  optimizer: lbfgs
+  iterations: 80
+  device: cuda
+
+  warping:
+    type: chirp
+    alpha: 0.625
+
+  ls_min_q: 0.03
+  ls_min_time: 0.015
+  noise_floor_rel: 1.0e-3
+
+  cholesky_size: 6000
+
+  mean_function_amplitude:
+    type: newtonian
+  mean_function_phase:
+    type: newtonian
+
+  checkpoint: checkpoints/phenomd_nonspinning_dense30_phase_amplitude.pt
+  save_training_data: checkpoints/phenomd_nonspinning_dense30_phase_amplitude_data.h5

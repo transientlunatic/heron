@@ -1,50 +1,78 @@
 # Heron Examples
 
-This directory contains example scripts demonstrating how to use heron with various tools and frameworks.
+Example configurations for training waveform surrogate models.
 
-## Bilby Integration Example
+## Training Configs
 
-**File:** `bilby_integration_example.py`
+### Exact GP on a fixed grid
 
-This example shows how to use heron's Gaussian process-based waveform models with the bilby gravitational wave inference library. The key features are:
+**File:** `train_exact_gp.yaml`
 
-- Using `HeronWaveformGenerator` to create bilby-compatible waveforms from heron models
-- Using `HeronGravitationalWaveTransient` likelihood that properly handles waveform uncertainty
-- Incorporating model uncertainty from Gaussian process regression into parameter estimation
-
-### Running the Example
-
-The example requires both heron and bilby to be installed:
+Trains an exact GP surrogate at 10 mass ratios from IMRPhenomPv2. This is the simplest training mode — good for getting started.
 
 ```bash
-pip install heron-model bilby
+pip install heron[lal]   # needs lalsuite for waveform generation
+heron train --settings examples/train_exact_gp.yaml
 ```
 
-Then you can run the example:
+### Sparse GP with active learning
+
+**File:** `train_sparse_active.yaml`
+
+Trains a sparse variational GP using iterative active learning. Starts with Sobol-sampled points, then adds training data where the model is most uncertain. Uses a Newtonian inspiral mean function so the GP only learns the merger/ringdown residual.
 
 ```bash
-python bilby_integration_example.py
+heron train --settings examples/train_sparse_active.yaml
 ```
 
-Note: You'll need to uncomment the `main()` or `compare_with_without_uncertainty()` function call at the bottom of the script to actually run an analysis.
+### Train from pre-existing data
 
-### Key Concepts
+**File:** `train_from_data.yaml`
 
-The example demonstrates two main components:
+Trains from an HDF5 training set (e.g. from a previous run or an NR catalogue). Does not require lalsuite.
 
-1. **HeronWaveformGenerator**: A bilby-compatible waveform generator that wraps heron waveform models and propagates uncertainty information.
+```bash
+heron train --settings examples/train_from_data.yaml
+```
 
-2. **HeronGravitationalWaveTransient**: A bilby likelihood that incorporates waveform model uncertainty into the likelihood calculation by adding the model covariance to the detector noise covariance.
+## Evaluation
 
-### Model Uncertainty
+**File:** `evaluate.yaml`
 
-When `include_model_uncertainty=True` (the default), the likelihood accounts for uncertainty in the waveform predictions that comes from the Gaussian process regression. This leads to more conservative parameter estimates that properly reflect the model's confidence in different regions of parameter space.
+Evaluates a trained surrogate against a reference approximant. Computes mismatch distributions and uncertainty calibration metrics, generates diagnostic plots.
 
-The uncertainty is propagated through:
-- Antenna response projection (F+ and Fx)
-- FFT operations for frequency domain analysis
-- Matched filtering calculations
+```bash
+heron evaluate --settings examples/evaluate.yaml
+```
 
-### Comparison Example
+Chain training and evaluation:
 
-The `compare_with_without_uncertainty()` function shows how to compare results with and without model uncertainty, demonstrating the impact of including this information in the analysis.
+```bash
+heron train --settings examples/train_exact_gp.yaml && \
+heron evaluate --settings examples/evaluate.yaml
+```
+
+Use `reference: SineGaussian` in the config to evaluate without lalsuite.
+
+## Using a trained model
+
+```python
+from heron.models.gp.exact import ExactGPSurrogate
+
+model = ExactGPSurrogate.load("checkpoints/exact_gp.pt")
+wf = model.predict({
+    "mass_ratio": 0.5,
+    "time": {"lower": -0.5, "upper": 0.02, "number": 500},
+})
+
+strain = wf["plus"].data            # (500,) array
+covariance = wf["plus"].covariance  # (500, 500) matrix
+```
+
+## Legacy examples
+
+The following files are from the old heron architecture and may not work with the current code:
+
+- `bilby_integration_example.py` — bilby likelihood with waveform uncertainty (inference code has moved)
+- `gpr_training_config.yml` — old two-stage training pipeline config
+- `example_gpr_with_imrphenomd_mean.py` — old IMRPhenomD mean function example

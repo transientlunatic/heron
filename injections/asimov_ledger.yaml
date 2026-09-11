@@ -1,0 +1,314 @@
+# Asimov ledger for Heron fake uncertainty injection study
+#
+# This ledger defines injection tests with IMRPhenomPv2_FakeUncertainty
+# Each test case gets TWO productions:
+#   1. Injection production (creates frame files)
+#   2. Inference production (runs parameter estimation)
+#
+# Usage:
+#   asimov manage injections/asimov_ledger.yaml
+
+kind: ledger
+productions:
+  # ==========================================
+  # Test Case 1: q=0.3 with Fake Uncertainty
+  # ==========================================
+  - name: injection-q03-fake
+    pipeline: heron injection
+    comment: "Create injection for q=0.3 test case"
+    status: wait
+    event:
+      name: fake-uncertainty-q03
+      repository: ~/repositories/ligo/heron/injections/runs/q03
+    interferometers:
+      - H1
+      - L1
+    injection:
+      parameters:
+        luminosity_distance: 100
+        gpstime: 4000
+        mass_ratio: 0.3
+        total_mass: 20
+        ra: 1.0
+        dec: 0.3
+        psi: 0
+        phase: 0
+        theta_jn: 0
+      duration: 4
+      sample rate: 4096
+      psds:
+        H1: AdvancedLIGO
+        L1: AdvancedLIGO
+      waveform: IMRPhenomPv2
+
+  - name: inference-q03-fake
+    pipeline: heron
+    comment: "Inference with fake uncertainty for q=0.3"
+    status: wait
+    dependencies:
+      - injection-q03-fake
+    event:
+      name: fake-uncertainty-q03
+      repository: ~/repositories/ligo/heron/injections/runs/q03
+    interferometers:
+      - H1
+      - L1
+    event time: 4000
+    segment length: 2
+    after merger: 0.1
+    waveform:
+      model: IMRPhenomPv2_FakeUncertainty
+    likelihood:
+      function: TimeDomainUncertaintyLikelihood
+      timing basis: [H1, L1]
+      sampling rate: 4096
+    fixed_parameters:
+      total_mass: 20
+      gpstime: 4000
+    priors:
+      mass_ratio:
+        name: mass_ratio
+        function: Uniform
+        minimum: 0.2
+        maximum: 0.8
+      luminosity_distance:
+        function: Uniform
+        name: luminosity_distance
+        minimum: 50.0
+        maximum: 200.0
+      ra:
+        name: ra
+        function: Uniform
+        minimum: 0.0
+        maximum: 6.283185
+        boundary: periodic
+      dec:
+        name: dec
+        function: Cosine
+      theta_jn:
+        name: theta_jn
+        function: Sine
+      psi:
+        name: psi
+        function: Uniform
+        minimum: 0.0
+        maximum: 3.14159
+      phase:
+        name: phase
+        function: Uniform
+        minimum: 0.0
+        maximum: 6.283185
+        boundary: periodic
+    sampler:
+      sampler: nessai
+      live points: 1000
+      maximum uninformed: 2000
+      resume: true
+      checkpointing: true
+      checkpointing interval: 3600
+      logging interval: 10
+      log on iteration: true
+      seed: 1235
+      flow class: GWFlowProposal
+
+  # ==========================================
+  # Test Case 2: q=0.5 with Fake Uncertainty
+  # ==========================================
+  - name: injection-q05-fake
+    pipeline: heron injection
+    comment: "Create injection for q=0.5 fiducial test"
+    status: wait
+    event:
+      name: fake-uncertainty-q05
+      repository: ~/repositories/ligo/heron/injections/runs/q05
+    interferometers:
+      - H1
+      - L1
+    injection:
+      parameters:
+        luminosity_distance: 100
+        gpstime: 4000
+        mass_ratio: 0.5
+        total_mass: 20
+        ra: 1.0
+        dec: 0.3
+        psi: 0
+        phase: 0
+        theta_jn: 0
+      duration: 4
+      sample rate: 4096
+      psds:
+        H1: AdvancedLIGO
+        L1: AdvancedLIGO
+      waveform: IMRPhenomPv2
+
+  - name: inference-q05-fake
+    pipeline: heron
+    comment: "Inference with fake uncertainty for q=0.5"
+    status: wait
+    dependencies:
+      - injection-q05-fake
+    event:
+      name: fake-uncertainty-q05
+      repository: ~/repositories/ligo/heron/injections/runs/q05
+    interferometers:
+      - H1
+      - L1
+    event time: 4000
+    segment length: 2
+    after merger: 0.1
+    waveform:
+      model: IMRPhenomPv2_FakeUncertainty
+    likelihood:
+      function: TimeDomainUncertaintyLikelihood
+      timing basis: [H1, L1]
+      sampling rate: 4096
+    fixed_parameters:
+      total_mass: 20
+      gpstime: 4000
+    priors:
+      mass_ratio:
+        name: mass_ratio
+        function: Uniform
+        minimum: 0.2
+        maximum: 0.8
+      luminosity_distance:
+        function: Uniform
+        name: luminosity_distance
+        minimum: 50.0
+        maximum: 200.0
+      ra:
+        name: ra
+        function: Uniform
+        minimum: 0.0
+        maximum: 6.283185
+        boundary: periodic
+      dec:
+        name: dec
+        function: Cosine
+      theta_jn:
+        name: theta_jn
+        function: Sine
+      psi:
+        name: psi
+        function: Uniform
+        minimum: 0.0
+        maximum: 3.14159
+      phase:
+        name: phase
+        function: Uniform
+        minimum: 0.0
+        maximum: 6.283185
+        boundary: periodic
+    sampler:
+      sampler: nessai
+      live points: 1000
+      maximum uninformed: 2000
+      resume: true
+      checkpointing: true
+      checkpointing interval: 3600
+      logging interval: 10
+      log on iteration: true
+      seed: 1234
+      flow class: GWFlowProposal
+
+  # ==========================================
+  # Test Case 3: q=0.5 Standard (Baseline)
+  # ==========================================
+  - name: injection-q05-standard
+    pipeline: heron injection
+    comment: "Create injection for q=0.5 baseline (no uncertainty)"
+    status: wait
+    event:
+      name: standard-q05
+      repository: ~/repositories/ligo/heron/injections/runs/standard-q05
+    interferometers:
+      - H1
+      - L1
+    injection:
+      parameters:
+        luminosity_distance: 100
+        gpstime: 4000
+        mass_ratio: 0.5
+        total_mass: 20
+        ra: 1.0
+        dec: 0.3
+        psi: 0
+        phase: 0
+        theta_jn: 0
+      duration: 4
+      sample rate: 4096
+      psds:
+        H1: AdvancedLIGO
+        L1: AdvancedLIGO
+      waveform: IMRPhenomPv2
+
+  - name: inference-q05-standard
+    pipeline: heron
+    comment: "Standard inference without uncertainty (baseline)"
+    status: wait
+    dependencies:
+      - injection-q05-standard
+    event:
+      name: standard-q05
+      repository: ~/repositories/ligo/heron/injections/runs/standard-q05
+    interferometers:
+      - H1
+      - L1
+    event time: 4000
+    segment length: 2
+    after merger: 0.1
+    waveform:
+      model: IMRPhenomPv2
+    likelihood:
+      function: TimeDomainLikelihood
+      timing basis: [H1, L1]
+      sampling rate: 4096
+    fixed_parameters:
+      total_mass: 20
+      gpstime: 4000
+    priors:
+      mass_ratio:
+        name: mass_ratio
+        function: Uniform
+        minimum: 0.2
+        maximum: 0.8
+      luminosity_distance:
+        function: Uniform
+        name: luminosity_distance
+        minimum: 50.0
+        maximum: 200.0
+      ra:
+        name: ra
+        function: Uniform
+        minimum: 0.0
+        maximum: 6.283185
+        boundary: periodic
+      dec:
+        name: dec
+        function: Cosine
+      theta_jn:
+        name: theta_jn
+        function: Sine
+      psi:
+        name: psi
+        function: Uniform
+        minimum: 0.0
+        maximum: 3.14159
+      phase:
+        name: phase
+        function: Uniform
+        minimum: 0.0
+        maximum: 6.283185
+        boundary: periodic
+    sampler:
+      sampler: nessai
+      live points: 1000
+      maximum uninformed: 2000
+      resume: true
+      checkpointing: true
+      checkpointing interval: 3600
+      logging interval: 10
+      log on iteration: true
+      seed: 1234
+      flow class: GWFlowProposal

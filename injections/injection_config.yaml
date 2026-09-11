@@ -1,0 +1,167 @@
+# Heron Paper Injection Study Configuration
+# This defines the injection parameters for the SNR-dependent study
+
+study_name: "heron_snr_study"
+output_dir: "injections/results"
+
+# Parameter space for non-spinning injections
+# Based on validated model: M_total = 20 M_sun, q = [0.1, 0.9]
+parameter_space:
+  total_mass:
+    fixed: 20.0  # M_sun - matches training data
+
+  mass_ratio:
+    # Sample from validated range
+    distribution: "uniform"
+    min: 0.2  # Conservative, within training range
+    max: 0.8  # Conservative, within training range
+
+  # Sky location - randomize for realistic study
+  ra:
+    distribution: "uniform"
+    min: 0.0
+    max: 6.283185  # 2π
+
+  dec:
+    distribution: "uniform_sky"  # sin(dec) uniform
+    min: -1.5708  # -π/2
+    max: 1.5708   # π/2
+
+  psi:  # Polarization angle
+    distribution: "uniform"
+    min: 0.0
+    max: 3.14159  # π
+
+  theta_jn:  # Inclination
+    distribution: "sin"  # Physical prior
+    min: 0.0
+    max: 3.14159  # π
+
+  phase:  # Orbital phase
+    distribution: "uniform"
+    min: 0.0
+    max: 6.283185  # 2π
+
+  gpstime:
+    # Reference time (can be randomized for different noise realizations)
+    fixed: 1126259462.0  # GW150914 time
+
+  # Distance will be set by SNR requirement
+  luminosity_distance:
+    snr_dependent: true
+    target_detector: "H1"
+
+# SNR study configuration
+snr_study:
+  # Target SNRs for injection recovery
+  target_snrs: [10, 15, 20, 25, 30, 35, 40, 50]
+
+  # Number of injections per SNR
+  n_injections_per_snr: 5  # Start with 5, can increase to 10
+
+  # Detector network
+  detectors: ["H1", "L1"]
+
+  # SNR tolerance (for setting distance)
+  snr_tolerance: 0.5  # Accept SNR within ±0.5 of target
+
+# Waveform settings
+waveform:
+  approximant: "IMRPhenomPv2"  # Injection waveform
+  f_min: 20.0  # Hz
+  f_ref: 20.0  # Hz
+  delta_t: 0.000244140625  # 1/4096 Hz
+
+# Noise settings
+noise:
+  psd: "aLIGOZeroDetHighPower"  # Advanced LIGO design sensitivity
+  seed_base: 12345  # Base seed for reproducibility
+
+# Analysis configurations
+analysis:
+  # Two analyses per injection:
+  # 1. Standard (no model uncertainty)
+  # 2. Heron (with model uncertainty)
+
+  standard:
+    likelihood: "TimeDomainLikelihood"
+    waveform_model: "IMRPhenomPv2"
+    include_model_uncertainty: false
+
+  heron:
+    likelihood: "TimeDomainLikelihoodModelUncertainty"
+    waveform_model: "HeronNonSpinningApproximant"
+    model_file: "trained_model_validated.h5"  # Will be created
+    include_model_uncertainty: true
+
+# Sampling settings
+sampling:
+  sampler: "nessai"
+  nlive: 1000  # Number of live points
+  maxmcmc: 5000  # Max MCMC steps
+  flow_config:
+    n_neurons: 16
+    n_blocks: 6
+  checkpoint_interval: 1000
+
+# Priors (bilby format)
+priors:
+  mass_ratio:
+    type: "Uniform"
+    minimum: 0.2
+    maximum: 0.8
+    latex_label: "$q$"
+
+  luminosity_distance:
+    type: "Uniform"
+    minimum: 10.0  # Mpc
+    maximum: 1000.0  # Mpc
+    latex_label: "$d_L$"
+
+  ra:
+    type: "Uniform"
+    minimum: 0.0
+    maximum: 6.283185
+    latex_label: "$\\alpha$"
+    boundary: "periodic"
+
+  dec:
+    type: "Cosine"
+    latex_label: "$\\delta$"
+
+  theta_jn:
+    type: "Sine"
+    latex_label: "$\\theta_{JN}$"
+
+  psi:
+    type: "Uniform"
+    minimum: 0.0
+    maximum: 3.14159
+    latex_label: "$\\psi$"
+
+  phase:
+    type: "Uniform"
+    minimum: 0.0
+    maximum: 6.283185
+    latex_label: "$\\phi$"
+    boundary: "periodic"
+
+# Output settings
+output:
+  save_injection_parameters: true
+  save_waveforms: true
+  save_data: true
+  save_psds: true
+  generate_plots: true
+
+  # Result formats
+  result_format: "json"  # Also save as HDF5
+  plot_format: ["pdf", "png"]
+
+# Computational settings
+computation:
+  use_gpu: true
+  n_parallel: 4  # Number of parallel PE runs
+  use_cluster: true  # Submit to HTCondor
+  time_limit: "24:00:00"  # Wall time per job
+  memory: "8GB"  # Memory per job

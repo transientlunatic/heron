@@ -1,0 +1,35 @@
+# HTCondor submit file for extended warping training
+# Test chirp warping with more iterations to drive mismatch below 1%
+
+universe                = vanilla
+request_gpus            = 1
+request_cpus            = 1
+request_memory          = 8GB
+
+# Use wrapper script to set up GPU environment
+executable              = /home/daniel/repositories/ligo/heron/scripts/run_with_gpu.sh
+arguments               = scripts/test_warping_comparison.py $(warping) $(iterations)
+
+# Use shared filesystem instead of file transfer
+should_transfer_files   = NO
+
+# Set initial directory (where the job will run and logs will be written)
+initialdir              = /home/daniel/repositories/ligo/heron
+
+# Logs and output
+log                     = scripts/condor_logs/warp_extended_$(warping)_$(iterations).log
+output                  = scripts/condor_logs/warp_extended_$(warping)_$(iterations).out
+error                   = scripts/condor_logs/warp_extended_$(warping)_$(iterations).err
+
+# Set environment variables for Python
+environment             = "PYTHONPATH=/home/daniel/repositories/ligo/heron"
+
+# Queue jobs for extended training with chirp warping
+# Also test simple at high iterations for comparison
+queue warping,iterations from (
+chirp 2500
+chirp 5000
+chirp 7500
+chirp 10000
+simple 5000
+)

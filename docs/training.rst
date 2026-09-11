@@ -1,125 +1,384 @@
-Making new models
-+++++++++++++++++
+Training Waveform Surrogates
+++++++++++++++++++++++++++++
 
-Heron has been designed to make it as easy as possible to create new models using new training data.
+Heron trains Gaussian Process surrogate models that interpolate gravitational waveforms
+across parameter space, producing both mean predictions and full covariance matrices.
 
-.. note:: Work in progress
+Quick Start
+===========
 
-	  Some of the flexibility we'd like to give heron in the long run is still under development, so things aren't always as smooth as we're planning for in the final release of the software.
-	  In the meantime this guide should be fairly up-to-date.
+The simplest way to train a model is via the CLI with a YAML config file:
 
+.. code:: bash
 
-Creating Training Data
-======================
+   heron train --settings config.yaml
 
-The first step towards creating a new model is selecting appropriate training data.
-In this example we'll use waveforms generated from the ``IMRPhenomPv2`` waveform approximant.
-While this might feel a bit odd, given that we're training an approximant with another approximant, it's a source where we have full control over the placement of waveforms, and we can choose the spacing of the training data however we wish.
-
-Heron uses an ``hdf5``-based format to store training data for models, but also supplies code which allows these to be manipulated with relative ease.
-Let's start by creating a file to store the data in.
+Or programmatically:
 
 .. code:: python
 
-	  from heron.data import DataWrapper
+   from heron.train import heron_train
 
-	  data = DataWrapper.create("test_file.h5")
+   model = heron_train("config.yaml")
+   wf = model.predict({
+       "mass_ratio": 0.5,
+       "time": {"lower": -0.5, "upper": 0.02, "number": 500},
+   })
+
+   # wf["plus"].data      — strain array
+   # wf["plus"].covariance — full covariance matrix
 
 
-Now that we have our data file, we can start adding training data.
-There are currently two ways to do this in ``heron``: we can either add many waveforms all at the same time, or add them one at a time.
-It's probably easiest initially to add these one at a time.
-We can simply do this in a for loop which generates a waveform and adds it to our training file.
-The training data files can hold a number of data sets for multiple models, so we'll need to decide on a name for this training set.
-For simplicity let's go with ``IMR training``.
+Training Modes
+==============
 
-I'll use ``pycbc`` to generate the waveform, but you can use whichever waveform interface you want.
-We'll also need to select a total mass at which the waveforms will be generated; ``heron`` records this as it can use this mass to rescale waveforms later to other total masses.
+Heron supports three training modes, selected via the ``mode`` key in the config.
 
-Let's create a set of waveforms with zero spin across a range of mass ratios between 0.1 and 1.0.
-In order to keep the size of the data set small we'll also 
+Fixed Grid (``mode: fixed``)
+----------------------------
+
+Generates waveforms at explicitly listed mass ratios from a reference approximant.
+This is the simplest mode and closest to the original heron workflow.
+
+Requires ``lalsuite`` (install with ``pip install heron[lal]``).
+
+.. code:: yaml
+
+   training:
+     mode: fixed
+     model: exact
+     approximant: IMRPhenomPv2
+     total_mass: 60.0              # solar masses
+     distance: 100.0               # Mpc
+     mass_ratios: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+     n_samples: 200                # time samples per waveform
+     nu: 2.5
+     output_scale: 1.0e+27
+     iterations: 400
+     warping:
+       type: chirp
+       alpha: 0.625
+     checkpoint: checkpoints/exact_gp.pt
+
+Active Learning (``mode: active``)
+----------------------------------
+
+Iteratively refines the training set by adding waveforms where the model is most uncertain.
+This is the recommended mode for production surrogates — it converges faster with fewer total
+waveforms than a fixed grid.
+
+Requires ``lalsuite``.
+
+The loop:
+
+1. Generate an initial training set using Sobol quasi-random sampling
+2. Train the surrogate model
+3. Evaluate predictive variance at candidate parameter points
+4. Generate new waveforms at the highest-uncertainty locations
+5. Append to the training set and repeat
+
+.. code:: yaml
+
+   training:
+     mode: active
+     model: sparse                 # sparse GP recommended for active learning
+     approximant: IMRPhenomPv2
+     total_mass: 60.0
+     distance: 100.0
+     parameter_space:
+       mass_ratio: [0.1, 1.0]     # bounds for Sobol sampling
+     initial_samples: 50           # Sobol points to start
+     active_iterations: 5          # refinement rounds
+     points_per_iteration: 20      # new waveforms per round
+     n_samples: 200                # time samples per waveform
+     seed: 42
+     n_inducing: 200               # sparse GP inducing points
+     nu: 2.5
+     output_scale: 1.0e+27
+     iterations: 400
+     warping:
+       type: chirp
+       alpha: 0.625
+     mean_function:
+       type: newtonian             # PN mean — GP learns residual
+     checkpoint: checkpoints/sparse_active.pt
+     save_training_data: checkpoints/training_data.h5
+
+From Pre-existing Data (``mode: data``)
+---------------------------------------
+
+Loads a ``TrainingSet`` HDF5 file and trains directly. Use this for NR catalogues or
+when retraining from previously saved training data. Does not require ``lalsuite``.
+
+.. code:: yaml
+
+   training:
+     mode: data
+     model: exact
+     data_path: checkpoints/training_data.h5
+     total_mass: 60.0
+     distance: 100.0
+     nu: 2.5
+     output_scale: 1.0e+27
+     iterations: 400
+     warping:
+       type: chirp
+       alpha: 0.625
+     checkpoint: checkpoints/from_data.pt
+
+You can also create and save training sets programmatically:
 
 .. code:: python
 
-	  from pycbc.waveform import get_td_waveform
-	  qs = np.linspace(0.1, 1.0, 40)
-	  apx = "IMRPhenomPv2"
-	  M = 20
+   from heron.training.dataset import TrainingSet
+   import torch
 
-	  for q in qs:
+   training_set = TrainingSet(
+       x=torch.randn(1000, 2),        # (mass_ratio, time)
+       y_plus=torch.randn(1000),
+       y_cross=torch.randn(1000),
+       parameter_names=["mass_ratio"],
+       metadata={"source": "my_nr_catalogue"},
+   )
+   training_set.save("my_training_data.h5")
 
-	      m1 = M / (1+q)
-	      m2 = M / (1+1/q)
-	      assert ((m1 + m2) - M ) < 1e-4
 
-	      hp, hc = get_td_waveform(approximant=apx,
-					   mass1=m1,
-					   mass2=m2,
-					   spin1z=0,
-					   delta_t=1.0/4096,
-					   f_lower=20)
+Model Types
+===========
 
-	      idx = (hp.sample_times > -0.05) & (hp.sample_times < 0.02)
+Exact GP (``model: exact``)
+---------------------------
 
-	      data.add_waveform(group="IMR training",
-			    polarisation="+",
-			    reference_mass=M,
-			    source=apx,
-			    locations={"mass ratio": q},
-			    times=hp.sample_times[idx],
-			    data=hp[idx]
-			   )
+Full Gaussian Process with O(N³) training cost. Best for small training sets
+(up to ~5000 points). Produces exact posterior covariance.
 
-We can plot the data which we've just created using some tools built-in to the ``DataWrapper`` object.
+Sparse Variational GP (``model: sparse``)
+------------------------------------------
+
+Uses M inducing points to reduce cost to O(NM²). With M=200 and N=4000,
+this is ~400× faster than exact GP. Same kernel, same warping, same interface.
+Recommended for larger training sets and active learning.
+
+Sparse-specific config:
+
+- ``n_inducing``: number of inducing points (default 200). Inducing points are
+  initialised via k-means clustering on the warped training data.
+
+
+Mean Functions
+==============
+
+By default the GP uses a zero mean function and learns the entire waveform from scratch.
+Specifying a Post-Newtonian (PN) mean function lets the GP learn only the residual
+to the inspiral — the merger and ringdown corrections. This reduces the GP's workload
+and concentrates uncertainty where it matters most (near merger).
+
+Available mean functions:
+
+- ``zero`` (default): GP learns the full waveform.
+- ``newtonian``: Leading-order Newtonian inspiral. No LAL dependency, GPU-compatible.
+- ``taylort2``: TaylorT2 at 1PN order. Adds phase corrections to Newtonian.
+
+.. code:: yaml
+
+   training:
+     mean_function:
+       type: newtonian    # or taylort2, or zero
+
+
+Time Warping
+============
+
+Chirp-time warping compresses the long inspiral and expands the short merger, giving
+the GP a more uniform view of the waveform. The ``alpha`` parameter controls the
+strength of the warping (default 0.625, tuned for non-spinning BBH).
+
+.. code:: yaml
+
+   training:
+     warping:
+       type: chirp
+       alpha: 0.625
+
+
+Configuration Reference
+========================
+
+All keys live under the top-level ``training:`` block.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 15 60
+
+   * - Key
+     - Default
+     - Description
+   * - ``mode``
+     - ``fixed``
+     - Training mode: ``fixed``, ``active``, or ``data``
+   * - ``model``
+     - ``exact``
+     - Surrogate type: ``exact`` or ``sparse``
+   * - ``approximant``
+     - ``IMRPhenomPv2``
+     - LAL approximant name (fixed/active modes)
+   * - ``total_mass``
+     - ``60.0``
+     - Reference total mass in solar masses
+   * - ``distance``
+     - ``100.0``
+     - Reference luminosity distance in Mpc
+   * - ``mass_ratios``
+     - —
+     - List of mass ratios (fixed mode only)
+   * - ``parameter_space``
+     - —
+     - Parameter bounds dict (active mode only)
+   * - ``data_path``
+     - —
+     - Path to HDF5 training set (data mode only)
+   * - ``n_samples``
+     - ``200``
+     - Time samples per waveform
+   * - ``nu``
+     - ``2.5``
+     - Matérn kernel smoothness (1.5 or 2.5)
+   * - ``output_scale``
+     - ``1e27``
+     - Numerical rescaling factor
+   * - ``iterations``
+     - ``400``
+     - Training optimisation steps
+   * - ``device``
+     - ``cpu``
+     - Torch device (``cpu`` or ``cuda``)
+   * - ``n_inducing``
+     - ``200``
+     - Inducing points (sparse model only)
+   * - ``initial_samples``
+     - ``50``
+     - Initial Sobol samples (active mode)
+   * - ``active_iterations``
+     - ``5``
+     - Refinement rounds (active mode)
+   * - ``points_per_iteration``
+     - ``20``
+     - New waveforms per round (active mode)
+   * - ``seed``
+     - —
+     - Random seed (active mode)
+   * - ``warping.type``
+     - ``chirp``
+     - Warping type: ``chirp`` or ``simple``
+   * - ``warping.alpha``
+     - ``0.625``
+     - Chirp warping exponent
+   * - ``mean_function.type``
+     - ``zero``
+     - Mean function: ``zero``, ``newtonian``, or ``taylort2``
+   * - ``checkpoint``
+     - ``heron_checkpoint.pt``
+     - Output checkpoint path
+   * - ``save_training_data``
+     - —
+     - If set, save TrainingSet to this HDF5 path
+
+A top-level ``logging:`` block with ``level: info`` (or ``debug``, ``warning``) controls
+log verbosity.
+
+
+Using Trained Models
+====================
+
+Load a checkpoint and generate waveforms:
 
 .. code:: python
 
-	  fig = data.plot_surface(label="IMR training", x="time", y="mass ratio", polarisation=b"+", decimation=1);
+   from heron.models.gp.exact import ExactGPSurrogate
+   # or: from heron.models.gp.sparse import SparseGPSurrogate
 
-.. image:: images/tutorial-training-scatter.png
-   :width: 800
+   model = ExactGPSurrogate.load("checkpoints/exact_gp.pt")
 
-We now have a simple training set which can be used to construct a waveform model.
-The built-in models in ``heron`` will attempt to work out as much information from the training data as they can in order to create the approximant, so this is now a compartiviely straightforward process.
+   wf = model.predict({
+       "mass_ratio": 0.5,
+       "time": {"lower": -0.5, "upper": 0.02, "number": 500},
+   })
 
-Creating a Waveform Approximator
-================================
+   strain = wf["plus"].data            # shape (500,)
+   times = wf["plus"].times            # shape (500,)
+   covariance = wf["plus"].covariance  # shape (500, 500)
+   variance = wf["plus"].variance      # shape (500,) — diagonal
 
-Now that we have the underlying waveform data we can use it to create a model which is capable of producing a new waveform.
-In this example we'll use a Gaussian process to generate the waveform.
-The code uses ``pytorch`` and ``CUDA`` to enable GPU-based calculations to imrpove the speed of training and waveform generation if you have access to one.
-
-.. code:: python
-
-	  from heron.models.torchbased import HeronCUDA, train
-	  import numpy as np
-
-	  model = HeronCUDA(datafile="test_file.h5",
-			    datalabel="IMR training",
-			    device="cuda",
-			    )
-
-Having constructed the model, we then need to train it.
-Fortunately this process is (mostly) automatic, and we just need to use the ``train`` function which we've already imported from ``heron``.
+You can also rescale to different total masses and distances at prediction time:
 
 .. code:: python
 
-	  train(model, iterations=10000)
+   wf = model.predict({
+       "mass_ratio": 0.5,
+       "total_mass": 80.0,             # different from training
+       "luminosity_distance": 200.0,   # different from training
+       "time": {"lower": -0.5, "upper": 0.02, "number": 500},
+   })
 
-We can then draw waveforms from the trained model.
+
+Evaluating Surrogates
+=====================
+
+Heron includes built-in evaluation tools for assessing surrogate quality.
+
+Mismatch
+--------
+
+Compute the noise-weighted overlap and mismatch between waveforms:
 
 .. code:: python
 
-	  preds = model.mean(times=np.linspace(-0.2, 1, 100), p={"mass ratio":0.4})
-			    
-Mixins
-======
+   from heron.evaluation.mismatch import compute_overlap, compute_mismatch
 
-Heron comes supplied with a number of mixin classes which yoou can use to easily add certain features to a model.
-For example, if you wish to add CUDA functionality to a model this can be done using the ``CUDAModel`` mixin.
+   overlap = compute_overlap(h1, h2, dt)      # normalised inner product
+   mismatch = compute_mismatch(h1, h2, dt)    # 1 - overlap
+
+Uncertainty Calibration
+-----------------------
+
+Test whether the GP's predictive uncertainty is well-calibrated:
+
+.. code:: python
+
+   from heron.evaluation.calibration import CalibrationEvaluator
+
+   evaluator = CalibrationEvaluator(surrogate, reference_approximant)
+   results = evaluator.evaluate(n_points=200, parameter_ranges={...})
+
+   # results.coverage       — dict of {level: fraction} (e.g. {0.9: 0.88})
+   # results.ks_statistic   — Kolmogorov-Smirnov test on z-scores
+   # results.qq_data        — data for Q-Q plots
 
 
-``models.torchbased.CUDAModel``
--------------------------------
+Memory and Scaling
+==================
 
-Provides required additional settings for a model to run on a GPU using CUDA.
+Exact GP memory usage scales as O(N²), where N is the number of training points:
+
+- 2,000 points: ~200 MB
+- 5,000 points: ~1 GB
+- 10,000 points: ~4 GB
+
+For larger training sets, use the sparse GP (``model: sparse``), which scales as O(NM)
+where M is the number of inducing points (typically 100–500).
+
+
+Troubleshooting
+===============
+
+**Import errors for lalsuite:**
+LAL is only needed for generating training data from approximants. If you're training
+from pre-existing data (``mode: data``), lalsuite is not required.
+Install with ``pip install heron[lal]``.
+
+**Training loss not decreasing:**
+Try adjusting the learning rate (default 0.05 for exact, 0.01 for sparse),
+increasing iterations, or changing the output scale.
+
+**Out of memory:**
+Switch to ``model: sparse`` with fewer inducing points, or reduce ``n_samples``.

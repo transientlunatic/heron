@@ -1,0 +1,43 @@
+# DAG: CLEAN IMRPhenomD-injection nested-sampling confirmation for the
+# exact-GP+XAS representation (ls_min_q=0.06 baseline, NO log-det fix stack).
+#
+# Goal: confirm in a full NS posterior what the local fixed-tc profile scans
+# already showed (memory exact_xas_no_logdet_bias) -- that exact-GP+XAS has no
+# with-K/log-det PE bias at q=0.50/0.60/0.80, where the phase-amplitude
+# representation at identical hyperparameters was -3sigma/-15sigma biased.
+#
+# 12 jobs = {q=0.50,0.60,0.80} x {with-K, no-K} x {SNR~300 (distance=100),
+# SNR~20 (distance=1500, realistic-event loudness -- GW150914 was ~24)},
+# IMRPhenomD injected, single wide prior [0.15,0.97], nlive=250. The two SNR
+# arms together test whether the (absent) log-det bias stays absent as K/C
+# shrinks ~SNR^2, and whether any realistic-SNR failure mode appears now that
+# the luminosity_distance bug is fixed (memory snr100_universal_attractor).
+#
+# PREREQUISITES (do on wiay before submitting):
+#   1. git pull / rsync so scripts/injection_nested_sampling.py has the
+#      luminosity_distance fix (no-op at distance=100 used here, but keep in sync).
+#   2. Ensure checkpoints/phenomd_nonspinning_dense30_exact_xas_lsminq006.pt
+#      exists at /scratch/wiay/daniel/heron-dense45/checkpoints/. If absent,
+#      build it first:  condor_submit condor/train_exact_xas_lsminq006.sub
+#      (then wait for completion before submitting this DAG).
+#
+# Submit from /scratch/wiay/daniel/heron-dense45 on wiay:
+#   condor_submit_dag condor/dag_exact_xas_dinj.dag
+# Monitor: condor_q daniel -all ; tail -f condor/dag_exact_xas_dinj.dag.dagman.out
+# Results land in results/injection_ns_exact_xas_lsminq006_dinj_q0{50,60,80}_{withK,noK}.{npz,png}
+#
+# Compare each with-K median against its no-K counterpart AND inspect the
+# posterior histograms (not just median+CI -- see the bimodality lesson in
+# CLAUDE.md / memory lsmin015_q05_retest).
+
+# --- SNR~300 arm (distance=100) ---
+JOB DINJ_WITHK condor/exact_xas_lsminq006_dinj_withK.sub
+JOB DINJ_NOK   condor/exact_xas_lsminq006_dinj_noK.sub
+# --- realistic SNR~20 arm (distance=1500) ---
+JOB DINJ_SNR20_WITHK condor/exact_xas_lsminq006_dinj_snr20_withK.sub
+JOB DINJ_SNR20_NOK   condor/exact_xas_lsminq006_dinj_snr20_noK.sub
+
+RETRY DINJ_WITHK 1
+RETRY DINJ_NOK 1
+RETRY DINJ_SNR20_WITHK 1
+RETRY DINJ_SNR20_NOK 1

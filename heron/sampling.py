@@ -1,78 +1,279 @@
-"""
-This module contains interfaces to heron to allow straight-forward sampling to be performed.
-"""
+"""Generic sampler interface for GW parameter estimation.
 
-from astropy import units as u
+The design separates three concerns:
 
-import nessai.model
-from nessai.utils import setup_logger
-import torch
+  Prior        — maps the unit hypercube to physical parameters (and back).
+  BaseSampler  — thin protocol: __init__(log_likelihood, prior) + run() → SamplerResult.
+  SamplerResult— uniform wrapper around sampler output.
+
+Adding a new sampler (bilby, nessai, nautilus, …) means subclassing BaseSampler
+and implementing run().  Nothing else in the pipeline changes.
+
+Usage::
+
+    prior = UniformPrior([
+        Parameter("mass_ratio", 0.5, 1.0),
+        Parameter("tc",         tc_true - 0.05, tc_true + 0.05),
+        Parameter("ra",         0.0, 2 * np.pi),
+        Parameter("dec",       -np.pi / 2, np.pi / 2),
+        Parameter("psi",        0.0, np.pi),
+    ])
+
+    sampler = DynestySampler(gw_ll, prior, nlive=500)
+    result  = sampler.run()
+    post    = result.posterior_dict()   # dict of equal-weight 1-D arrays
+"""
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import Any
+
 import numpy as np
 
 
-class SamplerBase:
-    pass
+# ---------------------------------------------------------------------------
+# Prior
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Parameter:
+    """A single parameter with uniform prior bounds."""
+    name: str
+    lower: float
+    upper: float
+
+    @property
+    def width(self) -> float:
+        return self.upper - self.lower
 
 
-class NessaiSampler(SamplerBase, nessai.model.Model):
-    """Nessai model for Heron Likelihoods.
-
-    This simple model uses uniform priors on all parameters.
+class UniformPrior:
+    """Independent uniform prior over all parameters.
 
     Parameters
     ----------
-    heron_likelihood
-        Instance of heron likelihood.
-    priors
-        Prior dictionary.
+    parameters : list[Parameter]
+        Ordered list of parameter definitions.
     """
 
-    allow_vectorised = False
+    def __init__(self, parameters: list[Parameter]):
+        self.parameters = list(parameters)
 
-    def __init__(self, likelihood, priors, base_p):
-        # Names of parameters to sample
-        self.priors = priors
-        self.names = priors.names
+    @property
+    def ndim(self) -> int:
+        return len(self.parameters)
 
-        self.likelihood = likelihood
+    @property
+    def parameter_names(self) -> list[str]:
+        return [p.name for p in self.parameters]
 
-        self.base_p = self._convert_units(base_p)
+    def transform(self, u: np.ndarray) -> np.ndarray:
+        """Map the unit hypercube to physical parameter space.
 
-        self._update_bounds()
+        Parameters
+        ----------
+        u : ndarray, shape (ndim,)
+            Points in [0, 1]^ndim.
 
-    def _convert_units(self, p):
-        # Only convert dictionaries
-        if isinstance(p, dict):
-            # Units
-            units = {"luminosity_distance": u.megaparsec}  #
+        Returns
+        -------
+        theta : ndarray, shape (ndim,)
+            Physical parameter values.
+        """
+        theta = np.empty(self.ndim)
+        for i, p in enumerate(self.parameters):
+            theta[i] = p.lower + u[i] * p.width
+        return theta
 
-            base_p = {}
-            for name, base in p.items():
-                if name in units and isinstance(base, u.Quantity):
-                    base_p[name] = base.to(units[name]).value
-                else:
-                    base_p[name] = base
-        else:
-            base_p = p
-        return base_p
+    def to_dict(self, theta: np.ndarray) -> dict:
+        """Convert a parameter array to a dict suitable for GWLikelihood."""
+        return {p.name: float(theta[i]) for i, p in enumerate(self.parameters)}
 
-    def _update_bounds(self):
-        self.bounds = {
-            key: [self.priors[key].minimum, self.priors[key].maximum]
-            for key in self.names
-        }
+    def log_prior(self, theta: np.ndarray) -> float:
+        """Log of the (unnormalised) uniform prior density — 0 inside, -inf outside."""
+        for i, p in enumerate(self.parameters):
+            if not (p.lower <= theta[i] <= p.upper):
+                return -np.inf
+        return 0.0
 
-    def log_prior(self, x):
-        if isinstance(x, np.ndarray):
-            x = x[0]
-        return self.priors.ln_prob(dict(zip(self.names, x)))
 
-    def log_likelihood(self, x):
-        # Convert everything into python scalars
-        with torch.inference_mode():
-            # Need to convert from numpy floats to python floats
-            x = self._convert_units(x)
-            self.base_p.update({n: float(x[n]) for n in self.names})
-            likelihood = self.likelihood(self.base_p)
+# ---------------------------------------------------------------------------
+# Result
+# ---------------------------------------------------------------------------
 
-            return likelihood
+class SamplerResult:
+    """Sampler-agnostic container for nested-sampling output.
+
+    Parameters
+    ----------
+    samples : ndarray, shape (N, ndim)
+        Live + dead points with associated log-weights.
+    log_weights : ndarray, shape (N,)
+        Normalised log-weights: log(w_i / Σ w_j).
+    log_evidence : float
+        log Z estimate.
+    log_evidence_err : float
+        1σ uncertainty on log Z.
+    parameter_names : list[str]
+        Names matching columns of *samples*.
+    raw : object
+        The underlying sampler result object (e.g. ``dynesty.results.Results``).
+    """
+
+    def __init__(
+        self,
+        samples: np.ndarray,
+        log_weights: np.ndarray,
+        log_evidence: float,
+        log_evidence_err: float,
+        parameter_names: list[str],
+        raw: Any = None,
+    ):
+        self.samples = np.asarray(samples)
+        self.log_weights = np.asarray(log_weights)
+        self.log_evidence = float(log_evidence)
+        self.log_evidence_err = float(log_evidence_err)
+        self.parameter_names = list(parameter_names)
+        self.raw = raw
+
+    @classmethod
+    def from_dynesty(cls, dynesty_result, prior: UniformPrior) -> "SamplerResult":
+        """Construct from a dynesty ``Results`` object."""
+        res = dynesty_result
+        # Normalised log-weights: log w_i - log Z.
+        log_weights = res.logwt - res.logz[-1]
+        return cls(
+            samples=res.samples,
+            log_weights=log_weights,
+            log_evidence=float(res.logz[-1]),
+            log_evidence_err=float(res.logzerr[-1]),
+            parameter_names=prior.parameter_names,
+            raw=res,
+        )
+
+    def posterior_samples(self, n: int | None = None) -> np.ndarray:
+        """Return equal-weight posterior samples drawn from the weighted set.
+
+        Parameters
+        ----------
+        n : int or None
+            Number of samples to draw.  Defaults to the effective sample size.
+
+        Returns
+        -------
+        ndarray, shape (n, ndim)
+        """
+        weights = np.exp(self.log_weights)
+        weights /= weights.sum()
+        rng = np.random.default_rng()
+        n_eff = int(1.0 / (weights**2).sum()) if n is None else n
+        idx = rng.choice(len(weights), size=n_eff, p=weights)
+        return self.samples[idx]
+
+    def posterior_dict(self, n: int | None = None) -> dict[str, np.ndarray]:
+        """Return equal-weight posterior samples as a name → 1-D array dict."""
+        s = self.posterior_samples(n=n)
+        return {name: s[:, i] for i, name in enumerate(self.parameter_names)}
+
+    def posterior_median(self) -> dict[str, float]:
+        """Weighted median for each parameter."""
+        weights = np.exp(self.log_weights)
+        weights /= weights.sum()
+        order = np.argsort(self.samples, axis=0)
+        cumw = np.take_along_axis(
+            np.broadcast_to(weights[:, None], self.samples.shape),
+            order, axis=0,
+        ).cumsum(axis=0)
+        median_idx = np.argmax(cumw >= 0.5, axis=0)
+        medians = self.samples[order[median_idx, np.arange(self.samples.shape[1])],
+                               np.arange(self.samples.shape[1])]
+        return {name: float(medians[i]) for i, name in enumerate(self.parameter_names)}
+
+
+# ---------------------------------------------------------------------------
+# Sampler base class
+# ---------------------------------------------------------------------------
+
+class BaseSampler(ABC):
+    """Protocol for all samplers.
+
+    Subclasses must implement :meth:`run` and may override :meth:`loglike_array`.
+
+    Parameters
+    ----------
+    log_likelihood : callable
+        A callable that accepts a parameter dict and returns a log-likelihood scalar.
+        Typically a :class:`~heron.gw_likelihood.GWLikelihood` instance.
+    prior : UniformPrior
+        Defines the parameter space and unit-hypercube transform.
+    """
+
+    def __init__(self, log_likelihood, prior: UniformPrior):
+        self._log_likelihood = log_likelihood
+        self.prior = prior
+
+    def loglike_array(self, theta: np.ndarray) -> float:
+        """Evaluate the log-likelihood from a parameter array."""
+        return float(self._log_likelihood(self.prior.to_dict(theta)))
+
+    @abstractmethod
+    def run(self, **kwargs) -> SamplerResult:
+        """Run the sampler and return the result."""
+
+
+# ---------------------------------------------------------------------------
+# Dynesty
+# ---------------------------------------------------------------------------
+
+class DynestySampler(BaseSampler):
+    """Nested sampler backed by dynesty.
+
+    Parameters
+    ----------
+    log_likelihood : callable
+        Accepts a parameter dict, returns a float log-likelihood.
+    prior : UniformPrior
+        Parameter space definition and prior transform.
+    nlive : int
+        Number of live points.  Higher → more accurate evidence but slower.
+    dynamic : bool
+        If True, use dynesty's dynamic nested sampler.
+    sampler_kwargs : dict
+        Extra keyword arguments forwarded to ``dynesty.[Dynamic]NestedSampler``.
+    """
+
+    def __init__(
+        self,
+        log_likelihood,
+        prior: UniformPrior,
+        nlive: int = 500,
+        dynamic: bool = False,
+        **sampler_kwargs,
+    ):
+        super().__init__(log_likelihood, prior)
+        self.nlive = nlive
+        self.dynamic = dynamic
+        self.sampler_kwargs = sampler_kwargs
+
+    def run(self, **run_kwargs) -> SamplerResult:
+        """Run dynesty and return a :class:`SamplerResult`.
+
+        Parameters
+        ----------
+        **run_kwargs
+            Forwarded to ``sampler.run_nested()``.  Useful options include
+            ``dlogz`` (stopping criterion) and ``print_progress``.
+        """
+        import dynesty
+
+        cls = dynesty.DynamicNestedSampler if self.dynamic else dynesty.NestedSampler
+        sampler = cls(
+            self.loglike_array,
+            self.prior.transform,
+            self.prior.ndim,
+            nlive=self.nlive,
+            **self.sampler_kwargs,
+        )
+        sampler.run_nested(**run_kwargs)
+        return SamplerResult.from_dynesty(sampler.results, self.prior)
