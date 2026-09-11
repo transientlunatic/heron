@@ -67,17 +67,30 @@ class MarginalLogLikelihood:
             self._L_C = torch.linalg.cholesky(C_)
         log_det_C = 2.0 * self._L_C.diagonal().log().sum()
 
-        # Whiten K: A = L_C^{-1} K L_C^{-T}.
-        B = torch.linalg.solve_triangular(self._L_C, K_, upper=False)          # L_C B = K
-        A = torch.linalg.solve_triangular(self._L_C, B.T, upper=False).T       # A = B L_C^{-T}
+        # K == 0 fast path: whitening K would give A = 0, L_A = I exactly, so
+        # skip the three extra O(N^3) dense ops entirely (two triangular
+        # solves with an N×N RHS plus a second Cholesky) — pure overhead when
+        # there's no waveform-uncertainty term to whiten. This is the common
+        # case for a matched-filter (use_waveform_uncertainty=False) evaluation,
+        # where callers still pass an explicit all-zero K for interface
+        # uniformity; at real-data N this turns an O(N³) no-op into the O(N²)
+        # it should be.
+        self._k_is_zero = bool(torch.count_nonzero(K_) == 0)
+        if self._k_is_zero:
+            self._L_A = None
+            self._log_det = float(log_det_C)
+        else:
+            # Whiten K: A = L_C^{-1} K L_C^{-T}.
+            B = torch.linalg.solve_triangular(self._L_C, K_, upper=False)      # L_C B = K
+            A = torch.linalg.solve_triangular(self._L_C, B.T, upper=False).T   # A = B L_C^{-T}
 
-        # Factor I + A (always well-conditioned: I + PSD matrix).
-        self._L_A = torch.linalg.cholesky(
-            torch.eye(A.shape[0], dtype=dtype, device=dev) + A
-        )
+            # Factor I + A (always well-conditioned: I + PSD matrix).
+            self._L_A = torch.linalg.cholesky(
+                torch.eye(A.shape[0], dtype=dtype, device=dev) + A
+            )
 
-        # log|C + K| = log|C| + log|I + A| = 2 Σ log L_C_ii + 2 Σ log L_A_ii.
-        self._log_det = float(log_det_C + 2.0 * self._L_A.diagonal().log().sum())
+            # log|C + K| = log|C| + log|I + A| = 2 Σ log L_C_ii + 2 Σ log L_A_ii.
+            self._log_det = float(log_det_C + 2.0 * self._L_A.diagonal().log().sum())
         self._n = self._L_C.shape[0]
 
         # Whitened mean: u_mu = L_C^{-1} mu  (fixed for the given C, mu).
@@ -112,6 +125,8 @@ class MarginalLogLikelihood:
         u = torch.linalg.solve_triangular(
             self._L_C, v_.unsqueeze(-1), upper=False
         ).squeeze(-1)
+        if self._k_is_zero:
+            return u
         return torch.linalg.solve_triangular(
             self._L_A, u.unsqueeze(-1), upper=False
         ).squeeze(-1)
@@ -137,10 +152,14 @@ class MarginalLogLikelihood:
         ).squeeze(-1)
         u = u_d - self._u_mu
 
-        # Mahalanobis term: u^T (I+A)^{-1} u = ||L_A^{-1} u||^2.
-        v = torch.linalg.solve_triangular(
-            self._L_A, u.unsqueeze(-1), upper=False
-        ).squeeze(-1)
+        # Mahalanobis term: u^T (I+A)^{-1} u = ||L_A^{-1} u||^2. When K == 0,
+        # A == 0 and L_A == I exactly, so the whitened residual itself is v.
+        if self._k_is_zero:
+            v = u
+        else:
+            v = torch.linalg.solve_triangular(
+                self._L_A, u.unsqueeze(-1), upper=False
+            ).squeeze(-1)
 
         quad = float(torch.dot(v, v))
         return -0.5 * (self._n * _LOG_2PI + self._log_det + quad)

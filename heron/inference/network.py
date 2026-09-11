@@ -398,7 +398,12 @@ class NetworkLikelihood:
                     )
                 K = self._project_diag(self._covariance_inflation * k_diag)
             else:
-                K = np.zeros((self._n, self._n))
+                # Scalar 0.0 rather than an N×N zeros array: MarginalLogLikelihood
+                # detects an all-zero K from a cheap count_nonzero and takes an
+                # O(N²) fast path, so there's no reason to pay for (or allocate)
+                # a dense N×N zero matrix just to represent "no K" — material at
+                # real-data N (multi-GB for a single such array).
+                K = 0.0
 
             total += MarginalLogLikelihood(
                 C=None, mu=mu, K=K, dtype=self.dtype, device=self.device,
@@ -466,7 +471,7 @@ class NetworkLikelihood:
                     )
                 K = self._project_diag(self._covariance_inflation * k_diag)
             else:
-                K = np.zeros((self._n, self._n))
+                K = 0.0  # see the fixed-phase branch's comment on this fast path
 
             mll = MarginalLogLikelihood(
                 C=None, mu=mu_a, K=K, dtype=self.dtype, device=self.device,

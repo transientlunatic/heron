@@ -298,7 +298,11 @@ class GWLikelihood:
                 var = self._k_diagonal(K)
             K = self._project_diag(var)
         else:
-            K = np.zeros_like(K)
+            # Scalar 0.0 rather than an N×N zeros array: MarginalLogLikelihood
+            # detects an all-zero K from a cheap count_nonzero and takes an
+            # O(N²) fast path, so there's no reason to allocate a dense N×N
+            # zero matrix just to represent "no K" — material at real-data N.
+            K = 0.0
 
         # Evaluate the marginal log-likelihood, reusing the pre-factored L_C.
         return MarginalLogLikelihood(
