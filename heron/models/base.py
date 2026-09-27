@@ -47,6 +47,17 @@ class WaveformSurrogate(ABC):
         """Load a pre-trained model from a checkpoint file."""
         ...
 
+    def training_time_bounds(self, parameters: dict) -> tuple[float, float] | None:
+        """Physical time window ``(t0, t1)`` (seconds, merger-relative) covered
+        by the training data at these parameters, or ``None`` if unknown.
+
+        Outside this window a GP surrogate's variance reverts to its prior,
+        which says nothing physical about the waveform there; the likelihood
+        uses these bounds to taper that variance away (see
+        ``NetworkLikelihood(variance_taper=...)``).
+        """
+        return None
+
     @property
     @abstractmethod
     def parameter_names(self) -> list[str]:

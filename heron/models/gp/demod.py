@@ -368,6 +368,11 @@ class DemodGPSurrogate(WaveformSurrogate):
             output["cross"] = Waveform(data=h_cross, times=times_np)
         return output
 
+    def training_time_bounds(self, parameters: dict) -> tuple[float, float]:
+        """Training time window of the inner Re/Im GP (see
+        :meth:`ExactGPSurrogate.training_time_bounds`)."""
+        return self._gp.training_time_bounds(parameters)
+
     # -- diagonal-variance helpers (for the marginal likelihood) -----------
 
     def _strain_diag_from_inner(self, inner_var: dict, inner_params: dict,

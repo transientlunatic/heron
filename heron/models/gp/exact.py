@@ -516,6 +516,27 @@ class ExactGPSurrogate(WaveformSurrogate):
                 self._predict_models[name] = pm
         return self._predict_models
 
+    def training_time_bounds(self, parameters: dict) -> tuple[float, float]:
+        """Training time window at ``parameters['mass_ratio']``, in seconds.
+
+        Each training mass ratio has its own time support; the bounds are
+        interpolated linearly in mass ratio between the bracketing training
+        nodes (clamped at the ends) and scaled by ``total_mass`` exactly as
+        :meth:`_build_eval_points` scales the evaluation times.
+        """
+        nodes = getattr(self, "_time_bounds_by_q", None)
+        if nodes is None:
+            x = self._train_x_raw.detach().cpu().numpy()
+            qs = np.unique(x[:, 0])
+            t0 = np.array([x[x[:, 0] == q, -1].min() for q in qs])
+            t1 = np.array([x[x[:, 0] == q, -1].max() for q in qs])
+            nodes = self._time_bounds_by_q = (qs, t0, t1)
+        qs, t0, t1 = nodes
+        q = float(parameters["mass_ratio"])
+        mass_factor = parameters.get("total_mass", self.mass_factor) / self.mass_factor
+        return (float(np.interp(q, qs, t0)) * mass_factor,
+                float(np.interp(q, qs, t1)) * mass_factor)
+
     def _build_eval_points(self, parameters: dict):
         """Build the warped (mass_ratio, time) evaluation grid.
 

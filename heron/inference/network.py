@@ -69,7 +69,10 @@ from scipy.special import i0e
 
 from heron.likelihood import MarginalLogLikelihood
 from heron.noise import noise_covariance
-from heron.inference.projection import project_polarisations, project_variances
+from heron.stationary import StationaryMarginalLikelihood, StationaryNoise
+from heron.inference.projection import (
+    project_polarisations, project_variances, variance_window,
+)
 
 _LOG_2PI = math.log(2.0 * math.pi)
 _QUARTER_TURN = math.pi / 4.0
@@ -94,15 +97,20 @@ def _waveform_variance(waveform) -> np.ndarray:
 
 
 class _DetectorChannel:
-    """Per-detector precomputed state: HP-filtered data + noise Cholesky."""
+    """Per-detector precomputed state: HP-filtered data + noise model.
 
-    __slots__ = ("detector", "data", "L_C", "C")
+    ``linalg="dense"`` fills ``L_C``/``C`` (dense Cholesky); ``"stationary"``
+    fills ``noise`` (a :class:`~heron.stationary.StationaryNoise`) instead.
+    """
 
-    def __init__(self, detector, data, L_C, C):
+    __slots__ = ("detector", "data", "L_C", "C", "noise")
+
+    def __init__(self, detector, data, L_C=None, C=None, noise=None):
         self.detector = detector
         self.data = data
         self.L_C = L_C
         self.C = C
+        self.noise = noise
 
 
 class NetworkLikelihood:
@@ -170,6 +178,9 @@ class NetworkLikelihood:
         k_smoothing_param: str = "mass_ratio",
         marginalize_phase: bool = False,
         covariance_inflation: float = 1.0,
+        variance_taper: float | None = 0.02,
+        linalg: str = "stationary",
+        linalg_options: dict | None = None,
     ):
         # Normalise detectors and data into aligned lists keyed by prefix.
         if not isinstance(detectors, (list, tuple)):
@@ -193,6 +204,13 @@ class NetworkLikelihood:
         self._distance_ref = getattr(surrogate, "distance_factor", None)
         self._marginalize_phase = marginalize_phase
         self._covariance_inflation = float(covariance_inflation)
+        if linalg not in ("stationary", "dense"):
+            raise ValueError(f"linalg must be 'stationary' or 'dense'; got {linalg!r}")
+        self._linalg = linalg
+        self._variance_taper = None if variance_taper is None else float(variance_taper)
+        self._linalg_options = dict(linalg_options or {})
+        self._noise_args = dict(f_low=f_low, f_high=f_high,
+                                jitter=jitter, jitter_rel=jitter_rel)
 
         # Only the diagonal of K is ever used (project_variances). If the
         # surrogate's predict() accepts a `covariance` mode, request the cheap
@@ -211,21 +229,26 @@ class NetworkLikelihood:
         dt = float(self.times[1] - self.times[0])
         self._freqs = np.fft.rfftfreq(self._n, d=dt)
         self._hp_mask = self._freqs >= f_low
-        self._P = self._build_projection_matrix()
+        # The dense N x N projector is only needed by the dense path.
+        self._P = self._build_projection_matrix() if linalg == "dense" else None
 
         self._channels: list[_DetectorChannel] = []
         for det in detectors:
             if det.prefix not in data:
                 raise KeyError(f"no data supplied for detector {det.prefix}")
-            C = noise_covariance(
-                self.times, det.psd_fn, f_low=f_low, f_high=f_high,
-                jitter=jitter, jitter_rel=jitter_rel,
-            )
+            d = self._hp_filter(np.asarray(data[det.prefix], dtype=float))
+            if linalg == "stationary":
+                noise = StationaryNoise(
+                    self.times, det.psd_fn, dtype=dtype, device=self.device,
+                    **self._noise_args,
+                )
+                self._channels.append(_DetectorChannel(det, d, noise=noise))
+                continue
+            C = noise_covariance(self.times, det.psd_fn, **self._noise_args)
             L_C = torch.linalg.cholesky(
                 torch.as_tensor(C, dtype=dtype, device=self.device)
             )
-            d = self._hp_filter(np.asarray(data[det.prefix], dtype=float))
-            self._channels.append(_DetectorChannel(det, d, L_C, C))
+            self._channels.append(_DetectorChannel(det, d, L_C=L_C, C=C))
 
     # ------------------------------------------------------------------
     # Helpers
@@ -275,6 +298,36 @@ class NetworkLikelihood:
         sqrt_var = np.sqrt(np.clip(var, 0.0, None))
         B = self._P * sqrt_var[None, :]
         return B @ B.T
+
+    def _taper(self, intrinsic: dict, t_rel: np.ndarray, k_diag):
+        """Apply the out-of-training-window variance taper (if enabled)."""
+        bounds_fn = getattr(self.surrogate, "training_time_bounds", None)
+        if k_diag is None or self._variance_taper is None or bounds_fn is None:
+            return k_diag
+        bounds = bounds_fn(intrinsic)
+        if bounds is None:
+            return k_diag
+        return k_diag * variance_window(t_rel, bounds, self._variance_taper)
+
+    def _marginal(self, ch: _DetectorChannel, mu: np.ndarray, k_diag):
+        """Per-detector ``log N(., mu, C + P diag(k_diag) P)`` evaluator.
+
+        ``k_diag`` is the raw (unprojected, uninflated) variance, or ``None``
+        for K = 0.  Returns an object with ``__call__(d)`` and ``inner(x, y)``.
+        """
+        if k_diag is not None:
+            k_diag = self._covariance_inflation * k_diag
+        if self._linalg == "stationary":
+            return StationaryMarginalLikelihood(
+                ch.noise, mu, k_diag, **self._linalg_options
+            )
+        # Scalar 0.0 rather than an N×N zeros array: MarginalLogLikelihood
+        # detects an all-zero K from a cheap count_nonzero and takes an O(N²)
+        # fast path (a dense N×N zero matrix is multi-GB at real-data N).
+        K = 0.0 if k_diag is None else self._project_diag(k_diag)
+        return _DenseMarginal(MarginalLogLikelihood(
+            C=None, mu=mu, K=K, dtype=self.dtype, device=self.device, _L_C=ch.L_C,
+        ))
 
     def _predict(self, params: dict, mode: str):
         """Call the surrogate, requesting covariance ``mode`` when supported.
@@ -396,19 +449,11 @@ class NetworkLikelihood:
                         inclination=extr["inclination"],
                         coalescence_phase=extr["coalescence_phase"],
                     )
-                K = self._project_diag(self._covariance_inflation * k_diag)
             else:
-                # Scalar 0.0 rather than an N×N zeros array: MarginalLogLikelihood
-                # detects an all-zero K from a cheap count_nonzero and takes an
-                # O(N²) fast path, so there's no reason to pay for (or allocate)
-                # a dense N×N zero matrix just to represent "no K" — material at
-                # real-data N (multi-GB for a single such array).
-                K = 0.0
+                k_diag = None
+            k_diag = self._taper(intrinsic, t_rel, k_diag)
 
-            total += MarginalLogLikelihood(
-                C=None, mu=mu, K=K, dtype=self.dtype, device=self.device,
-                _L_C=ch.L_C,
-            )(ch.data)
+            total += self._marginal(ch, mu, k_diag)(ch.data)
 
         return float(total)
 
@@ -469,28 +514,40 @@ class NetworkLikelihood:
                         distance=extr["distance"], distance_ref=self._distance_ref,
                         inclination=extr["inclination"], coalescence_phase=0.0,
                     )
-                K = self._project_diag(self._covariance_inflation * k_diag)
             else:
-                K = 0.0  # see the fixed-phase branch's comment on this fast path
+                k_diag = None
+            k_diag = self._taper(intrinsic, t_rel, k_diag)
 
-            mll = MarginalLogLikelihood(
-                C=None, mu=mu_a, K=K, dtype=self.dtype, device=self.device,
-                _L_C=ch.L_C,
-            )
-            u_a = mll.whiten(mu_a)
-            u_b = mll.whiten(mu_b)
-            u_d = mll.whiten(ch.data)
-
-            aa = float(torch.dot(u_a, u_a))
-            dd = float(torch.dot(u_d, u_d))
-            p_total += float(torch.dot(u_a, u_d))
-            q_total += float(torch.dot(u_b, u_d))
-            const_total += -0.5 * (dd + aa) - 0.5 * mll.log_det - 0.5 * mll.n * _LOG_2PI
+            mll = self._marginal(ch, mu_a, k_diag)
+            aa = mll.inner(mu_a, mu_a)
+            dd = mll.inner(ch.data, ch.data)
+            p_total += mll.inner(mu_a, ch.data)
+            q_total += mll.inner(mu_b, ch.data)
+            const_total += -0.5 * (dd + aa) - 0.5 * mll.log_det - 0.5 * self._n * _LOG_2PI
 
         r = math.hypot(p_total, q_total)
         return float(const_total + r + math.log(i0e(r)))
 
     @property
     def noise_covariances(self) -> dict[str, np.ndarray]:
-        """The pre-computed noise covariance per detector prefix."""
-        return {ch.detector.prefix: ch.C for ch in self._channels}
+        """The noise covariance per detector prefix (dense; built on demand
+        for the stationary path, so avoid at large N)."""
+        return {
+            ch.detector.prefix: ch.C if ch.C is not None else ch.noise.dense_covariance()
+            for ch in self._channels
+        }
+
+
+class _DenseMarginal:
+    """Adapts :class:`MarginalLogLikelihood` to the ``inner``/``log_det``
+    interface shared with :class:`~heron.stationary.StationaryMarginalLikelihood`."""
+
+    def __init__(self, mll: MarginalLogLikelihood):
+        self._mll = mll
+        self.log_det = mll.log_det
+
+    def __call__(self, d) -> float:
+        return self._mll(d)
+
+    def inner(self, x, y) -> float:
+        return float(torch.dot(self._mll.whiten(x), self._mll.whiten(y)))
