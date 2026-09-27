@@ -320,6 +320,9 @@ class ExactGPSurrogate(WaveformSurrogate):
         self.ls_min_q = ls_min_q
         self.noise_floor_rel = noise_floor_rel
         self.cholesky_size = cholesky_size
+        # Runtime-only (never saved): evaluate the diagonal variance on this
+        # many points and interpolate. See _latent_variance.
+        self.variance_grid: int | None = None
         self.merger_kernel = merger_kernel
         self.ls_min_time_merger = ls_min_time_merger
         self.merger_center = merger_center
@@ -579,6 +582,41 @@ class ExactGPSurrogate(WaveformSurrogate):
         )
         return points_warped, times.numpy(), distance_factor
 
+    def _latent_variance(self, model, points_warped: torch.Tensor, evaluate=None) -> torch.Tensor:
+        """Latent predictive variance at ``points_warped`` (unscaled).
+
+        When ``self.variance_grid`` is set, the request is larger than it, and
+        every point shares the same non-time inputs (one mass ratio — always the
+        case for a waveform), the variance is evaluated on ``variance_grid``
+        points uniform in *warped* time and cubic-interpolated back.  The GP
+        variance is a smooth function of warped time, so a grid of a few
+        thousand points reproduces it at any N while the exact cost is
+        O(N · n_train²).  The mean is unaffected.
+
+        ``evaluate(points) -> variance`` computes the exact latent variance
+        (default: ``model(points).variance``); the grid wraps whichever
+        evaluator is in use.
+        """
+        if evaluate is None:
+            evaluate = lambda p: model(p).variance
+        n = points_warped.shape[0]
+        grid = self.variance_grid
+        fixed = points_warped[:, :-1]
+        if (grid is None or n <= grid
+                or not bool(torch.all(fixed == fixed[:1]))):
+            return evaluate(points_warped)
+
+        from scipy.interpolate import CubicSpline
+
+        w = points_warped[:, -1]
+        w_grid = torch.linspace(float(w.min()), float(w.max()), int(grid),
+                                dtype=points_warped.dtype, device=points_warped.device)
+        coarse = torch.column_stack([fixed[:1].expand(int(grid), -1), w_grid])
+        var_grid = evaluate(coarse).cpu().numpy()
+        spline = CubicSpline(w_grid.cpu().numpy(), var_grid)
+        var = np.clip(spline(w.cpu().numpy()), 0.0, None)
+        return torch.as_tensor(var, dtype=points_warped.dtype, device=points_warped.device)
+
     def _covariance_diag(self, parameters: dict) -> dict:
         """Per-polarisation diagonal predictive variance, without the mean.
 
@@ -603,7 +641,7 @@ class ExactGPSurrogate(WaveformSurrogate):
                     # `.variance` (LOVE, under fast_pred_var) computes only the
                     # diagonal — O(N·rank) — instead of forming the full N×N
                     # `.covariance_matrix` just to take its diagonal.
-                    diag = model(points_warped).variance.cpu().numpy()
+                    diag = self._latent_variance(model, points_warped).cpu().numpy()
             finally:
                 model.mean_module = saved_mean
             out[pol_name] = diag / self.output_scale**2 / distance_factor**2
@@ -695,7 +733,10 @@ class ExactGPSurrogate(WaveformSurrogate):
                     cov = latent.covariance_matrix.cpu()
                 elif covariance == "diagonal":
                     # Diagonal only — O(N·rank), no N×N matrix formed.
-                    var = latent.variance.cpu()
+                    if self.variance_grid is None:
+                        var = latent.variance.cpu()
+                    else:
+                        var = self._latent_variance(model, points_warped).cpu()
 
             data = (mean / scale).numpy()
             if covariance == "full":
