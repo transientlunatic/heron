@@ -168,3 +168,22 @@ def project_polarisations(
     )
 
     return mu, k_diag
+
+
+def variance_window(times: np.ndarray, bounds: tuple[float, float], roll_off: float) -> np.ndarray:
+    """Multiplicative window for a variance: 1 inside ``bounds``, falling to 0
+    with a half-cosine over ``roll_off`` seconds outside each edge.
+
+    Used to taper away a GP surrogate's prior-reverting variance outside its
+    training window, where it describes the GP prior rather than any
+    knowledge about the waveform.  The roll-off keeps the likelihood
+    continuous in ``tc`` as the window slides across samples.
+    """
+    t = np.asarray(times, dtype=float)
+    t0, t1 = bounds
+    # Distance outside the window (0 inside).
+    dist = np.maximum(t0 - t, 0.0) + np.maximum(t - t1, 0.0)
+    if roll_off <= 0.0:
+        return (dist == 0.0).astype(float)
+    x = np.clip(dist / roll_off, 0.0, 1.0)
+    return 0.5 * (1.0 + np.cos(np.pi * x))

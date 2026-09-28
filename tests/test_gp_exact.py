@@ -57,6 +57,14 @@ class TestExactGPSurrogate:
         )
         return model
 
+    def test_training_time_bounds(self, trained_model):
+        t0, t1 = trained_model.training_time_bounds({"mass_ratio": 0.7})
+        assert t0 == pytest.approx(-0.5, abs=1e-6)
+        assert t1 == pytest.approx(0.02, abs=1e-6)
+        # Evaluation times scale with total mass, so the window does too.
+        t0, t1 = trained_model.training_time_bounds({"mass_ratio": 0.7, "total_mass": 120.0})
+        assert (t0, t1) == pytest.approx((-1.0, 0.04), abs=1e-6)
+
     def test_predict_returns_waveform_dict(self, trained_model):
         params = {
             "mass_ratio": 0.7,
@@ -455,3 +463,22 @@ class TestCovarianceModes:
             np.testing.assert_allclose(
                 wf[pol].covariance, wf2[pol].covariance, rtol=1e-9, atol=1e-30
             )
+
+
+def test_training_time_bounds_interpolate_between_mass_ratios():
+    """Per-q supports differ; bounds interpolate linearly in q and clamp."""
+    xs, yp, yc = [], [], []
+    for q, start in ((0.4, -1.0), (0.8, -0.5)):
+        t = np.linspace(start, 0.02, 10)
+        xs.append(np.column_stack([np.full(10, q), t]))
+        yp.append(np.sin(t)); yc.append(np.cos(t))
+    model = ExactGPSurrogate(
+        train_x=torch.tensor(np.vstack(xs), dtype=torch.float32),
+        train_y_plus=torch.tensor(np.concatenate(yp), dtype=torch.float32),
+        train_y_cross=torch.tensor(np.concatenate(yc), dtype=torch.float32),
+        warping="chirp", output_scale=1.0, device="cpu",
+        total_mass=60.0, distance=100.0, training_iterations=1,
+    )
+    assert model.training_time_bounds({"mass_ratio": 0.6})[0] == pytest.approx(-0.75, abs=1e-6)
+    assert model.training_time_bounds({"mass_ratio": 0.1})[0] == pytest.approx(-1.0, abs=1e-6)
+    assert model.training_time_bounds({"mass_ratio": 0.9})[0] == pytest.approx(-0.5, abs=1e-6)
