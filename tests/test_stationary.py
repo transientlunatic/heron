@@ -3,6 +3,7 @@ log N(d; mu, C + P diag(v) P) against the dense MarginalLogLikelihood."""
 import numpy as np
 import pytest
 import torch
+from scipy.special import logsumexp
 
 from heron.inference.detectors import Detector, aligo_design_psd
 from heron.inference.network import NetworkLikelihood
@@ -210,3 +211,105 @@ class TestVarianceTaper:
         a, params = self._net(stub_surrogate, flat_psd)
         b, _ = self._net(stub_surrogate, flat_psd, variance_taper=None)
         assert a(params) == b(params)
+
+
+class TestShiftedForms:
+    """shifted_quadratic / correlate against per-shift brute force."""
+
+    @pytest.mark.parametrize("case", ["none", "small", "compact"])
+    def test_shifted_quadratic(self, setup, case):
+        t = setup["times"]
+        v = {"none": None,
+             "small": 1e-4 * np.exp(-((t - 0.5) / 0.1) ** 2),
+             "compact": np.where(np.abs(t - 0.5) < 0.05, 2.0, 0.0)}[case]
+        fast = StationaryMarginalLikelihood(setup["noise"], setup["mu"], v)
+        d = setup["d"]
+        shifts = np.arange(-7, 8)
+        got = fast.shifted_quadratic(d, shifts).numpy()
+        want = [fast.inner(np.roll(d, -k), np.roll(d, -k)) for k in shifts]
+        np.testing.assert_allclose(got, want, rtol=1e-10)
+
+    def test_correlate(self, setup):
+        from heron.stationary import correlate
+        x, y = torch.as_tensor(setup["mu"]), torch.as_tensor(setup["d"])
+        shifts = np.arange(-5, 6)
+        got = correlate(x, y, shifts).numpy()
+        want = [float(np.dot(setup["mu"], np.roll(setup["d"], -k))) for k in shifts]
+        np.testing.assert_allclose(got, want, rtol=1e-12, atol=1e-12)
+
+
+class _CompactStub:
+    """Sine-Gaussian stub, compact in time, with a finite training window."""
+
+    distance_factor = 100.0
+
+    def __init__(self, var=1e-2, amp=100.0):
+        self.var = var
+        self.amp = amp
+
+    def training_time_bounds(self, parameters):
+        return (-0.08, 0.04)
+
+    def predict(self, params):
+        from heron.types import Waveform, WaveformDict
+
+        t = np.asarray(params["times"], dtype=float)
+        env = np.exp(-(t / 0.03) ** 2)
+        hp = self.amp * env * np.sin(2 * np.pi * 60 * t)
+        hx = self.amp * env * np.cos(2 * np.pi * 60 * t)
+        var = self.var * env
+        return WaveformDict(
+            plus=Waveform(data=hp, times=t, variance=var),
+            cross=Waveform(data=hx, times=t, variance=var),
+        )
+
+
+class TestTimeMarginalisation:
+    PRIOR = (TC - 0.02, TC + 0.02)
+
+    def _nets(self, psd, var=1e-2, **kw):
+        surrogate = _CompactStub(var=var)
+        times = _times(n=512, fs=512.0)
+        params = {"mass_ratio": Q, "tc": TC + 0.004, "ra": RA, "dec": DEC, "psi": PSI,
+                  "inclination": 0.4, "coalescence_phase": 0.7}
+        dets = [Detector.from_name("H1", psd_fn=psd), Detector.from_name("L1", psd_fn=psd)]
+        rng = np.random.default_rng(7)
+        data = {d.prefix: _detector_signal(surrogate, d, params, times)
+                + 5.0 * rng.standard_normal(len(times)) for d in dets}
+        make = lambda **extra: NetworkLikelihood(
+            data=data, times=times, detectors=dets, surrogate=surrogate, **kw, **extra)
+        return make(marginalize_time=True, time_prior=self.PRIOR), make(), params
+
+    @pytest.mark.parametrize("use_k,var", [(False, 1e-2), (True, 50.0), (True, 5e4)])
+    @pytest.mark.parametrize("marg_phase", [False, True])
+    def test_series_matches_brute_force(self, flat_psd, use_k, var, marg_phase):
+        tm, plain, params = self._nets(flat_psd, var=var, use_waveform_uncertainty=use_k,
+                                       marginalize_phase=marg_phase)
+        p = {k: v for k, v in params.items() if k != "tc"}
+        if marg_phase:
+            p.pop("coalescence_phase")
+        grid, series = tm.time_series(p)
+        # The only approximation is antenna patterns / delays held at the prior
+        # centre (Earth rotation over +-20 ms): ~1e-6 of the logL range.
+        tol = 1e-5 * max(1.0, np.ptp(series))
+        for i in range(0, len(grid), 3):
+            assert series[i] == pytest.approx(plain({**p, "tc": grid[i]}), abs=tol)
+
+    def test_marginal_is_grid_average(self, flat_psd):
+        tm, plain, params = self._nets(flat_psd)
+        p = {k: v for k, v in params.items() if k != "tc"}
+        grid, series = tm.time_series(p)
+        vals = np.array([plain({**p, "tc": g}) for g in grid])
+        assert tm(p) == pytest.approx(logsumexp(vals) - np.log(len(vals)),
+                                      abs=1e-5 * np.ptp(vals))
+        # The peak lands on the injected tc.
+        assert abs(grid[np.argmax(series)] - params["tc"]) <= 1.5 / 512.0
+
+    def test_rejects_tc_and_needs_prior(self, flat_psd, stub_surrogate):
+        tm, _, params = self._nets(flat_psd)
+        with pytest.raises(ValueError):
+            tm(params)
+        with pytest.raises(ValueError):
+            NetworkLikelihood(data=np.zeros(256), times=_times(),
+                              detectors=Detector.from_name("H1", psd_fn=flat_psd),
+                              surrogate=stub_surrogate, marginalize_time=True)
