@@ -167,6 +167,15 @@ class NetworkLikelihood:
         :meth:`time_series` for reconstructing ``tc`` posterior samples.
     time_prior : (float, float) or None
         Geocentre ``tc`` prior bounds (GPS seconds) for ``marginalize_time``.
+    time_resolution : float
+        Spacing (seconds) of the ``tc`` grid used for time marginalisation,
+        default 50 µs. The ``tc`` likelihood peak is ~1/(2π B ρ) wide (≈0.1 ms
+        at SNR ~20), far narrower than a sample at typical rates, so the grid
+        is refined below the sample spacing: the cross term (which carries the
+        sharp ``tc`` dependence) by zero-padded FFT, i.e. an exact band-limited
+        fractional shift; the data-only term, which varies only on the
+        variance-envelope timescale, by cubic interpolation from whole-sample
+        shifts. Set to the sample spacing to disable refinement.
     covariance_inflation : float
         Scalar multiplier applied to K's variance (not the mean) wherever it
         is used, after any k-smoothing envelope. Default 1.0 (no-op). Unlike
@@ -197,6 +206,7 @@ class NetworkLikelihood:
         marginalize_phase: bool = False,
         marginalize_time: bool = False,
         time_prior: tuple[float, float] | None = None,
+        time_resolution: float = 5e-5,
         covariance_inflation: float = 1.0,
         variance_taper: float | None = 0.02,
         linalg: str = "stationary",
@@ -239,10 +249,15 @@ class NetworkLikelihood:
                 raise ValueError("marginalize_time requires time_prior=(tc_min, tc_max)")
             lo, hi = map(float, time_prior)
             dt = float(self.times[1] - self.times[0])
-            half = int(np.floor(0.5 * (hi - lo) / dt))
+            self._oversample = max(1, int(np.ceil(dt / float(time_resolution) - 1e-9)))
+            step = dt / self._oversample
+            half = int(np.floor(0.5 * (hi - lo) / step))
             self._tc_centre = 0.5 * (lo + hi)
-            self._shifts = np.arange(-half, half + 1)
-            self._tc_grid = self._tc_centre + self._shifts * dt
+            self._shifts = np.arange(-half, half + 1)            # in units of `step`
+            self._tc_grid = self._tc_centre + self._shifts * step
+            # Whole-sample shifts bracketing the fine grid, for the data-only term.
+            m = int(np.ceil(half / self._oversample)) + 2
+            self._coarse_shifts = np.arange(-m, m + 1)
 
         # Only the diagonal of K is ever used (project_variances). If the
         # surrogate's predict() accepts a `covariance` mode, request the cheap
@@ -476,7 +491,7 @@ class NetworkLikelihood:
                 "(marginalize_phase=True); do not include it in params."
             )
         intrinsic, extr = self._split_params({**params, "tc": self._tc_centre})
-        shifts = self._shifts
+        shifts, u = self._shifts, self._oversample
         const = np.zeros(len(shifts))
         p_tot = np.zeros(len(shifts))
         q_tot = np.zeros(len(shifts))
@@ -488,14 +503,20 @@ class NetworkLikelihood:
             d = ch.noise.tensor(ch.data)
             z_a = mll.solve(mus[0])
             # (S_k^T d - mu)^T Sigma^-1 (S_k^T d - mu) = D_k - 2 X_k + mu^T Sigma^-1 mu
-            dd = mll.shifted_quadratic(d, shifts).cpu().numpy()
-            xa = correlate(z_a, d, shifts).cpu().numpy()
+            if u == 1:
+                dd = mll.shifted_quadratic(d, shifts).cpu().numpy()
+            else:
+                from scipy.interpolate import CubicSpline
+                cs = self._coarse_shifts
+                dd_c = mll.shifted_quadratic(d, cs).cpu().numpy()
+                dd = CubicSpline(cs, dd_c)(shifts / u)
+            xa = correlate(z_a, d, shifts, oversample=u).cpu().numpy()
             aa = float(torch.dot(ch.noise.tensor(mus[0]), z_a))
             base = -0.5 * mll.log_det - 0.5 * self._n * _LOG_2PI
             if self._marginalize_phase:
                 z_b = mll.solve(mus[1])
                 p_tot += xa
-                q_tot += correlate(z_b, d, shifts).cpu().numpy()
+                q_tot += correlate(z_b, d, shifts, oversample=u).cpu().numpy()
                 const += base - 0.5 * (dd + aa)
             else:
                 const += base - 0.5 * (dd - 2.0 * xa + aa)

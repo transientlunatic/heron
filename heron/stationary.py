@@ -59,11 +59,25 @@ import torch
 _LOG_2PI = math.log(2.0 * math.pi)
 
 
-def correlate(x: torch.Tensor, y: torch.Tensor, shifts) -> torch.Tensor:
-    """Cyclic cross-correlation ``c_k = sum_i x_i y_{i+k}`` at the given shifts."""
+def correlate(x: torch.Tensor, y: torch.Tensor, shifts, oversample: int = 1) -> torch.Tensor:
+    """Cyclic cross-correlation ``c(tau) = sum_i x_i y(t_i + tau)``.
+
+    ``shifts`` are in units of ``1/oversample`` samples.  For ``oversample > 1``
+    the correlation is evaluated between samples by zero-padding its spectrum,
+    i.e. ``y`` is shifted by a band-limited (phase-ramp) fractional delay,
+    which is itself circulant.
+    """
     n = x.shape[-1]
-    c = torch.fft.irfft(torch.conj(torch.fft.rfft(x)) * torch.fft.rfft(y), n=n)
-    k = torch.as_tensor(np.asarray(shifts), device=x.device) % n
+    spec = torch.conj(torch.fft.rfft(x)) * torch.fft.rfft(y)
+    if oversample > 1:
+        if n % 2 == 0:
+            spec = spec.clone()
+            spec[..., -1] *= 0.5    # split Nyquist between +/- f before padding
+        pad = torch.zeros(spec.shape[:-1] + (oversample * n // 2 + 1 - spec.shape[-1],),
+                          dtype=spec.dtype, device=spec.device)
+        spec = torch.cat([spec, pad], dim=-1)
+    c = torch.fft.irfft(spec, n=oversample * n) * oversample
+    k = torch.as_tensor(np.asarray(shifts), device=x.device) % (oversample * n)
     return c[..., k]
 
 

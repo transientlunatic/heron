@@ -267,7 +267,7 @@ class _CompactStub:
 class TestTimeMarginalisation:
     PRIOR = (TC - 0.02, TC + 0.02)
 
-    def _nets(self, psd, var=1e-2, **kw):
+    def _nets(self, psd, var=1e-2, time_resolution=1.0 / 512.0, **kw):
         surrogate = _CompactStub(var=var)
         times = _times(n=512, fs=512.0)
         params = {"mass_ratio": Q, "tc": TC + 0.004, "ra": RA, "dec": DEC, "psi": PSI,
@@ -278,7 +278,8 @@ class TestTimeMarginalisation:
                 + 5.0 * rng.standard_normal(len(times)) for d in dets}
         make = lambda **extra: NetworkLikelihood(
             data=data, times=times, detectors=dets, surrogate=surrogate, **kw, **extra)
-        return make(marginalize_time=True, time_prior=self.PRIOR), make(), params
+        return (make(marginalize_time=True, time_prior=self.PRIOR,
+                     time_resolution=time_resolution), make(), params)
 
     @pytest.mark.parametrize("use_k,var", [(False, 1e-2), (True, 50.0), (True, 5e4)])
     @pytest.mark.parametrize("marg_phase", [False, True])
@@ -293,6 +294,20 @@ class TestTimeMarginalisation:
         # centre (Earth rotation over +-20 ms): ~1e-6 of the logL range.
         tol = 1e-5 * max(1.0, np.ptp(series))
         for i in range(0, len(grid), 3):
+            assert series[i] == pytest.approx(plain({**p, "tc": grid[i]}), abs=tol)
+
+    @pytest.mark.parametrize("marg_phase", [False, True])
+    def test_subsample_grid_matches_brute_force(self, flat_psd, marg_phase):
+        tm, plain, params = self._nets(flat_psd, var=50.0, time_resolution=5e-5,
+                                       marginalize_phase=marg_phase)
+        assert tm._oversample == 40
+        p = {k: v for k, v in params.items() if k != "tc"}
+        if marg_phase:
+            p.pop("coalescence_phase")
+        grid, series = tm.time_series(p)
+        # Band-limited fractional shift + interpolated data term: ~1e-5 of range.
+        tol = 5e-5 * np.ptp(series)
+        for i in np.linspace(0, len(grid) - 1, 15).astype(int):
             assert series[i] == pytest.approx(plain({**p, "tc": grid[i]}), abs=tol)
 
     def test_marginal_is_grid_average(self, flat_psd):
