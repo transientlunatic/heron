@@ -117,6 +117,10 @@ class DemodGPSurrogate(WaveformSurrogate):
         this (via `scripts/calibrate_demod_k.py`) to recalibrate K to a
         trustworthy uncertainty for coverage/PP-plot work. Never affects the
         mean.
+    use_keops : bool
+        Runtime-only option forwarded to the inner Re/Im `ExactGPSurrogate`
+        (see its docstring and :mod:`heron.models.gp.keops`). Not stored in
+        checkpoints. Default False.
     """
 
     def __init__(
@@ -142,6 +146,7 @@ class DemodGPSurrogate(WaveformSurrogate):
         noise_floor_rel: float = 1e-6,
         cholesky_size: int = 2000,
         covariance_inflation: float = 1.0,
+        use_keops: bool = False,
     ):
         self._device = torch.device(device)
         self.output_scale = output_scale
@@ -230,7 +235,17 @@ class DemodGPSurrogate(WaveformSurrogate):
             ls_min_q=ls_min_q,
             noise_floor_rel=noise_floor_rel,
             cholesky_size=cholesky_size,
+            use_keops=use_keops,
         )
+
+    @property
+    def use_keops(self) -> bool:
+        """Whether the inner Re/Im GPs predict via :mod:`heron.models.gp.keops`."""
+        return self._gp.use_keops
+
+    @use_keops.setter
+    def use_keops(self, value: bool) -> None:
+        self._gp.use_keops = bool(value)
 
     # -- reference / phase-correction helpers ------------------------------
 
@@ -292,13 +307,29 @@ class DemodGPSurrogate(WaveformSurrogate):
 
     # -- prediction --------------------------------------------------------
 
-    def predict(self, parameters: dict) -> WaveformDict:
+    def predict(
+        self, parameters: dict, covariance: str = "full", use_keops: bool | None = None,
+    ) -> WaveformDict:
         """Generate waveform with (exact-linear) systematics uncertainty.
 
         Same interface as the other surrogates: ``parameters`` must contain
         'mass_ratio' and 'time' (dict with lower/upper/number) or 'times'
         (array). Optional: 'total_mass', 'luminosity_distance'.
+
+        ``covariance`` selects how much of the predictive covariance to return
+        (see :meth:`ExactGPSurrogate.predict`): ``"full"`` (dense N×N),
+        ``"diagonal"`` (per-sample variance only — the diagonal congruence of
+        the Re/Im variances, no N×N matrix or outer products formed) or
+        ``"none"`` (mean only). The marginal likelihood uses only the diagonal,
+        so ``"diagonal"`` is the cheap PE path.
+
+        ``use_keops`` overrides ``self.use_keops`` for this call (see
+        :meth:`ExactGPSurrogate.predict`).
         """
+        if covariance not in ("full", "diagonal", "none"):
+            raise ValueError(
+                f"covariance must be 'full', 'diagonal' or 'none'; got {covariance!r}"
+            )
         mass_ratio = float(parameters["mass_ratio"])
         distance = parameters.get("luminosity_distance", self.distance_factor)
         distance_factor = distance / self.distance_factor
@@ -309,11 +340,9 @@ class DemodGPSurrogate(WaveformSurrogate):
         inner_params = {
             k: v for k, v in parameters.items() if k != "luminosity_distance"
         }
-        wf = self._gp.predict(inner_params)
+        wf = self._gp.predict(inner_params, covariance=covariance, use_keops=use_keops)
         re_z = wf["plus"].data
         im_z = wf["cross"].data
-        cov_re = wf["plus"].covariance
-        cov_im = wf["cross"].covariance
         times_np = wf["plus"].times
 
         # Reference at the same physical times.
@@ -323,26 +352,97 @@ class DemodGPSurrogate(WaveformSurrogate):
         h_plus = (hXp + re_z * cosP + im_z * sinP) / distance_factor
         h_cross = (hXc + re_z * sinP - im_z * cosP) / distance_factor
 
-        # Exact linear covariance propagation. Re(z), Im(z) are independent
-        # GPs (zero cross-covariance), so only the auto-covariances appear:
-        #   Cov(h_plus)  = C C^T . cov_re + S S^T . cov_im
-        #   Cov(h_cross) = S S^T . cov_re + C C^T . cov_im
-        # with C=cos, S=sin (outer products). The reference is exact and adds
-        # no covariance.
-        cc = np.outer(cosP, cosP)
-        ss = np.outer(sinP, sinP)
-        infl = self.covariance_inflation
-        cov_plus = infl * (cc * cov_re + ss * cov_im) / distance_factor**2
-        cov_cross = infl * (ss * cov_re + cc * cov_im) / distance_factor**2
-
         output = WaveformDict(
             parameters={
                 k: v for k, v in parameters.items() if k not in ("time", "times")
             }
         )
-        output["plus"] = Waveform(data=h_plus, times=times_np, covariance=cov_plus)
-        output["cross"] = Waveform(data=h_cross, times=times_np, covariance=cov_cross)
+        infl = self.covariance_inflation
+
+        if covariance == "full":
+            # Exact linear covariance propagation. Re(z), Im(z) are independent
+            # GPs (zero cross-covariance), so only the auto-covariances appear:
+            #   Cov(h_plus)  = C C^T . cov_re + S S^T . cov_im
+            #   Cov(h_cross) = S S^T . cov_re + C C^T . cov_im
+            # with C=cos, S=sin (outer products). The reference is exact and
+            # adds no covariance.
+            cov_re = wf["plus"].covariance
+            cov_im = wf["cross"].covariance
+            cc = np.outer(cosP, cosP)
+            ss = np.outer(sinP, sinP)
+            cov_plus = infl * (cc * cov_re + ss * cov_im) / distance_factor**2
+            cov_cross = infl * (ss * cov_re + cc * cov_im) / distance_factor**2
+            output["plus"] = Waveform(data=h_plus, times=times_np, covariance=cov_plus)
+            output["cross"] = Waveform(data=h_cross, times=times_np, covariance=cov_cross)
+        elif covariance == "diagonal":
+            # The diagonal of the exact congruence above: diag(C C^T . cov_re)
+            # = cos² . diag(cov_re) = cos² . var_re, etc. — O(N), no N×N.
+            var_re = wf["plus"].variance
+            var_im = wf["cross"].variance
+            var_plus = infl * (cosP**2 * var_re + sinP**2 * var_im) / distance_factor**2
+            var_cross = infl * (sinP**2 * var_re + cosP**2 * var_im) / distance_factor**2
+            output["plus"] = Waveform(data=h_plus, times=times_np, variance=var_plus)
+            output["cross"] = Waveform(data=h_cross, times=times_np, variance=var_cross)
+        else:  # "none"
+            output["plus"] = Waveform(data=h_plus, times=times_np)
+            output["cross"] = Waveform(data=h_cross, times=times_np)
         return output
+
+    # -- diagonal-variance helpers (for the marginal likelihood) -----------
+
+    def _strain_diag_from_inner(self, inner_var: dict, inner_params: dict,
+                                mass_ratio: float) -> dict:
+        """Congrue inner Re/Im diagonal variances to plus/cross strain variance.
+
+        ``var_plus = cos²·var_re + sin²·var_im``, ``var_cross = sin²·var_re +
+        cos²·var_im`` (the diagonal of the exact linear covariance congruence
+        in :meth:`predict`), at the reference distance — projection applies the
+        distance scaling, matching :meth:`ExactGPSurrogate.envelope_covariance_diagonal`.
+        """
+        var_re = inner_var["plus"]
+        var_im = inner_var["cross"]
+        _, times_np, _ = self._gp._build_eval_points(inner_params)
+        q_arr = np.full(len(times_np), mass_ratio, dtype=np.float64)
+        _, _, cosP, sinP = self._reference(q_arr, times_np)
+        infl = self.covariance_inflation
+        return {
+            "plus": infl * (cosP**2 * var_re + sinP**2 * var_im),
+            "cross": infl * (sinP**2 * var_re + cosP**2 * var_im),
+        }
+
+    def covariance_diagonal(self, parameters: dict) -> dict:
+        """Per-polarisation diagonal predictive variance (reference distance).
+
+        Returns ``{'plus': (N,), 'cross': (N,)}`` without forming any N×N
+        matrix — the cheap variance the marginal likelihood actually consumes.
+        """
+        inner_params = {
+            k: v for k, v in parameters.items() if k != "luminosity_distance"
+        }
+        inner_var = self._gp._covariance_diag(inner_params)
+        return self._strain_diag_from_inner(
+            inner_var, inner_params, float(parameters["mass_ratio"])
+        )
+
+    def envelope_covariance_diagonal(
+        self, parameters: dict, offsets, offset_param: str = "mass_ratio",
+    ) -> dict:
+        """Grid-snap-suppressed diagonal variance for plus/cross.
+
+        Envelopes the inner Re/Im GP variance over the ``offset_param`` offsets
+        (where the training-grid-periodic dip lives) and congrues the result to
+        strain variance with the query point's smooth reference cos/sin. See
+        ``k_smoothing_offsets`` in :class:`heron.gw_likelihood.GWLikelihood`.
+        """
+        inner_params = {
+            k: v for k, v in parameters.items() if k != "luminosity_distance"
+        }
+        inner_env = self._gp.envelope_covariance_diagonal(
+            inner_params, offsets, offset_param,
+        )
+        return self._strain_diag_from_inner(
+            inner_env, inner_params, float(parameters["mass_ratio"])
+        )
 
     # -- persistence -------------------------------------------------------
 
@@ -360,6 +460,49 @@ class DemodGPSurrogate(WaveformSurrogate):
         if isinstance(warping, ChirpTimeWarping):
             return {"type": "chirp", "alpha": warping.alpha, "t_ref": warping.t_ref}
         return {"type": str(type(warping).__name__)}
+
+    def _base_is_registry(self) -> bool:
+        """Whether the reference approximant resolves from the LAL registry."""
+        from heron.models import lalsimulation as lalsim_models
+
+        return hasattr(lalsim_models, self._base_name)
+
+    def __getstate__(self):
+        """Pickle via the checkpoint format -- see
+        ``ExactGPSurrogate.__getstate__`` for why (GPyTorch prior closures +
+        the reference approximant's SWIG ``lal.Dict`` don't survive a normal
+        pickle). Unblocks ``n_pool`` process parallelism for the recommended
+        PE model.
+        """
+        import io
+
+        buf = io.BytesIO()
+        self.save(buf)
+        state = {
+            "_heron_checkpoint": buf.getvalue(),
+            "_device": str(self._device),
+            "_use_keops": self.use_keops,
+        }
+        # A non-registry reference (e.g. a test stub) is recorded by class name
+        # in the checkpoint and load() can't re-resolve it -- carry the live
+        # instance so __setstate__ can pass it back through load(). (A registry
+        # reference is skipped: load() rebuilds it by name, and this also avoids
+        # pickling the generator's lal.Dict.)
+        gen = self._ref._generator
+        if gen is not None and not self._base_is_registry():
+            state["_base_instance"] = gen
+        return state
+
+    def __setstate__(self, state):
+        import io
+
+        obj = type(self).load(
+            io.BytesIO(state["_heron_checkpoint"]),
+            device=state.get("_device", "cpu"),
+            base_approximant=state.get("_base_instance"),
+            use_keops=state.get("_use_keops", False),
+        )
+        self.__dict__.update(obj.__dict__)
 
     def save(self, path: str | Path) -> None:
         """Save checkpoint.
@@ -408,6 +551,7 @@ class DemodGPSurrogate(WaveformSurrogate):
         path: str | Path,
         device: str = "cpu",
         base_approximant=None,
+        use_keops: bool = False,
     ) -> "DemodGPSurrogate":
         """Load a pre-trained model from checkpoint.
 
@@ -417,6 +561,8 @@ class DemodGPSurrogate(WaveformSurrogate):
             Override for the checkpoint's recorded reference approximant
             name -- pass an instance when it is not resolvable from
             `heron.models.lalsimulation` (e.g. a test stub).
+        use_keops : bool
+            Runtime prediction option (not stored in the checkpoint).
         """
         checkpoint = torch.load(path, map_location=device, weights_only=False)
 
@@ -461,6 +607,7 @@ class DemodGPSurrogate(WaveformSurrogate):
             noise_floor_rel=checkpoint.get("noise_floor_rel", 1e-6),
             cholesky_size=checkpoint.get("cholesky_size", 2000),
             covariance_inflation=checkpoint.get("covariance_inflation", 1.0),
+            use_keops=use_keops,
         )
 
         for name, state in checkpoint["model_states"].items():

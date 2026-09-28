@@ -1,0 +1,17 @@
+# Fast re-run of the 5-D extrinsic test (H1+L1, sampling mass_ratio, tc,
+# luminosity_distance, inclination, coalescence_phase) with nessai n_pool=8 --
+# the extrinsic-recovery validation that gates wave-2, sped up ~6x now that the
+# surrogate/approximant are picklable. Replaces the slow serial net5d.
+universe        = vanilla
+executable      = condor/run_net_injection.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk")
+request_cpus    = 10
+request_memory  = 18432
+should_transfer_files = NO
+getenv          = false
+arguments       = net5d_h1l1_withK 8
+output          = condor_logs/net_net5d_h1l1_withK.out
+error           = condor_logs/net_net5d_h1l1_withK.err
+log             = condor_logs/net_net5d_h1l1_withK.log
+
+queue

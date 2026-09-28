@@ -73,6 +73,31 @@ class LALSimulationApproximant(WaveformApproximant):
             "heron.models.LALSimulationApproximant"
         )
 
+    def __getstate__(self):
+        """Drop the un-picklable SWIG state so the approximant (and anything
+        holding it -- surrogates, mean functions, likelihoods) can be sent to
+        a multiprocessing worker.
+
+        ``_args["params"]`` is a ``lal.Dict`` (SWIG-wrapped, not picklable),
+        and ``_cache``/``_cache_key`` hold SWIG-backed waveform data and a copy
+        of that dict. All are cheap to rebuild, so we serialise everything else
+        and reconstruct them in ``__setstate__``. This is what unblocks
+        ``n_pool`` process parallelism in nessai/bilby, where the whole
+        likelihood object is pickled to each worker.
+        """
+        state = self.__dict__.copy()
+        args = dict(state.get("_args", {}))
+        args["params"] = None  # lal.Dict -- rebuilt on load
+        state["_args"] = args
+        state["_cache_key"] = {}
+        state.pop("_cache", None)  # SWIG-backed WaveformDict -- regenerated lazily
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        if HAS_LAL and self._args.get("params") is None:
+            self._args["params"] = lal.CreateDict()
+
     def _convert_units(self, args):
         default_units = {
             "mass": u.solMass,

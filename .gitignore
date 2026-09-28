@@ -74,6 +74,11 @@ training_data*.h5
 *.dat
 *.html
 
+# ...except curated real-event PSDs (small ASCII, standard LIGO-tooling
+# extension, tracked deliberately for reproducibility -- see
+# scripts/fetch_gw150914_psd.py)
+!data/psds/**/*.dat
+
 # HTCondor logs
 scripts/condor_logs/
 *.log

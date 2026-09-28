@@ -218,11 +218,15 @@ class _DippedVarianceSurrogate:
         q = params.get("mass_ratio", self.dip_at)
         phase = 2.0 * np.pi * self.f0 * times
         A = self.amplitude
-        # Far variance comparable in scale to the noise covariance C (~236 in
-        # this fixture's units) so the envelope's effect on log|C+K| and the
-        # quadratic term is large enough to distinguish from float roundoff;
-        # near (the "training node") variance is negligible by comparison.
-        far = (A * 0.5) ** 2
+        # Far variance large enough, once band-limited by _project_diag (see
+        # gw_likelihood.py), to be comparable to C's actual *passband*
+        # eigenvalues -- not just its raw time-domain diagonal (~236 in this
+        # fixture's units, which is dominated by aggregate in-band power and
+        # is not the scale the projected log-det term responds to). A smaller
+        # far value (e.g. (A*0.5)**2) is swamped once the spurious sub-f_low
+        # leakage that used to inflate this comparison is removed. Near (the
+        # "training node") variance is negligible by comparison either way.
+        far = (A * 5.0) ** 2
         near = (A * 1e-6) ** 2
         var = near if abs(q - self.dip_at) < 1e-9 else far
         cov = np.eye(len(times)) * var
@@ -282,12 +286,14 @@ class TestKSmoothing:
         t_rel = times - TRUE_TC
         wf_raw = surrogate.predict({"times": t_rel, "mass_ratio": TRUE_Q})
         _, K_raw = project_waveform(wf_raw, fp, fc)
-        K_env = gw_ll_smoothed._k_diagonal_envelope(
+        # _k_diagonal_envelope returns the raw (unprojected) variance vector;
+        # _project_diag (applied by __call__) happens downstream of this.
+        var_env = gw_ll_smoothed._k_diagonal_envelope(
             {"times": t_rel, "mass_ratio": TRUE_Q}, fp, fc, K_raw,
         )
 
-        assert np.all(K_env.diagonal() >= K_raw.diagonal())
-        assert np.any(K_env.diagonal() > K_raw.diagonal())
+        assert np.all(var_env >= K_raw.diagonal())
+        assert np.any(var_env > K_raw.diagonal())
 
         # A likelihood evaluated exactly at the dip should therefore differ
         # substantially between the raw and smoothed variants (smoothing is

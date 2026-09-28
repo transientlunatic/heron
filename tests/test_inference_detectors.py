@@ -8,7 +8,9 @@ from heron.detector import (
     time_delay_from_geocentre,
     _C_SI,
 )
-from heron.inference.detectors import Detector, KNOWN_DETECTORS, estimate_psd_welch
+from heron.inference.detectors import (
+    Detector, KNOWN_DETECTORS, estimate_psd_welch, load_psd_ascii,
+)
 
 
 RA, DEC, PSI, GPS = 1.95, -1.27, 0.82, 1187008882.4
@@ -107,3 +109,49 @@ class TestWelchPSD:
         assert np.isinf(vals[0])            # below f_low
         assert np.all(np.isfinite(vals[1:]))  # in band
         assert np.all(vals[1:] > 0)
+
+
+class TestLoadPsdAscii:
+
+    @staticmethod
+    def _write_psd_file(tmp_path, values):
+        freqs = np.linspace(30.0, 500.0, len(values))
+        path = tmp_path / "test_psd.dat"
+        with open(path, "w") as f:
+            f.write("# frequency  psd\n")
+            for freq, val in zip(freqs, values):
+                f.write(f"{freq} {val}\n")
+        return path, freqs
+
+    def test_reproduces_values_in_band(self, tmp_path):
+        values = np.linspace(1e-46, 1e-44, 50)
+        path, freqs = self._write_psd_file(tmp_path, values)
+        psd_fn = load_psd_ascii(path, f_low=20.0)
+        got = psd_fn(freqs)
+        assert np.allclose(got, values)
+
+    def test_below_f_low_and_outside_range_are_inf(self, tmp_path):
+        values = np.linspace(1e-46, 1e-44, 50)
+        path, _ = self._write_psd_file(tmp_path, values)
+        psd_fn = load_psd_ascii(path, f_low=20.0)
+        vals = psd_fn(np.array([5.0, 15.0, 1000.0]))
+        assert np.all(np.isinf(vals))
+
+    def test_asd_kind_squares_values(self, tmp_path):
+        asd_values = np.linspace(1e-23, 1e-22, 50)
+        path, freqs = self._write_psd_file(tmp_path, asd_values)
+        psd_fn = load_psd_ascii(path, f_low=20.0, kind="asd")
+        got = psd_fn(freqs)
+        assert np.allclose(got, asd_values**2)
+
+    def test_bad_kind_raises(self, tmp_path):
+        path, _ = self._write_psd_file(tmp_path, np.linspace(1e-46, 1e-44, 10))
+        with pytest.raises(ValueError):
+            load_psd_ascii(path, kind="bogus")
+
+    def test_drops_into_detector(self, tmp_path):
+        values = np.linspace(1e-46, 1e-44, 50)
+        path, _ = self._write_psd_file(tmp_path, values)
+        det = Detector.from_name("H1", psd_fn=load_psd_ascii(path))
+        assert callable(det.psd_fn)
+        assert np.isfinite(det.psd_fn(np.array([100.0]))[0])

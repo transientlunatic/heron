@@ -1,0 +1,24 @@
+# Wave 2: full 8-D extrinsic + sky-localization network-injection PE tests
+# (H1+L1+V1, sampling mass_ratio, tc, ra, dec, psi, luminosity_distance,
+# inclination, coalescence_phase). DemodGPSurrogate, IMRPhenomD injection,
+# distance=1500 Mpc (net SNR ~22 across 3 detectors), nessai nlive=250.
+#
+# Uses nessai n_pool parallelism (unblocked by the surrogate/approximant
+# __getstate__ picklability fix) -- the 2nd arg to run_net_injection.sh is the
+# pool size. Each worker is single-threaded, so request_cpus ~ n_pool + slack.
+universe        = vanilla
+executable      = condor/run_net_injection.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk")
+request_cpus    = 10
+request_memory  = 18432
+should_transfer_files = NO
+getenv          = false
+arguments       = $(tag) 8
+output          = condor_logs/net_$(tag).out
+error           = condor_logs/net_$(tag).err
+log             = condor_logs/net_$(tag).log
+
+queue tag from (
+    net8d_h1l1v1_withK
+    net8d_h1l1v1_noK
+)

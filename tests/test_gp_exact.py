@@ -396,3 +396,62 @@ class TestEnvelopeCovarianceDiagonal:
             params, [0.01, -0.01, 0.02, -0.02, 0.03]
         )
         assert _CountingZeroMean.calls == 0
+
+
+class TestCovarianceModes:
+    """predict(covariance='full'|'diagonal'|'none') — the diagonal path lets
+    the marginal likelihood avoid forming the full N×N covariance."""
+
+    @pytest.fixture(scope="class")
+    def model(self):
+        train_x, yp, yc = _make_synthetic_training_data(
+            n_per_q=30, mass_ratios=(0.5, 1.0)
+        )
+        return ExactGPSurrogate(
+            train_x=train_x, train_y_plus=yp, train_y_cross=yc,
+            warping="chirp", nu=2.5, output_scale=1.0, device="cpu",
+            total_mass=60.0, distance=100.0, training_iterations=20,
+        )
+
+    @staticmethod
+    def _params():
+        return {"mass_ratio": 0.7,
+                "time": {"lower": -0.3, "upper": 0.02, "number": 60}}
+
+    def test_diagonal_matches_full_diagonal(self, model):
+        full = model.predict(self._params(), covariance="full")
+        diag = model.predict(self._params(), covariance="diagonal")
+        for pol in ("plus", "cross"):
+            assert diag[pol].covariance is None
+            assert diag[pol].variance is not None
+            np.testing.assert_array_equal(diag[pol].data, full[pol].data)
+            np.testing.assert_allclose(
+                diag[pol].variance, full[pol].covariance.diagonal(),
+                rtol=1e-9, atol=1e-30,
+            )
+
+    def test_none_is_mean_only(self, model):
+        full = model.predict(self._params(), covariance="full")
+        none = model.predict(self._params(), covariance="none")
+        for pol in ("plus", "cross"):
+            assert none[pol].covariance is None and none[pol].variance is None
+            np.testing.assert_array_equal(none[pol].data, full[pol].data)
+
+    def test_invalid_mode_raises(self, model):
+        with pytest.raises(ValueError):
+            model.predict(self._params(), covariance="banana")
+
+    def test_pickle_roundtrip(self, model):
+        """ExactGPSurrogate must survive pickle (GPyTorch prior closures would
+        otherwise break it) for n_pool workers."""
+        import pickle
+
+        params = self._params()
+        wf = model.predict(params)
+        restored = pickle.loads(pickle.dumps(model))
+        wf2 = restored.predict(params)
+        for pol in ("plus", "cross"):
+            np.testing.assert_allclose(wf[pol].data, wf2[pol].data, rtol=1e-9, atol=1e-30)
+            np.testing.assert_allclose(
+                wf[pol].covariance, wf2[pol].covariance, rtol=1e-9, atol=1e-30
+            )

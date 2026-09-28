@@ -43,6 +43,9 @@ lal = [
     "lalsuite",
     "astropy>=5.0",
 ]
+gwosc = [
+    "gwpy",
+]
 plot = [
     "matplotlib>=3.9.3",
 ]

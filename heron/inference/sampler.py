@@ -18,6 +18,55 @@ import numpy as np
 
 from heron.sampling import BaseSampler, SamplerResult
 
+# nessai is an optional dependency. Import its Model at module scope (guarded) so
+# our subclass is defined at module level -- a *local* class can never be
+# pickled, and pickling the model to worker processes is exactly what n_pool
+# parallelism requires. When nessai is absent the base is a plain object and
+# NessaiSampler.run() raises a clear error at call time.
+try:
+    from nessai.model import Model as _NessaiModel
+    _HAVE_NESSAI = True
+except ImportError:  # pragma: no cover - exercised only without nessai
+    _NessaiModel = object
+    _HAVE_NESSAI = False
+
+
+class _HeronNessaiModel(_NessaiModel):
+    """Module-level (hence picklable) nessai model wrapping a heron prior + LL.
+
+    Stores the prior and the user log-likelihood callable directly, so an
+    instance pickles cleanly to ``n_pool`` workers *provided* both of those are
+    picklable — the heron ``PriorDict`` is, and the surrogate-backed likelihood
+    is once the surrogate/approximant define ``__getstate__`` (see
+    ``ExactGPSurrogate``/``DemodGPSurrogate``/``LALSimulationApproximant``).
+    """
+
+    def __init__(self, names, bounds, periodic, prior, loglike_fn):
+        self.names = list(names)
+        self.bounds = {n: list(bounds[n]) for n in self.names}
+        # Declare periodic parameters for nessai's reparameterisation.
+        self.reparameterisations = {
+            n: {"reparameterisation": "periodic"} for n in periodic
+        } or None
+        self._prior = prior
+        self._loglike_fn = loglike_fn
+
+    def log_prior(self, x):
+        x = np.atleast_1d(x)
+        out = np.empty(len(x))
+        for i, row in enumerate(x):
+            theta = np.array([row[n] for n in self.names])
+            out[i] = self._prior.log_prior(theta)
+        return out
+
+    def log_likelihood(self, x):
+        x = np.atleast_1d(x)
+        out = np.empty(len(x))
+        for i, row in enumerate(x):
+            theta = np.array([row[n] for n in self.names])
+            out[i] = self._loglike_fn(self._prior.to_dict(theta))
+        return out
+
 
 class NessaiSampler(BaseSampler):
     """Nested sampler backed by nessai's :class:`~nessai.flowsampler.FlowSampler`.
@@ -43,40 +92,23 @@ class NessaiSampler(BaseSampler):
         return list(getattr(self.prior, "periodic_parameters", []))
 
     def _build_model(self):
-        from nessai.model import Model
-
-        names = self.prior.parameter_names
-        bounds = self._bounds()
-        periodic = self._periodic()
-        prior = self.prior
-        loglike_array = self.loglike_array
-
-        class _HeronModel(Model):
-            def __init__(self):
-                self.names = list(names)
-                self.bounds = {n: list(bounds[n]) for n in names}
-                # Declare periodic parameters for nessai's reparameterisation.
-                self.reparameterisations = {
-                    n: {"reparameterisation": "periodic"} for n in periodic
-                } or None
-
-            def log_prior(self, x):
-                x = np.atleast_1d(x)
-                out = np.empty(len(x))
-                for i, row in enumerate(x):
-                    theta = np.array([row[n] for n in self.names])
-                    out[i] = prior.log_prior(theta)
-                return out
-
-            def log_likelihood(self, x):
-                x = np.atleast_1d(x)
-                out = np.empty(len(x))
-                for i, row in enumerate(x):
-                    theta = np.array([row[n] for n in self.names])
-                    out[i] = loglike_array(theta)
-                return out
-
-        return _HeronModel()
+        if not _HAVE_NESSAI:
+            raise ImportError(
+                "nessai is required for NessaiSampler; install it to run this "
+                "backend (the heron.inference PE layer otherwise works without it)."
+            )
+        # `_log_likelihood` is the raw user callable (BaseSampler stores it);
+        # passing it plus the prior directly -- rather than the bound
+        # `self.loglike_array` -- keeps the picklable model free of any
+        # reference to this sampler instance (which, post-run, holds the
+        # unpicklable nessai FlowSampler).
+        return _HeronNessaiModel(
+            names=self.prior.parameter_names,
+            bounds=self._bounds(),
+            periodic=self._periodic(),
+            prior=self.prior,
+            loglike_fn=self._log_likelihood,
+        )
 
     def run(
         self,

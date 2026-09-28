@@ -129,6 +129,7 @@ class GWLikelihood:
         dt = float(self.times[1] - self.times[0])
         self._freqs = np.fft.rfftfreq(self._n, d=dt)
         self._hp_mask = self._freqs >= f_low
+        self._P = self._build_projection_matrix()
 
         # HP-filter the stored data so it matches the in-band signal.
         self.data = self._hp_filter_1d(np.asarray(data, dtype=float))
@@ -151,29 +152,65 @@ class GWLikelihood:
         x_f[~self._hp_mask] = 0.0
         return np.fft.irfft(x_f, n=self._n)
 
+    def _build_projection_matrix(self) -> np.ndarray:
+        """The N×N linear operator implementing ``_hp_filter_1d``.
+
+        ``P = irfft(mask * rfft(I))`` — applying ``_hp_filter_1d`` to every
+        standard basis vector at once. Symmetric and idempotent (an
+        orthogonal projector onto the passband subspace).
+        """
+        F = np.fft.rfft(np.eye(self._n), axis=0)
+        F[~self._hp_mask, :] = 0.0
+        return np.fft.irfft(F, n=self._n, axis=0)
+
+    def _project_diag(self, var: np.ndarray) -> np.ndarray:
+        """Band-limit a diagonal covariance ``diag(var)`` via ``P diag(var) P^T``.
+
+        ``diag(var)`` is white (flat power at every frequency, including
+        below ``f_low``), unlike the HP-filtered mean/data — even though
+        ``var`` itself is a smooth, in-band function of time. Left unprojected,
+        this white spectrum has full, generic overlap with the noise
+        covariance's near-null sub-``f_low`` eigendirections (only kept
+        positive-definite by ``jitter_rel``), inflating ``log|C+K|`` by an
+        amount that tracks ``1/jitter_rel`` rather than anything physical —
+        confirmed directly: the dominant eigenvalue of ``C^-1 K`` sits at
+        0-28 Hz and scales exactly as ``1/jitter_rel``. Projecting first
+        removes that sub-band content the same way the mean already is.
+
+        Computed as ``B B^T`` with ``B = P @ diag(sqrt(var))`` (a Gram
+        matrix), which is exactly PSD by construction — unlike projecting a
+        *full*, non-diagonal K (the ``~6e-45`` negative eigenvalues noted
+        below), a diagonal K's projection has no cross terms to go wrong;
+        the two residual negative eigenvalues that do appear are pure
+        float64 roundoff (~1e-16 relative to the real ones) and vanish
+        against C's own regularisation once added into ``C + K``.
+        """
+        sqrt_var = np.sqrt(np.clip(var, 0.0, None))
+        B = self._P * sqrt_var[None, :]
+        return B @ B.T
+
     @staticmethod
     def _k_diagonal(K: np.ndarray) -> np.ndarray:
-        """Return the diagonal approximation to K: diag(K.diagonal()).
+        """Return the raw per-sample variance diagonal of K (unprojected).
 
-        Using only the diagonal of the GP predictive covariance is the safest
-        approach because:
+        Historically this was returned as ``diag(K.diagonal())`` directly.
+        Using only the diagonal of the GP predictive covariance (rather than
+        the full matrix) is the safest approach because:
 
         1. It is always PSD (positive diagonal elements).
         2. HP-filtering the full K matrix along both axes creates negative
            eigenvalues (~6e-45) because the filter removes the dominant
            low-frequency variance, leaving a high-frequency residual that is
            not guaranteed to be PSD.
-        3. After HP-filtering both data and signal, the below-band residual
-           r_below ≈ 0, so the below-band part of K contributes only a
-           near-constant log-det term that cancels in the posterior.
 
-        The diagonal approximation treats the per-sample GP uncertainty as
-        independent across time, which is a recognised approximation that
-        correctly captures the uncertainty magnitude and gives the right
-        qualitative comparison between the marginalised and matched-filter
-        likelihoods.
+        But the diagonal itself must still be passed through
+        :meth:`_project_diag` before use — see its docstring for why leaving
+        it unprojected silently reintroduces a large, spurious sub-``f_low``
+        contribution to ``log|C+K|`` (harmless to the posterior *shape* in
+        practice, since it is close to θ-independent, but corrupts
+        ``log_evidence`` and is not a real feature of the model).
         """
-        return np.diag(K.diagonal())
+        return K.diagonal()
 
     def _k_diagonal_envelope(
         self, surrogate_params: dict, fp: float, fc: float, center_K: np.ndarray,
@@ -189,14 +226,16 @@ class GWLikelihood:
         expensive, e.g. LAL-backed) mean at each offset — the oscillation lives
         entirely in the GP variance, which is cheap kernel algebra. Otherwise
         we fall back to a full ``predict()`` per offset.
+
+        Returns the raw (unprojected) variance diagonal — see
+        :meth:`_project_diag`, which the caller applies afterwards.
         """
         surrogate = self.surrogate
         if hasattr(surrogate, "envelope_covariance_diagonal"):
             diags = surrogate.envelope_covariance_diagonal(
                 surrogate_params, self._k_smoothing_offsets, self._k_smoothing_param,
             )
-            var = fp**2 * diags["plus"] + fc**2 * diags["cross"]
-            return np.diag(var)
+            return fp**2 * diags["plus"] + fc**2 * diags["cross"]
 
         # Fallback: works for any surrogate but pays the full predict() cost
         # (mean included) per offset.
@@ -208,7 +247,7 @@ class GWLikelihood:
             wf = self.surrogate.predict(p)
             _, K_off = project_waveform(wf, fp, fc)
             variances.append(K_off.diagonal())
-        return np.diag(np.maximum.reduce(variances))
+        return np.maximum.reduce(variances)
 
     # ------------------------------------------------------------------
     # Likelihood evaluation
@@ -249,16 +288,15 @@ class GWLikelihood:
         # HP-filter the signal to match the stored (HP-filtered) data.
         mu = self._hp_filter_1d(mu)
         if self.use_waveform_uncertainty:
-            # Diagonal approximation: ignore temporal correlations in K.
-            # Full P K P^T filtering creates ~6e-45 negative eigenvalues because
-            # the HP-projection zeros the dominant low-frequency variance in K,
-            # leaving a residual not guaranteed to be PSD. Using diag(K) is always
-            # PSD; the below-band quadratic term vanishes since r_below ≈ 0 after
-            # filtering data and mu.
+            # Diagonal approximation: ignore temporal correlations in K, then
+            # band-limit that diagonal the same way mu/data already are (see
+            # _project_diag) so it doesn't spuriously inflate log|C+K| via
+            # the noise covariance's regularised sub-f_low null space.
             if self._k_smoothing_offsets:
-                K = self._k_diagonal_envelope(surrogate_params, fp, fc, K)
+                var = self._k_diagonal_envelope(surrogate_params, fp, fc, K)
             else:
-                K = self._k_diagonal(K)
+                var = self._k_diagonal(K)
+            K = self._project_diag(var)
         else:
             K = np.zeros_like(K)
 

@@ -1,0 +1,16 @@
+{
+    "device_tag": "cpu",
+    "inference_device_tag": null,
+    "lr": 0.001,
+    "annealing": false,
+    "clip_grad_norm": 5.0,
+    "batch_size": 1000,
+    "val_size": 0.1,
+    "max_epochs": 500,
+    "patience": 20,
+    "noise_type": null,
+    "noise_scale": null,
+    "use_dataloader": false,
+    "optimiser": "adamw",
+    "optimiser_kwargs": null
+}

@@ -278,6 +278,17 @@ class ExactGPSurrogate(WaveformSurrogate):
         Reference total mass used during training (solar masses).
     distance : float
         Reference luminosity distance used during training (Mpc).
+    use_keops : bool
+        Runtime-only prediction option (never saved in checkpoints; may be
+        toggled on a loaded surrogate via the ``use_keops`` attribute or per
+        call via ``predict(..., use_keops=...)``). When True, ``predict``
+        with ``covariance="none"``/``"diagonal"`` (and the diagonal-variance
+        helpers) evaluate the posterior without materialising the N x M
+        test-train covariance: the mean via a KeOps kernel reduction, the
+        diagonal variance via row-chunked products with the exact Cholesky
+        root. Same hyperparameters, same caches, same float64 arithmetic --
+        see :mod:`heron.models.gp.keops`. Needs ``pykeops``. ``"full"``
+        covariance always uses the dense gpytorch path. Default False.
     """
 
     def __init__(
@@ -310,8 +321,10 @@ class ExactGPSurrogate(WaveformSurrogate):
         q_floor_outputscale_min: float = 0.05,
         q_floor_outputscale_init: float | None = None,
         q_warping: str | None = None,
+        use_keops: bool = False,
     ):
         self._device = torch.device(device)
+        self.use_keops = bool(use_keops)
         self.output_scale = output_scale
         self.nu = nu
         self.mass_factor = total_mass
@@ -558,7 +571,23 @@ class ExactGPSurrogate(WaveformSurrogate):
         )
         return points_warped, times.numpy(), distance_factor
 
-    def _covariance_diag(self, parameters: dict) -> dict:
+    def _resolve_use_keops(self, use_keops: bool | None) -> bool:
+        use = getattr(self, "use_keops", False) if use_keops is None else bool(use_keops)
+        if use:
+            from .keops import require_keops
+
+            require_keops()
+        return use
+
+    def _keops_latent(self, model, points_warped, *, mean: bool, variance: bool):
+        from .keops import latent_posterior
+
+        return latent_posterior(
+            model, points_warped, cholesky_size=self.cholesky_size,
+            mean=mean, variance=variance,
+        )
+
+    def _covariance_diag(self, parameters: dict, use_keops: bool | None = None) -> dict:
         """Per-polarisation diagonal predictive variance, without the mean.
 
         The exact-GP posterior covariance ``k** - k_*ᵀ(K+σ²I)⁻¹k_*`` is
@@ -566,9 +595,21 @@ class ExactGPSurrogate(WaveformSurrogate):
         ``ZeroMean`` to avoid evaluating an expensive (e.g. LAL-backed) mean
         that would otherwise be computed and discarded. Returns the same
         scaled variance as ``predict()[pol].covariance.diagonal()``.
+
+        With ``use_keops`` (default: ``self.use_keops``) the variance comes
+        from :func:`heron.models.gp.keops.latent_posterior` and the mean is
+        never evaluated at all.
         """
         points_warped, _, distance_factor = self._build_eval_points(parameters)
         predict_models = self._get_predict_models()
+        if self._resolve_use_keops(use_keops):
+            out = {}
+            for pol_name in ("plus", "cross"):
+                _, var = self._keops_latent(
+                    predict_models[pol_name], points_warped, mean=False, variance=True,
+                )
+                out[pol_name] = var.cpu().numpy() / self.output_scale**2 / distance_factor**2
+            return out
         zero_mean = gpytorch.means.ZeroMean().to(self._device)
 
         out = {}
@@ -579,8 +620,10 @@ class ExactGPSurrogate(WaveformSurrogate):
             try:
                 with torch.no_grad(), gpytorch.settings.fast_pred_var(), \
                         gpytorch.settings.max_cholesky_size(self.cholesky_size):
-                    covar = model(points_warped).covariance_matrix
-                diag = covar.diagonal().cpu().numpy()
+                    # `.variance` (LOVE, under fast_pred_var) computes only the
+                    # diagonal — O(N·rank) — instead of forming the full N×N
+                    # `.covariance_matrix` just to take its diagonal.
+                    diag = model(points_warped).variance.cpu().numpy()
             finally:
                 model.mean_module = saved_mean
             out[pol_name] = diag / self.output_scale**2 / distance_factor**2
@@ -617,7 +660,9 @@ class ExactGPSurrogate(WaveformSurrogate):
             "cross": np.maximum.reduce(diags_cross),
         }
 
-    def predict(self, parameters: dict) -> WaveformDict:
+    def predict(
+        self, parameters: dict, covariance: str = "full", use_keops: bool | None = None,
+    ) -> WaveformDict:
         """Generate waveform with uncertainty.
 
         Parameters
@@ -625,7 +670,25 @@ class ExactGPSurrogate(WaveformSurrogate):
         parameters : dict
             Must contain 'mass_ratio' and 'time' (dict with lower/upper/number)
             or 'times' (array). Optional: 'total_mass', 'luminosity_distance'.
+        covariance : str
+            How much of the predictive covariance to return:
+
+            - ``"full"`` (default): the dense N×N ``Waveform.covariance``.
+            - ``"diagonal"``: only the per-sample variance (``Waveform.variance``,
+              ``covariance=None``), computed via ``.variance`` (LOVE) without ever
+              forming the N×N matrix. The marginal likelihood uses only the
+              diagonal, so this is the cheap path for PE.
+            - ``"none"``: mean only (no covariance work at all) — for the
+              matched-filter/no-K likelihood.
+        use_keops : bool or None
+            Override ``self.use_keops`` for this call. When enabled, the
+            ``"none"``/``"diagonal"`` modes use :mod:`heron.models.gp.keops`
+            (no dense N×M test-train covariance); ``"full"`` is unaffected.
         """
+        if covariance not in ("full", "diagonal", "none"):
+            raise ValueError(
+                f"covariance must be 'full', 'diagonal' or 'none'; got {covariance!r}"
+            )
         points_warped, times_np, distance_factor = self._build_eval_points(parameters)
 
         # Predict
@@ -634,9 +697,25 @@ class ExactGPSurrogate(WaveformSurrogate):
         )
 
         predict_models = self._get_predict_models()
+        scale = self.output_scale * distance_factor
+        var_scale = self.output_scale**2 * distance_factor**2
+        keops = covariance != "full" and self._resolve_use_keops(use_keops)
 
         for pol_name in ("plus", "cross"):
             model = predict_models[pol_name]
+            if keops:
+                mean, var = self._keops_latent(
+                    model, points_warped, mean=True, variance=covariance == "diagonal",
+                )
+                data = (mean.cpu() / scale).numpy()
+                if covariance == "diagonal":
+                    output[pol_name] = Waveform(
+                        data=data, times=times_np,
+                        variance=(var.cpu() / var_scale).numpy(),
+                    )
+                else:
+                    output[pol_name] = Waveform(data=data, times=times_np)
+                continue
             # gpytorch's default max_cholesky_size is 800; above that it
             # silently falls back to CG, which can fail to converge (seen
             # directly: N=2000 with tight lengthscales left CG short of
@@ -652,15 +731,58 @@ class ExactGPSurrogate(WaveformSurrogate):
                 # uncertainty is the latent posterior covariance K_latent.
                 latent = model(points_warped)
                 mean = latent.mean.cpu()
-                covar = latent.covariance_matrix.cpu()
+                if covariance == "full":
+                    cov = latent.covariance_matrix.cpu()
+                elif covariance == "diagonal":
+                    # Diagonal only — O(N·rank), no N×N matrix formed.
+                    var = latent.variance.cpu()
 
-            output[pol_name] = Waveform(
-                data=(mean / self.output_scale / distance_factor).numpy(),
-                times=times_np,
-                covariance=(covar / self.output_scale**2 / distance_factor**2).numpy(),
-            )
+            data = (mean / scale).numpy()
+            if covariance == "full":
+                output[pol_name] = Waveform(
+                    data=data, times=times_np,
+                    covariance=(cov / var_scale).numpy(),
+                )
+            elif covariance == "diagonal":
+                output[pol_name] = Waveform(
+                    data=data, times=times_np,
+                    variance=(var / var_scale).numpy(),
+                )
+            else:  # "none"
+                output[pol_name] = Waveform(data=data, times=times_np)
 
         return output
+
+    def __getstate__(self):
+        """Pickle via the checkpoint format, not the live GPyTorch modules.
+
+        A normal pickle of a trained surrogate fails twice over: GPyTorch's
+        ``register_prior`` stashes un-picklable *local closures* on every kernel
+        submodule (and on the cached float64 predict clones), and LAL-backed
+        mean functions hold a SWIG ``lal.Dict``. The checkpoint carries only
+        tensors + config (means/approximants by name), so it round-trips
+        cleanly and stays valid across GPyTorch versions. This is what lets the
+        whole likelihood be sent to nessai/bilby ``n_pool`` workers.
+        """
+        import io
+
+        buf = io.BytesIO()
+        self.save(buf)
+        return {
+            "_heron_checkpoint": buf.getvalue(),
+            "_device": str(self._device),
+            "_use_keops": getattr(self, "use_keops", False),
+        }
+
+    def __setstate__(self, state):
+        import io
+
+        obj = type(self).load(
+            io.BytesIO(state["_heron_checkpoint"]),
+            device=state.get("_device", "cpu"),
+            use_keops=state.get("_use_keops", False),
+        )
+        self.__dict__.update(obj.__dict__)
 
     def save(self, path: str | Path) -> None:
         """Save checkpoint."""
@@ -740,8 +862,14 @@ class ExactGPSurrogate(WaveformSurrogate):
         logger.info(f"Saved checkpoint to {path} (heron {heron_version})")
 
     @classmethod
-    def load(cls, path: str | Path, device: str = "cpu") -> ExactGPSurrogate:
-        """Load a pre-trained model from checkpoint."""
+    def load(
+        cls, path: str | Path, device: str = "cpu", use_keops: bool = False,
+    ) -> ExactGPSurrogate:
+        """Load a pre-trained model from checkpoint.
+
+        ``use_keops`` is a runtime prediction option (see the class
+        docstring); it is not stored in, or read from, the checkpoint.
+        """
         checkpoint = torch.load(path, map_location=device, weights_only=False)
 
         fmt = checkpoint.get("format_version", checkpoint.get("version"))
@@ -764,7 +892,9 @@ class ExactGPSurrogate(WaveformSurrogate):
 
         # Handle v1 checkpoints (from old HeronNonSpinningApproximantMatern)
         if fmt is None:
-            return cls._load_v1(checkpoint, warping_obj, device)
+            instance = cls._load_v1(checkpoint, warping_obj, device)
+            instance.use_keops = bool(use_keops)
+            return instance
 
         from .mean import mean_from_config
 
@@ -807,6 +937,7 @@ class ExactGPSurrogate(WaveformSurrogate):
             q_floor_outputscale_min=checkpoint.get("q_floor_outputscale_min", 0.05),
             q_floor_outputscale_init=checkpoint.get("q_floor_outputscale_init"),
             q_warping=checkpoint.get("q_warping"),
+            use_keops=use_keops,
         )
 
         for name, state in checkpoint["model_states"].items():
