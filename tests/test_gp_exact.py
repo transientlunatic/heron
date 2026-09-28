@@ -482,3 +482,51 @@ def test_training_time_bounds_interpolate_between_mass_ratios():
     assert model.training_time_bounds({"mass_ratio": 0.6})[0] == pytest.approx(-0.75, abs=1e-6)
     assert model.training_time_bounds({"mass_ratio": 0.1})[0] == pytest.approx(-1.0, abs=1e-6)
     assert model.training_time_bounds({"mass_ratio": 0.9})[0] == pytest.approx(-0.5, abs=1e-6)
+
+
+class TestVarianceGrid:
+    """Coarse-grid diagonal variance reproduces the exact variance."""
+
+    @pytest.fixture(scope="class")
+    def model(self):
+        train_x, yp, yc = _make_synthetic_training_data(n_per_q=30, mass_ratios=(0.5, 1.0))
+        return ExactGPSurrogate(
+            train_x=train_x, train_y_plus=yp, train_y_cross=yc,
+            warping="chirp", nu=2.5, output_scale=1.0, device="cpu",
+            total_mass=60.0, distance=100.0, training_iterations=20,
+        )
+
+    def _both(self, model, params, grid):
+        model.variance_grid = None
+        exact = model.predict(params, covariance="diagonal")
+        model.variance_grid = grid
+        try:
+            coarse = model.predict(params, covariance="diagonal")
+            coarse_diag = model._covariance_diag(params)
+        finally:
+            model.variance_grid = None
+        return exact, coarse, coarse_diag
+
+    def test_matches_exact(self, model):
+        params = {"mass_ratio": 0.7, "times": np.linspace(-0.5, 0.02, 3000)}
+        exact, coarse, coarse_diag = self._both(model, params, grid=1000)
+        for pol in ("plus", "cross"):
+            ev, cv = exact[pol].variance, coarse[pol].variance
+            assert np.max(np.abs(cv - ev)) <= 1e-3 * np.max(ev)
+            np.testing.assert_allclose(coarse_diag[pol], cv, rtol=1e-12, atol=0)
+            # The mean is untouched.
+            np.testing.assert_array_equal(coarse[pol].data, exact[pol].data)
+
+    def test_small_requests_use_exact_path(self, model):
+        params = {"mass_ratio": 0.7, "times": np.linspace(-0.5, 0.02, 200)}
+        exact, coarse, _ = self._both(model, params, grid=1000)
+        for pol in ("plus", "cross"):
+            np.testing.assert_array_equal(coarse[pol].variance, exact[pol].variance)
+
+    def test_not_saved_in_checkpoint(self, model, tmp_path):
+        model.variance_grid = 512
+        try:
+            model.save(tmp_path / "m.pt")
+        finally:
+            model.variance_grid = None
+        assert ExactGPSurrogate.load(tmp_path / "m.pt").variance_grid is None

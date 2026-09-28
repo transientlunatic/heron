@@ -51,6 +51,20 @@ class TestDemodGPSurrogate:
     def models_and_surrogate(self):
         return _make_surrogate()
 
+    def test_variance_grid_forwards_to_inner_gp(self, models_and_surrogate):
+        _, _, surrogate = models_and_surrogate
+        params = {"mass_ratio": 0.6, "time": {"lower": -0.3, "upper": 0.02, "number": 2000}}
+        exact = surrogate.predict(params, covariance="diagonal")
+        surrogate.variance_grid = 800
+        try:
+            assert surrogate._gp.variance_grid == 800
+            coarse = surrogate.predict(params, covariance="diagonal")
+        finally:
+            surrogate.variance_grid = None
+        for pol in ("plus", "cross"):
+            ev, cv = exact[pol].variance, coarse[pol].variance
+            assert np.max(np.abs(cv - ev)) <= 1e-3 * np.max(ev)
+
     def test_predict_returns_waveform_dict(self, models_and_surrogate):
         _, _, surrogate = models_and_surrogate
         wf = surrogate.predict({

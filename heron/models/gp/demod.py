@@ -368,6 +368,16 @@ class DemodGPSurrogate(WaveformSurrogate):
             output["cross"] = Waveform(data=h_cross, times=times_np)
         return output
 
+    @property
+    def variance_grid(self) -> int | None:
+        """Coarse-grid size for the inner GP's diagonal variance (runtime only;
+        see :meth:`ExactGPSurrogate._latent_variance`)."""
+        return self._gp.variance_grid
+
+    @variance_grid.setter
+    def variance_grid(self, value: int | None) -> None:
+        self._gp.variance_grid = value
+
     def training_time_bounds(self, parameters: dict) -> tuple[float, float]:
         """Training time window of the inner Re/Im GP (see
         :meth:`ExactGPSurrogate.training_time_bounds`)."""
