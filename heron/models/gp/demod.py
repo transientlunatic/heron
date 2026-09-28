@@ -117,6 +117,10 @@ class DemodGPSurrogate(WaveformSurrogate):
         this (via `scripts/calibrate_demod_k.py`) to recalibrate K to a
         trustworthy uncertainty for coverage/PP-plot work. Never affects the
         mean.
+    use_keops : bool
+        Runtime-only option forwarded to the inner Re/Im `ExactGPSurrogate`
+        (see its docstring and :mod:`heron.models.gp.keops`). Not stored in
+        checkpoints. Default False.
     """
 
     def __init__(
@@ -142,6 +146,7 @@ class DemodGPSurrogate(WaveformSurrogate):
         noise_floor_rel: float = 1e-6,
         cholesky_size: int = 2000,
         covariance_inflation: float = 1.0,
+        use_keops: bool = False,
     ):
         self._device = torch.device(device)
         self.output_scale = output_scale
@@ -230,7 +235,17 @@ class DemodGPSurrogate(WaveformSurrogate):
             ls_min_q=ls_min_q,
             noise_floor_rel=noise_floor_rel,
             cholesky_size=cholesky_size,
+            use_keops=use_keops,
         )
+
+    @property
+    def use_keops(self) -> bool:
+        """Whether the inner Re/Im GPs predict via :mod:`heron.models.gp.keops`."""
+        return self._gp.use_keops
+
+    @use_keops.setter
+    def use_keops(self, value: bool) -> None:
+        self._gp.use_keops = bool(value)
 
     # -- reference / phase-correction helpers ------------------------------
 
@@ -292,7 +307,9 @@ class DemodGPSurrogate(WaveformSurrogate):
 
     # -- prediction --------------------------------------------------------
 
-    def predict(self, parameters: dict, covariance: str = "full") -> WaveformDict:
+    def predict(
+        self, parameters: dict, covariance: str = "full", use_keops: bool | None = None,
+    ) -> WaveformDict:
         """Generate waveform with (exact-linear) systematics uncertainty.
 
         Same interface as the other surrogates: ``parameters`` must contain
@@ -305,6 +322,9 @@ class DemodGPSurrogate(WaveformSurrogate):
         the Re/Im variances, no N×N matrix or outer products formed) or
         ``"none"`` (mean only). The marginal likelihood uses only the diagonal,
         so ``"diagonal"`` is the cheap PE path.
+
+        ``use_keops`` overrides ``self.use_keops`` for this call (see
+        :meth:`ExactGPSurrogate.predict`).
         """
         if covariance not in ("full", "diagonal", "none"):
             raise ValueError(
@@ -320,7 +340,7 @@ class DemodGPSurrogate(WaveformSurrogate):
         inner_params = {
             k: v for k, v in parameters.items() if k != "luminosity_distance"
         }
-        wf = self._gp.predict(inner_params, covariance=covariance)
+        wf = self._gp.predict(inner_params, covariance=covariance, use_keops=use_keops)
         re_z = wf["plus"].data
         im_z = wf["cross"].data
         times_np = wf["plus"].times
@@ -458,7 +478,11 @@ class DemodGPSurrogate(WaveformSurrogate):
 
         buf = io.BytesIO()
         self.save(buf)
-        state = {"_heron_checkpoint": buf.getvalue(), "_device": str(self._device)}
+        state = {
+            "_heron_checkpoint": buf.getvalue(),
+            "_device": str(self._device),
+            "_use_keops": self.use_keops,
+        }
         # A non-registry reference (e.g. a test stub) is recorded by class name
         # in the checkpoint and load() can't re-resolve it -- carry the live
         # instance so __setstate__ can pass it back through load(). (A registry
@@ -476,6 +500,7 @@ class DemodGPSurrogate(WaveformSurrogate):
             io.BytesIO(state["_heron_checkpoint"]),
             device=state.get("_device", "cpu"),
             base_approximant=state.get("_base_instance"),
+            use_keops=state.get("_use_keops", False),
         )
         self.__dict__.update(obj.__dict__)
 
@@ -526,6 +551,7 @@ class DemodGPSurrogate(WaveformSurrogate):
         path: str | Path,
         device: str = "cpu",
         base_approximant=None,
+        use_keops: bool = False,
     ) -> "DemodGPSurrogate":
         """Load a pre-trained model from checkpoint.
 
@@ -535,6 +561,8 @@ class DemodGPSurrogate(WaveformSurrogate):
             Override for the checkpoint's recorded reference approximant
             name -- pass an instance when it is not resolvable from
             `heron.models.lalsimulation` (e.g. a test stub).
+        use_keops : bool
+            Runtime prediction option (not stored in the checkpoint).
         """
         checkpoint = torch.load(path, map_location=device, weights_only=False)
 
@@ -579,6 +607,7 @@ class DemodGPSurrogate(WaveformSurrogate):
             noise_floor_rel=checkpoint.get("noise_floor_rel", 1e-6),
             cholesky_size=checkpoint.get("cholesky_size", 2000),
             covariance_inflation=checkpoint.get("covariance_inflation", 1.0),
+            use_keops=use_keops,
         )
 
         for name, state in checkpoint["model_states"].items():
