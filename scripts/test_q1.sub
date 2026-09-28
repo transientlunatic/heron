@@ -1,0 +1,19 @@
+#!/usr/bin/env condor_submit
+# Quick test at q=1 with current model
+
+universe = vanilla
+executable = /home/daniel/repositories/ligo/heron/scripts/run_with_gpu.sh
+should_transfer_files = NO
+
+request_gpus = 1
+request_cpus = 1
+request_memory = 8GB
+
+arguments = validate_mass_ratios.py 1.0
+initialdir = /home/daniel/repositories/ligo/heron/scripts
+
+log = condor_logs/validate_$(Cluster).$(Process).log
+output = condor_logs/validate_q1.0.out
+error = condor_logs/validate_q1.0.err
+
+queue

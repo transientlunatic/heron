@@ -1,0 +1,46 @@
+# Evaluate a trained surrogate against a reference approximant.
+# Usage: heron evaluate --settings examples/evaluate.yaml
+#
+# Chain after training:
+#   heron train --settings examples/train_exact_gp.yaml && \
+#   heron evaluate --settings examples/evaluate.yaml
+
+logging:
+  level: info
+
+evaluation:
+  # Trained model checkpoint
+  checkpoint: checkpoints/exact_gp.pt
+  model: exact                      # exact | sparse
+
+  # Reference approximant for comparison
+  # Use "SineGaussian" to test without lalsuite
+  reference: IMRPhenomPv2           # IMRPhenomPv2 | SEOBNRv3 | SineGaussian
+
+  # Model name (used in plot titles and report)
+  name: ExactGP_v1
+
+  # Parameter space to evaluate over
+  parameter_bounds:
+    mass_ratio: [0.1, 1.0]
+
+  # Time grid for waveform comparison
+  time:
+    lower: -0.5
+    upper: 0.02
+    number: 512
+
+  # What to run
+  mismatch: true                    # mismatch distribution
+  calibration: true                 # uncertainty calibration
+
+  # Number of held-out evaluation points
+  n_mismatch: 200
+  n_calibration: 100
+
+  seed: 42
+  device: cpu
+
+  # Output
+  output_dir: evaluation            # directory for report and plots
+  plots: true                       # generate matplotlib plots

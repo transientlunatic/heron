@@ -1,0 +1,52 @@
+# SNR ladder: does with-K differ from no-K, and stay unbiased, as K/C grows?
+# H1+L1, 2-D (mass_ratio, tc), nessai nlive=250, n_pool=8.
+#
+# SELF-injection (inject the surrogate's own prediction, mismatch=0) so any
+# with-K vs no-K difference is PURELY the K-marginalisation, not template
+# systematics. Distance sets the SNR: K/C grows ~ SNR^2, so the rungs span from
+# C-dominated (SNR~20, with-K == no-K expected) to K-appreciable (SNR~250).
+# Same seed => same noise realisation across rungs and across with-K/no-K, so
+# the comparison is controlled (single-realisation caveat as always).
+#
+# netladder_* (DemodGPSurrogate) already ran 2026-07-28 -- see
+# results/net_netladder_snr{20,75,250}_{no,with}K*. Confirmed: with-K~=no-K at
+# every rung, no bias to SNR~250 -- closes "coverage at SNR>>20" for demod, but
+# demod's K is negligible by design so this can't show the log-det bias
+# actually appearing.
+#
+# exactxasladder_* (production exact_xas_lsminq006 checkpoint) already ran
+# 2026-08-17 -- see results/net_exactxasladder_snr{20,75,250}_{no,with}K*.
+# Result: with-K~=no-K at EVERY rung, including SNR~250 (unlike phase-amp+XAS's
+# historical -6/+10/-16 sigma). Root cause confirmed, not a bug: K/C at the
+# peak-amplitude sample measured only ~5e-4/7e-3/8e-2 at SNR 20/75/250 for this
+# checkpoint at q=0.8 -- genuinely too small to bite at any of these SNRs.
+#
+# exactxasladder_*_infl100 (currently queued) reruns the with-K arm only
+# (no-K is unaffected by inflation -- reuses the existing noK results above as
+# baseline) with K's variance synthetically x100 via NetworkLikelihood's new
+# covariance_inflation knob, bringing peak K/C to ~0.05/0.7/8 across the three
+# rungs. Point: demonstrate with-K vs no-K actually diverging, and growing
+# with SNR, without switching representation or needing a new checkpoint.
+#
+# No Machine== pin (unlike earlier sessions' condor files): confirmed 2026-08-17
+# that /scratch/wiay/daniel and its micromamba env are NFS-visible pool-wide
+# (tested from balta.physics.gla.ac.uk), and the wiay HOST ITSELF was fully
+# saturated (0 free CPUs -- other users' jobs, not just ours) while the rest of
+# the ~9-machine pool had free capacity (deneb 10, hermes/balta 9, etc.) --
+# pinning to one host is not required and left these jobs stuck Idle for 2h.
+universe        = vanilla
+executable      = condor/run_net_injection.sh
+request_cpus    = 10
+request_memory  = 18432
+should_transfer_files = NO
+getenv          = false
+arguments       = $(tag) 8
+output          = condor_logs/net_$(tag).out
+error           = condor_logs/net_$(tag).err
+log             = condor_logs/net_$(tag).log
+
+queue tag from (
+    exactxasladder_snr20_withK_infl100
+    exactxasladder_snr75_withK_infl100
+    exactxasladder_snr250_withK_infl100
+)

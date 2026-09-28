@@ -1,0 +1,73 @@
+# HTCondor submit file for fake uncertainty injection study
+# Runs both injection creation and inference for multiple test cases
+#
+# Submit with: condor_submit run_injection_study.sub
+
+universe                = vanilla
+request_cpus            = 1
+request_memory          = 8GB
+
+# Use wrapper script for proper environment
+executable              = /home/daniel/repositories/ligo/heron/scripts/run_with_gpu.sh
+
+# Use shared filesystem (don't transfer files)
+should_transfer_files   = NO
+initialdir              = /home/daniel/repositories/ligo/heron
+
+# Environment
+environment             = "PYTHONPATH=/home/daniel/repositories/ligo/heron"
+
+# Logs directory
+log                     = injections/logs/$(jobtype)_$(testcase).log
+output                  = injections/logs/$(jobtype)_$(testcase).out
+error                   = injections/logs/$(jobtype)_$(testcase).err
+
+# Jobs: First create all injections, then run all inferences
+# Each test case gets TWO jobs: one for injection, one for inference
+
+# ===== INJECTION JOBS =====
+# Create injections for all test cases
+arguments               = "heron injection --settings injections/fake_uncertainty_test_q03.yaml"
+queue jobtype,testcase from (
+injection fake_unc_q03
+)
+
+arguments               = "heron injection --settings injections/fake_uncertainty_test_q05.yaml"
+queue jobtype,testcase from (
+injection fake_unc_q05
+)
+
+arguments               = "heron injection --settings injections/fake_uncertainty_test_q07.yaml"
+queue jobtype,testcase from (
+injection fake_unc_q07
+)
+
+arguments               = "heron injection --settings injections/standard_test_q05.yaml"
+queue jobtype,testcase from (
+injection standard_q05
+)
+
+# ===== INFERENCE JOBS =====
+# Run inference on all test cases
+# Note: These should only run AFTER injections complete
+# For now, submit them manually after injections finish
+
+# arguments               = "heron inference --settings injections/fake_uncertainty_test_q03.yaml"
+# queue jobtype,testcase from (
+# inference fake_unc_q03
+# )
+#
+# arguments               = "heron inference --settings injections/fake_uncertainty_test_q05.yaml"
+# queue jobtype,testcase from (
+# inference fake_unc_q05
+# )
+#
+# arguments               = "heron inference --settings injections/fake_uncertainty_test_q07.yaml"
+# queue jobtype,testcase from (
+# inference fake_unc_q07
+# )
+#
+# arguments               = "heron inference --settings injections/standard_test_q05.yaml"
+# queue jobtype,testcase from (
+# inference standard_q05
+# )

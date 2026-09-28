@@ -1,0 +1,57 @@
+# Variant of train_phenomd_hf_dense30_exact_xas.yaml with the same
+# ls_min_q fix already validated for the phase-amplitude XAS checkpoint
+# (examples/train_phenomd_hf_dense30_phase_amplitude_xas_lsminq006.yaml):
+# the base exact_xas checkpoint's trained lengthscales pinned exactly at
+# the ls_min_q=0.03 floor (= the training grid spacing) in both
+# polarisations, the same "overfitted mass-ratio kernel" signature already
+# root-caused for phase-amplitude (grid_snap_finding.md) -- ~450-500x
+# posterior-variance collapse at training nodes, which feeds the with-K
+# likelihood's log-det term and produces delta-function snapping onto
+# training nodes in nested sampling. Since exact_xas was deliberately
+# trained with the SAME hyperparameters as the base (unfixed)
+# phase-amplitude checkpoint for a fair comparison, it inherited the same
+# bug -- this config is the fix, so the two representations can finally be
+# compared on fixed checkpoints instead of one fixed / one not.
+#
+# Change vs the base exact_xas config: ls_min_q doubled (0.03 -> 0.06) and
+# noise_floor_rel raised an order of magnitude (1e-3 -> 1e-2), identical to
+# the phase-amplitude fix. Everything else unchanged, including the same
+# training HDF5 (mode: data), so this isolates the effect of the two
+# hyperparameter changes.
+#
+# Usage: heron train --settings examples/train_phenomd_hf_dense30_exact_xas_lsminq006.yaml
+# Requires: lalsuite (pip install heron[lal]) -- the mean generates XAS
+# waveforms at train and predict time.
+
+logging:
+  level: info
+
+training:
+  mode: data
+  data_path: checkpoints/phenomd_nonspinning_dense30_phase_amplitude_data.h5
+  model: exact
+
+  total_mass: 60.0        # solar masses
+  distance: 100.0         # Mpc
+
+  nu: 2.5
+  output_scale: 1.0e+27
+  optimizer: lbfgs
+  iterations: 80
+  device: cuda
+
+  warping:
+    type: chirp
+    alpha: 0.625
+
+  ls_min_q: 0.06
+  ls_min_time: 0.015
+  noise_floor_rel: 1.0e-2
+
+  cholesky_size: 6000
+
+  mean_function:
+    type: approximant
+    approximant: IMRPhenomXAS
+
+  checkpoint: checkpoints/phenomd_nonspinning_dense30_exact_xas_lsminq006.pt

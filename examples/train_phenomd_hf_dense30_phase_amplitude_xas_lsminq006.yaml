@@ -1,0 +1,56 @@
+# Variant of train_phenomd_hf_dense30_phase_amplitude_xas.yaml testing
+# whether raising ls_min_q fixes the grid-snap NS failure mode found
+# 2026-07-16 (see memory grid_snap_finding.md / CLAUDE.md). Root cause:
+# the log-amplitude GP's q-lengthscale trained exactly to the ls_min_q=0.03
+# floor (= the training grid spacing), collapsing the GP's posterior
+# variance ~450-500x between a training node and a point just 0.01 away --
+# this feeds the with-K likelihood's log-det term and produces
+# delta-function snapping onto training nodes in nested sampling. The mean
+# function itself was verified NOT to be the problem (predict() mismatch
+# vs the true reference is flat and excellent both on- and off-grid,
+# ~3e-5 to 1.6e-4) -- this is purely an uncertainty-calibration issue.
+#
+# Change vs the base XAS config: ls_min_q doubled (0.03 -> 0.06) and
+# noise_floor_rel raised an order of magnitude (1e-3 -> 1e-2) to match --
+# same "raise noise_floor_rel when ls_min > training spacing" rule already
+# documented in CLAUDE.md, now applied in the direction of a LARGER floor
+# rather than smaller. Everything else identical, including the same
+# training HDF5 (mode: data), so this isolates the effect of the two
+# hyperparameter changes.
+#
+# Usage: heron train --settings examples/train_phenomd_hf_dense30_phase_amplitude_xas_lsminq006.yaml
+
+logging:
+  level: info
+
+training:
+  mode: data
+  data_path: checkpoints/phenomd_nonspinning_dense30_phase_amplitude_data.h5
+  model: phase_amplitude
+
+  total_mass: 60.0        # solar masses
+  distance: 100.0         # Mpc
+
+  nu: 2.5
+  optimizer: lbfgs
+  iterations: 80
+  device: cuda
+
+  warping:
+    type: chirp
+    alpha: 0.625
+
+  ls_min_q: 0.06
+  ls_min_time: 0.015
+  noise_floor_rel: 1.0e-2
+
+  cholesky_size: 6000
+
+  mean_function_amplitude:
+    type: approximant
+    approximant: IMRPhenomXAS
+  mean_function_phase:
+    type: approximant
+    approximant: IMRPhenomXAS
+
+  checkpoint: checkpoints/phenomd_nonspinning_dense30_phase_amplitude_xas_lsminq006.pt

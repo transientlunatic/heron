@@ -1,0 +1,66 @@
+# Delta (residual) GP surrogate (DeltaGPSurrogate), first real-data config.
+#
+# The GP does not model the waveform: IMRPhenomD (base_approximant) is
+# evaluated exactly at predict time, and the GP fits only the residual
+# between it and the training oracle (approximant: IMRPhenomXAS),
+# decomposed as delta-log-amplitude and delta-phase. The surrogate's
+# covariance K then represents approximant *systematics* (uncertainty about
+# the XAS-PhenomD difference), not self-interpolation error — see
+# heron/models/gp/delta.py's module docstring.
+#
+# Same training grid as examples/train_phenomd_hf_dense10.yaml (10 mass
+# ratios, N=2000 total) so this is directly comparable with the exact and
+# phase-amplitude models at matched density.
+#
+# Hyperparameter starting point, not a tuned config: the delta targets are
+# small and slowly varying by construction (two NR-calibrated approximants
+# agree on the bulk phasing), so the trained lengthscales are expected to
+# sit well ABOVE these floors — if a trained lengthscale pins exactly at
+# its ls_min, that is a red flag worth investigating here, unlike the
+# strain-domain models where floor-pinning was chronic. The floors are
+# copied from the phase-amplitude dense10 config (recomputed for this
+# grid's actual warped-time spacing, ~0.0035-0.0088 s) purely as safe
+# lower bounds.
+#
+# The training log prints the delta-target ranges (|dlogA| max, dPhi span);
+# a dPhi span of more than a few tens of radians triggers a warning and
+# suggests a convention mismatch between the two approximants — inspect
+# before trusting the fit.
+#
+# Usage: heron train --settings examples/train_delta_phenomd_xas_dense10.yaml
+# Requires: lalsuite (pip install heron[lal])
+
+logging:
+  level: info
+
+training:
+  mode: fixed
+  model: delta
+
+  approximant: IMRPhenomXAS       # oracle — the model the GP learns to reproduce
+  base_approximant: IMRPhenomD    # exact mean — the GP fits oracle minus base
+  phase_alignment: anchor         # per-q: dPhi starts at 0 (see compute_delta_targets)
+  f_low: 20.0                     # must match the training data's f_min
+
+  total_mass: 60.0        # solar masses
+  distance: 100.0         # Mpc
+
+  mass_ratios: [0.05, 0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95]
+
+  n_samples: 200
+
+  nu: 2.5
+  optimizer: lbfgs
+  iterations: 80
+  device: cpu
+
+  warping:
+    type: chirp
+    alpha: 0.625
+
+  ls_min_q: 0.1
+  ls_min_time: 0.018
+  noise_floor_rel: 1.0e-3
+
+  checkpoint: checkpoints/delta_phenomd_xas_dense10.pt
+  save_training_data: checkpoints/delta_phenomd_xas_dense10_data.h5

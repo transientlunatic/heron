@@ -1,0 +1,130 @@
+# Example settings for heron injection + inference workflow
+# This demonstrates the proper way to use the existing infrastructure
+
+name: example-injection-study
+pages directory: pages/example_injection
+
+# Injection configuration
+injection:
+  parameters:
+    mass_ratio: 0.5
+    total_mass: 20.0  # M_sun
+    luminosity_distance: 100.0  # Mpc
+    ra: 0.0
+    dec: 0.0
+    psi: 0.0
+    theta_jn: 0.0
+    phase: 0.0
+    gpstime: 1126259462.0  # GW150914 time
+
+  # Detectors for injection
+  interferometers:
+    H1: AdvancedLIGOHanford
+    L1: AdvancedLIGOLivingston
+
+  # PSDs for each detector
+  psds:
+    H1: AdvancedLIGO
+    L1: AdvancedLIGO
+
+  # Time configuration
+  duration: 4  # seconds
+  sample rate: 4096  # Hz
+
+# Inference configuration
+inference:
+  # Event timing
+  event time: 1126259462.0
+  segment length: 4
+  after merger: 2
+
+  # Detectors for inference
+  interferometers:
+    H1: AdvancedLIGOHanford
+    L1: AdvancedLIGOLivingston
+
+  # PSDs for each detector
+  psds:
+    H1: AdvancedLIGO
+    L1: AdvancedLIGO
+
+  # Waveform model
+  waveform:
+    model: IMRPhenomPv2  # or IMRPhenomPv2_FakeUncertainty
+
+  # Likelihood configuration
+  likelihood:
+    function: TimeDomainLikelihood  # or TimeDomainUncertaintyLikelihood
+    sampling rate: 4096
+    timing basis: [H1, L1]
+
+  # Fixed parameters
+  fixed_parameters:
+    total_mass: 20.0
+    gpstime: 1126259462.0
+
+  # Priors
+  priors:
+    mass_ratio:
+      type: Uniform
+      minimum: 0.2
+      maximum: 0.8
+      name: mass_ratio
+      latex_label: "$q$"
+
+    luminosity_distance:
+      type: Uniform
+      minimum: 10.0
+      maximum: 500.0
+      name: luminosity_distance
+      latex_label: "$d_L$"
+
+    ra:
+      type: Uniform
+      minimum: 0.0
+      maximum: 6.283185
+      name: ra
+      latex_label: "$\\alpha$"
+      boundary: periodic
+
+    dec:
+      type: Cosine
+      name: dec
+      latex_label: "$\\delta$"
+
+    theta_jn:
+      type: Sine
+      name: theta_jn
+      latex_label: "$\\theta_{JN}$"
+
+    psi:
+      type: Uniform
+      minimum: 0.0
+      maximum: 3.14159
+      name: psi
+      latex_label: "$\\psi$"
+
+    phase:
+      type: Uniform
+      minimum: 0.0
+      maximum: 6.283185
+      name: phase
+      latex_label: "$\\phi$"
+      boundary: periodic
+
+  # Sampler configuration
+  sampler:
+    sampler: nessai
+    live points: 100  # Small for testing, use 1000 for real runs
+    maximum uninformed: 200
+    resume: true
+    checkpointing: true
+    checkpointing interval: 3600
+    logging interval: 10
+    log on iteration: true
+    seed: 1234
+    flow class: GWFlowProposal
+
+# Logging
+logging:
+  level: info

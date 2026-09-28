@@ -1,0 +1,68 @@
+# Same as train_phenomd_hf_dense30_lsmin015.yaml, but with ls_min_time
+# halved again (0.015 -> 0.0075). The lsmin015 retrain fixed the mean-
+# function/phase-drift bug and the q=0.7 NS posterior bias (67.6sigma ->
+# 0.99sigma), but the trained lengthscale landed pinned exactly on the new
+# 0.015 floor in both polarisations, and a q=0.5 NS retest on that
+# checkpoint still showed a residual 3.8sigma bias (vs 0.99sigma at q=0.7)
+# -- see CLAUDE.md's "Follow-up (2026-07-14)" entry. This is the signature
+# of remaining, uncaptured kernel capacity: the optimizer still wants to
+# go finer than 0.015 allows.
+#
+# 0.0075 is one more conservative halving, not the theoretical floor (the
+# dense30 grid's real warped-time spacing is 0.0035-0.0062, so 0.0075 is
+# still comfortably above the coarsest point-to-point spacing and should
+# not yet hit the "each training point treated independently" overfitting
+# wall that ls_min_q=0.03 and ls_min_time itself both guard against).
+#
+# noise_floor_rel raised 1e-3 -> 1e-2: halving ls_min_time again increases
+# point-to-point correlation further (K+sigma^2*I conditioning gets worse
+# as ls grows relative to spacing), so the regularisation needs to keep
+# pace -- same reasoning CLAUDE.md gives for bumping noise_floor_rel
+# whenever ls_min > training spacing.
+#
+# Verify before trusting: (1) trained lengthscale should land inside
+# 0.0075, not pinned on it again -- if it's still pinned, capacity is not
+# yet the bottleneck and a different fix (non-separable kernel) is needed;
+# (2) scripts/mismatch_vs_mass_ratio.py across the FULL q range -- watch
+# for regression in the q>=0.6 region, the overfitting signature seen in
+# the adaptive-warping ablation; (3) rerun the q=0.5 NS injection against
+# this checkpoint and check whether the 3.8sigma bias shrinks.
+#
+# Usage: heron train --settings examples/train_phenomd_hf_dense30_lsmin0075.yaml
+
+logging:
+  level: info
+
+training:
+  mode: fixed
+  model: exact
+
+  approximant: IMRPhenomD
+
+  total_mass: 60.0        # solar masses
+  distance: 100.0         # Mpc
+
+  mass_ratios: [0.10, 0.13, 0.16, 0.19, 0.22, 0.25, 0.28, 0.31, 0.34, 0.37,
+                0.40, 0.43, 0.46, 0.49, 0.52, 0.55, 0.58, 0.61, 0.64, 0.67,
+                0.70, 0.73, 0.76, 0.79, 0.82, 0.85, 0.88, 0.91, 0.94, 0.97]
+
+  n_samples: 200
+
+  nu: 2.5
+  output_scale: 1.0e+27
+  optimizer: lbfgs
+  iterations: 80
+  device: cuda
+
+  warping:
+    type: chirp
+    alpha: 0.625
+
+  ls_min_q: 0.03
+  ls_min_time: 0.0075
+  noise_floor_rel: 1.0e-2
+
+  cholesky_size: 6000
+
+  checkpoint: checkpoints/phenomd_nonspinning_dense30_lsmin0075.pt
+  save_training_data: checkpoints/phenomd_nonspinning_dense30_lsmin0075_data.h5

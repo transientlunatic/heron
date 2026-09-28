@@ -1,0 +1,18 @@
+# Train checkpoints/phenomd_nonspinning_dense30_phase_amplitude_xas_noisefloor.pt
+# (noise_floor_rel=5e-2 experiment, on top of the ls_min_q=0.06 grid-snap
+# fix -- see condor/train_pa_xas_noisefloor.sh). Parent of the NS scan in
+# scan_pa_xas_noisefloor.sub. Submit from /scratch/wiay/daniel/heron-dense45
+# on wiay.
+universe        = vanilla
+executable      = condor/train_pa_xas_noisefloor.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk")
+request_gpus    = 1
+request_cpus    = 2
+request_memory  = 8192
+should_transfer_files = NO
+getenv          = false
+output          = condor_logs/train_pa_xas_noisefloor.out
+error           = condor_logs/train_pa_xas_noisefloor.err
+log             = condor_logs/train_pa_xas_noisefloor.log
+
+queue

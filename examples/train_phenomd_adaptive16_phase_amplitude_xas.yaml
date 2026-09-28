@@ -1,0 +1,67 @@
+# Tests whether training density can be matched to the manifold's actual
+# (measured, not assumed) local correlation length in q instead of a
+# uniform 30-point grid. manifold_probe2.py/manifold_lowq.py (2026-07-19/20,
+# see memory manifold_correlation_length.md) measured the GP's fitting
+# target's (training data minus XAS mean) correlation length via a
+# structure function: ~0.03-0.045 for q<0.30, ~0.10-0.15 for q>0.30 -- a
+# real non-stationarity, not uniform across the range.
+#
+# checkpoints/phenomd_nonspinning_adaptive16_phase_amplitude_data.h5 is a
+# SUBSAMPLE of the existing dense30 HDF5 (same underlying waveforms, no
+# regeneration): keeps all 7 low-q points (0.10-0.28, spacing 0.03,
+# unchanged -- matches the measured short low-q correlation length) and
+# widens to every-3rd point above q=0.30 (spacing ~0.09, matches the
+# measured longer high-q correlation length; 9 points, 0.31-0.97). 16
+# points total vs dense30's 30 -- N=3200 vs N=6000.
+#
+# CORRECTED after the first submit (2026-07-20): ls_min_q was originally
+# left at 0.06 on the reasoning that it's 2x the dense low-q region's
+# spacing -- but that overlooked the SPARSE high-q region, where spacing
+# is ~0.09, i.e. ABOVE ls_min_q=0.06. That's an under-sized floor exactly
+# like the pre-grid-snap-fix dense30 config, and the first run reproduced
+# that pathology almost exactly: with-K NS at q=0.50/0.80 snapped onto the
+# nearest training node (0.49/0.76) at -49.5/-266.7 sigma, far worse than
+# any other checkpoint tested. Fixed: ls_min_q raised to 0.18 (2x the
+# WIDEST local spacing, 0.09) so neither region is under-floored.
+# noise_floor_rel raised to 1e-1 (from 1e-2) to compensate -- in the dense
+# region this floor is now 6x spacing (vs lsminq006's 2x, which needed
+# 1e-2, and lsminq012's 4x, which needed 5e-2 after its own first-attempt
+# crash), so erring toward more headroom rather than risking a second
+# failed training cycle.
+#
+# Usage: heron train --settings examples/train_phenomd_adaptive16_phase_amplitude_xas.yaml
+
+logging:
+  level: info
+
+training:
+  mode: data
+  data_path: checkpoints/phenomd_nonspinning_adaptive16_phase_amplitude_data.h5
+  model: phase_amplitude
+
+  total_mass: 60.0        # solar masses
+  distance: 100.0         # Mpc
+
+  nu: 2.5
+  optimizer: lbfgs
+  iterations: 80
+  device: cuda
+
+  warping:
+    type: chirp
+    alpha: 0.625
+
+  ls_min_q: 0.18
+  ls_min_time: 0.015
+  noise_floor_rel: 1.0e-1
+
+  cholesky_size: 6000
+
+  mean_function_amplitude:
+    type: approximant
+    approximant: IMRPhenomXAS
+  mean_function_phase:
+    type: approximant
+    approximant: IMRPhenomXAS
+
+  checkpoint: checkpoints/phenomd_nonspinning_adaptive16_phase_amplitude_xas.pt

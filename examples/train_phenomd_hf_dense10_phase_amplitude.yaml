@@ -1,0 +1,70 @@
+# Phase-amplitude decomposition GP surrogate (PhaseAmplitudeGPSurrogate),
+# first smoke-test config. Same training grid as
+# examples/train_phenomd_hf_dense10.yaml (10 mass ratios, N=2000 total) so
+# the two models are directly comparable, but fits log-amplitude and
+# unwrapped phase as two independent GPs instead of h(q,t) directly.
+#
+# No output_scale: log-amplitude (~O(-50..0)) and phase (~O(-1000..0)) are
+# already well-scaled, unlike raw strain (~1e-21).
+#
+# Newtonian PN amplitude/phase mean functions enabled here. Note: the
+# combined strain-domain PN mean was found uncorrelated with the true
+# waveform at M=60 Msun (examples/train_phenomd_hf_dense10.yaml's comment,
+# r~-0.07) — but that decorrelation is a property of h=A*cos(Phi) (a small
+# phase error there causes a large cos(Phi) error via the oscillation), not
+# necessarily of the phase itself. Whether the PN phase mean is actually
+# useful *in this representation* hasn't been tested yet — this config is
+# the way to find out; drop `mean_function_amplitude`/`mean_function_phase`
+# (or set `type: zero`) to compare against a ZeroMean baseline.
+#
+# ls_min_time is *not* copied from examples/train_phenomd_hf_dense10.yaml
+# (0.030) — that value was tuned for a much sparser grid and is 4-8x this
+# grid's actual warped-time spacing (~0.0035-0.0088 s here, measured
+# directly), which caused Cholesky/PSD failures during training (same
+# general "copied ls_min_time from a different-density config" pitfall
+# documented for ExactGPSurrogate above). 0.018 (~2x the largest per-q
+# spacing) trains without crashing; convergence is still slow (loss
+# plateaus with many line-search evals per outer step) — this
+# representation's hyperparameters haven't had the same tuning pass
+# ExactGPSurrogate has, so treat this as a starting point, not a tuned
+# config.
+#
+# Usage: heron train --settings examples/train_phenomd_hf_dense10_phase_amplitude.yaml
+# Requires: lalsuite (pip install heron[lal])
+
+logging:
+  level: info
+
+training:
+  mode: fixed
+  model: phase_amplitude
+
+  approximant: IMRPhenomD
+
+  total_mass: 60.0        # solar masses
+  distance: 100.0         # Mpc
+
+  mass_ratios: [0.05, 0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95]
+
+  n_samples: 200
+
+  nu: 2.5
+  optimizer: lbfgs
+  iterations: 80
+  device: cpu
+
+  warping:
+    type: chirp
+    alpha: 0.625
+
+  ls_min_q: 0.1
+  ls_min_time: 0.018
+  noise_floor_rel: 1.0e-3
+
+  mean_function_amplitude:
+    type: newtonian
+  mean_function_phase:
+    type: newtonian
+
+  checkpoint: checkpoints/phenomd_nonspinning_dense10_phase_amplitude.pt
+  save_training_data: checkpoints/phenomd_nonspinning_dense10_phase_amplitude_data.h5

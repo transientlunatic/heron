@@ -1,0 +1,29 @@
+# DemodGPSurrogate PP (coverage) test, grid posteriors. ONE job per rung, 300
+# injections each: the template grid is precomputed once and shared across all
+# injections, so splitting into parallel jobs would only duplicate the (~23 min)
+# precompute -- a single job is the efficient layout. Produces no-K and with-K
+# PP curves + npz.
+#
+# snr20_main (distance=1500 Mpc) already ran 2026-07-27 -- see
+# results/pp_demod_snr20_main.{npz,png}. snr24_main extends the campaign to
+# GW150914's loudness (distance=1285 Mpc, calibrated from snr20_main's
+# measured median SNR=20.565 via the exact SNR ~ 1/distance scaling:
+# 1500 * 20.565/24 = 1285.3), still on the analytic design PSD -- see
+# feedback_injection_psd_convention: injection/coverage campaigns use the
+# design curve, not a real event's PSD, even to rehearse that event's SNR.
+universe        = vanilla
+executable      = condor/run_pp_demod.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk")
+request_gpus    = 1
+request_cpus    = 2
+request_memory  = 8192
+should_transfer_files = NO
+getenv          = false
+arguments       = $(seed) $(ninj) $(tag) $(distance)
+output          = condor_logs/pp_demod_$(tag).out
+error           = condor_logs/pp_demod_$(tag).err
+log             = condor_logs/pp_demod_$(tag).log
+
+queue seed,ninj,tag,distance from (
+    0, 300, snr24_main, 1285.3
+)

@@ -1,0 +1,71 @@
+# Third alternative to the log-det bias's training-grid-periodic K
+# oscillation (see memory manifold_correlation_length.md and
+# q_floor_kernel_negative_result.md): instead of an additive kernel
+# component (disproven) or matching training DENSITY to the manifold
+# (adaptive16 -- reintroduced the grid-snap pathology, now being retested
+# with a proper ls_min_q fix), warp the mass-ratio INPUT itself before the
+# kernel sees it, the same idea `ChirpTimeWarping` already applies to
+# time. `q_warping: eta` uses the symmetric mass ratio
+# eta(q) = q/(1+q)^2 (heron/models/gp/kernels.py::symmetric_mass_ratio_warp,
+# WarpedMaternKernel) -- physically motivated (already used elsewhere in
+# this codebase, MassRatioChirpTimeWarping, for a related purpose) rather
+# than fit from the ambiguous structure-function measurement: two
+# increasingly careful passes at measuring the manifold's local q-
+# correlation length (aggregate vs sliding-window) gave CONTRADICTORY
+# answers, so a data-fit warp risked being built on a signal that isn't
+# reliably there. eta compresses q->1 (eta'(q)->0) relative to q->0
+# (eta'(q)->1), giving a longer effective lengthscale near q=1 and a
+# shorter one near q=0 for a single stationary lengthscale in eta-space --
+# see WarpedMaternKernel's docstring and
+# tests/test_gp_q_warping.py::test_effective_lengthscale_longer_near_q_one.
+#
+# Real, anticipated risk, not glossed over: eta(q) on this grid's uniform-
+# in-q sampling is drastically uneven -- eta-spacing is ~0.019 at the
+# low-q end (q~0.10-0.13) but only ~0.0002 at the high-q end (q~0.94-0.97),
+# a ~100x compression. A single eta-space ls_min_q safe for the low-q end
+# (2x its own worst spacing: 0.04) is then ~100x the local eta-spacing at
+# the high-q end -- likely to over-correlate the kernel matrix there the
+# same way lsminq012/adaptive16's first attempts did (NotPSDError).
+# noise_floor_rel set aggressively high (0.3, well beyond the 0.05-0.1
+# used for those fixes) up front for exactly this reason, to avoid a third
+# failed training cycle. If it still fails, that itself is informative:
+# eta(q) may not be a workable warp for this specific uniform-in-q grid
+# without also resampling the grid to be more uniform in eta.
+#
+# Usage: heron train --settings examples/train_phenomd_dense30_phase_amplitude_xas_qwarp_eta.yaml
+
+logging:
+  level: info
+
+training:
+  mode: data
+  data_path: checkpoints/phenomd_nonspinning_dense30_phase_amplitude_data.h5
+  model: phase_amplitude
+
+  total_mass: 60.0        # solar masses
+  distance: 100.0         # Mpc
+
+  nu: 2.5
+  optimizer: lbfgs
+  iterations: 80
+  device: cuda
+
+  warping:
+    type: chirp
+    alpha: 0.625
+
+  q_warping: eta
+  ls_min_q: 0.04           # 2x the worst-case (low-q end) eta-spacing (~0.019)
+  ls_min_time: 0.015
+  noise_floor_rel: 3.0e-1  # deliberately aggressive -- see header
+
+  cholesky_size: 6000
+
+  mean_function_amplitude:
+    type: approximant
+    approximant: IMRPhenomXAS
+  mean_function_phase:
+    type: approximant
+    approximant: IMRPhenomXAS
+
+  checkpoint: checkpoints/phenomd_nonspinning_dense30_phase_amplitude_xas_qwarp_eta.pt

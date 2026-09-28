@@ -1,0 +1,23 @@
+# DAG: two grid/lengthscale experiments motivated by directly measuring the
+# GP's fitting target's empirical correlation length in q (see memory
+# manifold_correlation_length.md). TRAIN_Q012 builds the ls_min_q=0.12
+# checkpoint (full 30-point grid); TRAIN_ADAPTIVE16 builds the adaptive-
+# density 16-point grid checkpoint. Each SCAN is a DAG child of its own
+# TRAIN and runs independently of the other pair.
+#
+# Submit from /scratch/wiay/daniel/heron-dense45 on wiay:
+#   condor_submit_dag condor/dag_manifold_grid.dag
+# Monitor: condor_q daniel -all ; tail -f condor/dag_manifold_grid.dag.dagman.out
+
+JOB TRAIN_Q012      condor/train_pa_xas_lsminq012.sub
+JOB SCAN_Q012       condor/scan_pa_xas_lsminq012.sub
+JOB TRAIN_ADAPTIVE16 condor/train_pa_xas_adaptive16.sub
+JOB SCAN_ADAPTIVE16  condor/scan_pa_xas_adaptive16.sub
+
+PARENT TRAIN_Q012 CHILD SCAN_Q012
+PARENT TRAIN_ADAPTIVE16 CHILD SCAN_ADAPTIVE16
+
+RETRY TRAIN_Q012 1
+RETRY SCAN_Q012 1
+RETRY TRAIN_ADAPTIVE16 1
+RETRY SCAN_ADAPTIVE16 1

@@ -1,0 +1,65 @@
+# Dense IMRPhenomD GP surrogate for the uncertainty-comparison demo.
+#
+# Goal: reduce K/C from ~300 (sparse checkpoint) to ~30, giving posteriors
+# ~5-6x wider with-K than without-K, in a training run that finishes in ~30 min.
+#
+# Key parameters:
+#   mass_ratios: 5 values bracketing q=0.8 (the demo injection point)
+#   n_samples: 200  →  warped spacing ≈ 0.015 s, total N = 1000 points
+#   ls_min_time: 0.030  →  ~2x training spacing; GP smoothly interpolates
+#     rather than reverting to prior between training points
+#
+# Expected K/C at query midpoints: ~30 (down from ~300)
+# Expected posterior width ratio with_K / without_K: ~5x in q
+# Training time: ~30 min on a 4-core CPU
+#
+# Usage: heron train --settings examples/train_phenomd_hf.yaml
+# Requires: lalsuite (pip install heron[lal])
+
+logging:
+  level: info
+
+training:
+  mode: fixed
+  model: exact
+
+  approximant: IMRPhenomD
+
+  total_mass: 60.0        # solar masses
+  distance: 100.0         # Mpc
+
+  # 5 mass ratios bracketing the q=0.8 demo injection; N = 1000 total
+  mass_ratios: [0.1, 0.3, 0.5, 0.7, 0.9]
+
+  # Uniform in warped time → spacing ≈ 2.946/200 = 0.0147 s (warped)
+  n_samples: 200
+
+  nu: 2.5
+  output_scale: 1.0e+27
+  optimizer: lbfgs
+  iterations: 80
+  device: cpu
+
+  warping:
+    type: chirp
+    alpha: 0.625
+
+  # Minimum mass-ratio lengthscale. Training qs are [0.1,0.3,0.5,0.7,0.9],
+  # spacing = 0.2. Setting ls_min_q = 0.2 forces the GP to interpolate across
+  # mass ratios (r ≈ 0.83 at d=0.1, the distance to q=0.8 from training qs).
+  # Without this, L-BFGS collapses ls_q → 0.0005, treating each q independently.
+  ls_min_q: 0.2
+
+  # Minimum time-dimension lengthscale in warped-time units.
+  # 0.030 s is ~2x the training spacing so the GP interpolates smoothly;
+  # the GW oscillation period at 100 Hz maps to ~0.006 s in warped time.
+  ls_min_time: 0.030
+
+  # Noise floor relative to y_var, needed to keep K + σ²I well-conditioned
+  # when ls_min_time > training spacing (highly correlated training points).
+  # Does NOT inflate the surrogate uncertainty because we use the latent GP
+  # covariance (not the predictive = latent + noise²) in the GW likelihood.
+  noise_floor_rel: 1.0e-3
+
+  checkpoint: checkpoints/phenomd_nonspinning_hf.pt
+  save_training_data: checkpoints/phenomd_nonspinning_hf_data.h5

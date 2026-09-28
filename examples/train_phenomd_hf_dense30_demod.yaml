@@ -1,0 +1,71 @@
+# DemodGPSurrogate (demodulated / heterodyned residual) on the dense30
+# IMRPhenomD grid, with IMRPhenomXAS as the reference approximant.
+#
+# The GP does not model strain directly: the IMRPhenomD-vs-IMRPhenomXAS
+# strain residual is heterodyned by the XAS phase, z = (h_D - h_XAS) *
+# exp(+i Phi_ref), leaving Re(z), Im(z) smooth and non-oscillatory. Two GPs
+# fit Re/Im; predict() reconstructs strain as h_XAS + Re*cosPhi + Im*sinPhi
+# -- LINEAR in the GP outputs, so the plus/cross covariance is EXACT (no
+# delta-method approximation, unlike phase_amplitude/delta). See
+# heron/models/gp/demod.py and the exact_xas_mismatch_residual memory.
+#
+# Reuses the EXACT same 30-mass-ratio / N=6000 IMRPhenomD training data as
+# the exact-XAS and phase-amplitude+XAS dense30 checkpoints (mode: data on
+# the same HDF5), and the same ls_min_q=0.06 / ls_min_time=0.015 /
+# noise_floor_rel=0.01 / cholesky_size=6000 hyperparameters as
+# examples/train_phenomd_hf_dense30_exact_xas_lsminq006.yaml -- so the only
+# thing that differs from those checkpoints is the residual representation.
+#
+# Result (2026-07-27): mismatch vs IMRPhenomD median 1.19e-5 (best of the
+# three representations), q-lengthscales trained OFF the 0.06 floor
+# (0.10/0.56, the de-oscillation signature), and NS-validated at SNR~20 to
+# show NO log-det/grid-snap bias with-K (with-K == no-K) WITHOUT k-smoothing
+# -- because the accurate mean + smooth targets make K genuinely small.
+#
+# Usage: heron train --settings examples/train_phenomd_hf_dense30_demod.yaml
+# Requires: lalsuite (pip install heron[lal]) -- the reference generates XAS
+# waveforms at train and predict time. GPU strongly recommended (cholesky_size
+# 6000 at N=6000).
+
+logging:
+  level: info
+
+training:
+  mode: data
+  data_path: checkpoints/phenomd_nonspinning_dense30_phase_amplitude_data.h5
+  model: demod
+
+  # IMRPhenomD is the oracle (the training strain); IMRPhenomXAS is the
+  # reference that is heterodyned against and evaluated exactly at predict
+  # time. `approximant` names the oracle so phase_correction (the D-vs-XAS
+  # phi_ref/f_ref offset, ~-2.15 rad) is measured automatically.
+  approximant: IMRPhenomD
+  base_approximant: IMRPhenomXAS
+
+  total_mass: 60.0        # solar masses
+  distance: 100.0         # Mpc
+  f_low: 20.0
+
+  nu: 2.5
+  output_scale: 1.0e+27
+  optimizer: lbfgs
+  iterations: 200
+  device: cuda
+
+  warping:
+    type: chirp
+    alpha: 0.625
+
+  ls_min_q: 0.06
+  ls_min_time: 0.015
+  noise_floor_rel: 1.0e-2
+
+  cholesky_size: 6000
+
+  # Reported covariance K is the bare GP posterior (tiny, K << C) by default
+  # -- this is what gives log-det-bias-free point-estimate PE. For
+  # uncertainty-aware / PP-plot work, recalibrate with
+  # scripts/calibrate_demod_k.py and set covariance_inflation here.
+  # covariance_inflation: 1.0
+
+  checkpoint: checkpoints/phenomd_nonspinning_dense30_demod.pt

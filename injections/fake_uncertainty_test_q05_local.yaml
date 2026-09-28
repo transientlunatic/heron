@@ -1,0 +1,112 @@
+# Local test version - uses local output directory
+logging:
+    level: info
+
+pages directory: pages/fake_uncertainty_test_q05/
+
+injection:
+    duration: 4
+    sample rate: 4096
+    epoch: 3998
+    parameters:
+        luminosity_distance: 100
+        gpstime: 4000
+        mass_ratio: 0.5
+        total_mass: 20
+        ra: 1.0
+        dec: 0.3
+        psi: 0
+        phase: 0
+        theta_jn: 0
+    waveform: IMRPhenomPv2
+    channel: Injection
+    interferometers:
+        H1: AdvancedLIGOHanford
+        L1: AdvancedLIGOLivingston
+    psds:
+        H1: AdvancedLIGO
+        L1: AdvancedLIGO
+
+inference:
+    name: fake-uncertainty-q05-local
+    data:
+        data files:
+            H1: H1_injection.gwf
+            L1: L1_injection.gwf
+        channels:
+            H1: H1:Injection
+            L1: L1:Injection
+
+    event time: 4000
+    segment length: 2
+    after merger: 0.1
+
+    waveform:
+        model: IMRPhenomPv2_FakeUncertainty
+
+    interferometers:
+        H1: AdvancedLIGOHanford
+        L1: AdvancedLIGOLivingston
+
+    psds:
+        H1: AdvancedLIGO
+        L1: AdvancedLIGO
+
+    fixed_parameters:
+        total_mass: 20
+        gpstime: 4000
+
+    priors:
+        mass_ratio:
+            name: mass_ratio
+            function: Uniform
+            minimum: 0.2
+            maximum: 0.8
+
+        luminosity_distance:
+            function: Uniform
+            name: luminosity_distance
+            minimum: 50.0
+            maximum: 200.0
+
+        ra:
+            name: ra
+            function: Uniform
+            minimum: 0.0
+            maximum: 6.283185
+            boundary: periodic
+
+        dec:
+            name: dec
+            function: Cosine
+
+        theta_jn:
+            name: theta_jn
+            function: Sine
+
+        psi:
+            name: psi
+            function: Uniform
+            minimum: 0.0
+            maximum: 3.14159
+
+        phase:
+            name: phase
+            function: Uniform
+            minimum: 0.0
+            maximum: 6.283185
+            boundary: periodic
+
+    likelihood:
+        function: TimeDomainUncertaintyLikelihood
+        timing basis: [H1, L1]
+        sampling rate: 4096
+
+    sampler:
+        sampler: nessai
+        live points: 100
+        maximum uninformed: 200
+        resume: false
+        checkpointing: false
+        seed: 1234
+        flow class: GWFlowProposal

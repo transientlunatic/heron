@@ -1,0 +1,56 @@
+# Ablation: identical to examples/train_phenomd_hf_dense10.yaml (same
+# 10-mass-ratio grid, same everything) except warping.type is
+# "chirp_adaptive" (MassRatioChirpTimeWarping) instead of plain "chirp".
+#
+# Motivation: scripts/probe_phase_drift.py found the dense10/30/45 surrogate
+# mean develops a *secular* (monotonically accumulating) phase-rate error at
+# low/mid mass ratio -- the signature of a wrong phase-evolution rate, not
+# noisy interpolation. Root cause traced to ChirpTimeWarping using one
+# global (alpha, t_ref) for every mass ratio, when the true Newtonian chirp
+# timescale scales as eta^-1 at fixed total mass (eta varies ~3x across this
+# grid). MassRatioChirpTimeWarping rescales t_ref per point by
+# eta(ref_mass_ratio)/eta(mass_ratio) so warping stays self-similar across
+# q, while matching plain ChirpTimeWarping exactly at ref_mass_ratio (=1.0,
+# equal mass -- the natural anchor for the existing alpha=0.625 calibration).
+#
+# Compare against checkpoints/phenomd_nonspinning_dense10.pt (plain chirp
+# warping) with scripts/probe_phase_drift.py and
+# scripts/mismatch_vs_mass_ratio.py to see whether the secular phase drift
+# and mismatch at low q (q=0.05-0.35 on this grid) improve.
+#
+# Usage: heron train --settings examples/train_phenomd_hf_dense10_adaptive_warp.yaml
+# Requires: lalsuite (pip install heron[lal])
+
+logging:
+  level: info
+
+training:
+  mode: fixed
+  model: exact
+
+  approximant: IMRPhenomD
+
+  total_mass: 60.0        # solar masses
+  distance: 100.0         # Mpc
+
+  mass_ratios: [0.05, 0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95]
+
+  n_samples: 200
+
+  nu: 2.5
+  output_scale: 1.0e+27
+  optimizer: lbfgs
+  iterations: 80
+  device: cpu
+
+  warping:
+    type: chirp_adaptive
+    alpha: 0.625
+    ref_mass_ratio: 1.0
+
+  ls_min_q: 0.1
+  ls_min_time: 0.030
+  noise_floor_rel: 1.0e-3
+
+  checkpoint: checkpoints/phenomd_nonspinning_dense10_adaptivewarp.pt
+  save_training_data: checkpoints/phenomd_nonspinning_dense10_adaptivewarp_data.h5

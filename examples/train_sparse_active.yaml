@@ -1,0 +1,48 @@
+# Train a sparse variational GP with active learning.
+# Usage: heron train --settings examples/train_sparse_active.yaml
+#
+# This iteratively adds training data where the model is most uncertain.
+# Requires: lalsuite (pip install heron[lal])
+
+logging:
+  level: info
+
+training:
+  mode: active                    # fixed | active | data
+  model: sparse                   # exact | sparse
+
+  # Reference approximant
+  approximant: IMRPhenomPv2
+
+  # Physical parameters
+  total_mass: 60.0
+  distance: 100.0
+  parameter_space:
+    mass_ratio: [0.1, 1.0]       # bounds for Sobol sampling
+
+  # Active learning
+  initial_samples: 50             # Sobol points to start
+  active_iterations: 5            # refinement rounds
+  points_per_iteration: 20        # new waveforms per round
+  n_samples: 200                  # time samples per waveform
+  seed: 42
+
+  # Sparse GP configuration
+  n_inducing: 200                 # inducing points (M in O(NM^2))
+  nu: 2.5
+  output_scale: 1.0e+27
+  iterations: 400
+  device: cpu
+
+  # Time warping
+  warping:
+    type: chirp
+    alpha: 0.625
+
+  # PN mean function — GP learns only merger/ringdown corrections
+  mean_function:
+    type: newtonian
+
+  # Output
+  checkpoint: checkpoints/sparse_active.pt
+  save_training_data: checkpoints/active_training_data.h5

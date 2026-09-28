@@ -1,0 +1,22 @@
+# DemodGPSurrogate, IMRPhenomD injection, distance=1500 Mpc (SNR~20), WITH-K,
+# no k-smoothing. The key test: does the accurate demod mean + tiny K give an
+# unbiased q posterior at realistic SNR without k-smoothing, where exact-GP+XAS
+# grid-snaps? Same three off-grid q's used throughout (0.50/0.60/0.80).
+universe        = vanilla
+executable      = condor/run_ns_demod_dinj.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk")
+request_gpus    = 1
+request_cpus    = 2
+request_memory  = 4096
+should_transfer_files = NO
+getenv          = false
+arguments       = $(q) $(qtag) --distance 1500
+output          = condor_logs/ns_demod_dinj_$(qtag).out
+error           = condor_logs/ns_demod_dinj_$(qtag).err
+log             = condor_logs/ns_demod_dinj_$(qtag).log
+
+queue q,qtag from (
+    0.50, q050_snr20_withK
+    0.60, q060_snr20_withK
+    0.80, q080_snr20_withK
+)

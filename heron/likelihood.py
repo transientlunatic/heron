@@ -1,276 +1,165 @@
 """
-This module contains likelihood functions for heron to allow it to perform parameter estimation
-using the waveform models it supports.
+GP-model marginalised likelihood for gravitational-wave parameter estimation.
+
+The marginalised likelihood is derived by integrating over the waveform h:
+
+    p(d | theta) = integral N(h; d, C) N(h; mu, K) dh = N(d; mu, C + K)
+
+where C is the data noise covariance, mu the GP predictive mean, and K the
+GP predictive covariance.  When a PN mean function is used (h = h_PN + delta_h,
+delta_h ~ N(m, K_delta)), the form is unchanged with mu_eff = h_PN + m and
+K = K_delta.
 """
+from __future__ import annotations
+
+import math
 
 import numpy as np
 import torch
 
-import logging
-
-logger = logging.getLogger("heron.likelihood")
+_LOG_2PI = math.log(2.0 * math.pi)
 
 
-disable_cuda = False
-if not disable_cuda and torch.cuda.is_available():
-    device = torch.device("cuda")
-else:
-    device = torch.device("cpu")
+class MarginalLogLikelihood:
+    """Evaluates log N(d; mu, C + K) — the GP-marginalised log-likelihood.
 
+    All O(N³) work happens at construction time via the whitening factorisation
 
-class LikelihoodBase:
-    pass
+        C + K  =  L_C (I + A) L_C^T,    A = L_C^{-1} K L_C^{-T}
 
+    so each __call__(d) costs only two O(N²) triangular solves.
 
-class Likelihood(LikelihoodBase):
-
-    array = np.array
-    device = "cpu"
-
-    def logdet(self, K):
-        (sign, logabsdet) = np.linalg.slogdet(K)
-        return logabsdet
-
-    def det(self, A):
-        return np.linalg.det(A)
-
-    def inverse(self, A):
-        return np.linalg.inv(A)
-
-    def solve(self, A, B):
-        return np.linalg.solve(A, B)
-
-    def eye(self, N, *args, **kwargs):
-        return np.eye(N)
-
-    def log(self, A):
-        return np.log(A)
-
-    def to_device(self, A, device):
-        return A
-
-    @property
-    def pi(self):
-        return np.pi
-
-class NumericallyScaled:
+    Parameters
+    ----------
+    C : array-like, shape (N, N)
+        Data noise covariance matrix (symmetric positive-definite).
+    mu : array-like, shape (N,)
+        GP predictive mean vector.
+    K : array-like, shape (N, N)
+        GP predictive covariance matrix (symmetric positive-semidefinite).
+    dtype : torch.dtype
+        Floating-point precision; defaults to float64.
+    device : str or torch.device
+        Torch compute device; defaults to CPU.
     """
-    Represent a number which has a numerical scaling applied to it.
-    """
-    def __init__(self, 
-                 value: np.ndarray | torch.Tensor, 
-                 scale: float | None = None):
-        
-        self.value = value
-        self.scale = scale if scale is not None else 1./np.min(np.diag(value))
-
-    def __call__(self):
-        return self.scaled
-    
-    def __array__(self):
-        return self.scaled
-    
-    def __sub__(self, other):
-        assert self.scale == other.scale, "Cannot subtract NumericallyScaled with different scales"
-        return self.scaled - other.scaled
-
-    def __add__(self, other):
-        assert self.scale == other.scale, "Cannot add NumericallyScaled with different scales"
-        return self.scaled + other.scaled
-
-    def unscale(self, value):
-        return value / self.scale
-    
-    @property
-    def scaled(self):
-        return self.value * self.scale
-
-
-class TimeDomainLikelihood(Likelihood):
 
     def __init__(
         self,
-        data,
-        psd,
-        waveform=None,
-        detector=None,
-        fixed_parameters={},
-        timing_basis=None,
+        C,
+        mu,
+        K,
+        dtype: torch.dtype = torch.float64,
+        device: str | torch.device = "cpu",
+        _L_C: torch.Tensor | None = None,
     ):
+        dev = torch.device(device)
+        _t = lambda a: torch.as_tensor(np.asarray(a, dtype=float), dtype=dtype, device=dev)
+        mu_ = _t(mu)
+        K_ = _t(K)
+
+        # Factor C once; reused across all calls.
+        # If a pre-computed Cholesky factor is supplied (e.g. by GWLikelihood which
+        # holds a fixed noise covariance), the O(N³) factorisation is skipped.
+        if _L_C is not None:
+            self._L_C = _L_C
+        else:
+            C_ = _t(C)
+            self._L_C = torch.linalg.cholesky(C_)
+        log_det_C = 2.0 * self._L_C.diagonal().log().sum()
+
+        # K == 0 fast path: whitening K would give A = 0, L_A = I exactly, so
+        # skip the three extra O(N^3) dense ops entirely (two triangular
+        # solves with an N×N RHS plus a second Cholesky) — pure overhead when
+        # there's no waveform-uncertainty term to whiten. This is the common
+        # case for a matched-filter (use_waveform_uncertainty=False) evaluation,
+        # where callers still pass an explicit all-zero K for interface
+        # uniformity; at real-data N this turns an O(N³) no-op into the O(N²)
+        # it should be.
+        self._k_is_zero = bool(torch.count_nonzero(K_) == 0)
+        if self._k_is_zero:
+            self._L_A = None
+            self._log_det = float(log_det_C)
+        else:
+            # Whiten K: A = L_C^{-1} K L_C^{-T}.
+            B = torch.linalg.solve_triangular(self._L_C, K_, upper=False)      # L_C B = K
+            A = torch.linalg.solve_triangular(self._L_C, B.T, upper=False).T   # A = B L_C^{-T}
+
+            # Factor I + A (always well-conditioned: I + PSD matrix).
+            self._L_A = torch.linalg.cholesky(
+                torch.eye(A.shape[0], dtype=dtype, device=dev) + A
+            )
+
+            # log|C + K| = log|C| + log|I + A| = 2 Σ log L_C_ii + 2 Σ log L_A_ii.
+            self._log_det = float(log_det_C + 2.0 * self._L_A.diagonal().log().sum())
+        self._n = self._L_C.shape[0]
+
+        # Whitened mean: u_mu = L_C^{-1} mu  (fixed for the given C, mu).
+        self._u_mu = torch.linalg.solve_triangular(
+            self._L_C, mu_.unsqueeze(-1), upper=False
+        ).squeeze(-1)
+
+        self.dtype = dtype
+        self.device = dev
+
+    @property
+    def log_det(self) -> float:
+        """``log|C + K|`` for the factorisation this instance was built with."""
+        return self._log_det
+
+    @property
+    def n(self) -> int:
+        """Dimensionality ``N`` of the covariance."""
+        return self._n
+
+    def whiten(self, v) -> torch.Tensor:
+        """Return ``L_A^{-1} L_C^{-1} v``, the whitening transform for this ``C + K``.
+
+        For any two vectors ``v``, ``w``: ``v^T (C+K)^{-1} w == whiten(v) . whiten(w)``.
+        Exposed so callers that need bilinear forms other than the residual
+        Mahalanobis distance computed by :meth:`__call__` (e.g. analytic
+        marginalisation over a parameter that enters the mean linearly, as
+        coalescence phase does — see ``heron.inference.network``) can reuse this
+        instance's O(N^3) factorisation instead of repeating it.
         """
-        A time-domain matched filtering likelihood function.
+        v_ = torch.as_tensor(np.asarray(v, dtype=float), dtype=self.dtype, device=self.device)
+        u = torch.linalg.solve_triangular(
+            self._L_C, v_.unsqueeze(-1), upper=False
+        ).squeeze(-1)
+        if self._k_is_zero:
+            return u
+        return torch.linalg.solve_triangular(
+            self._L_A, u.unsqueeze(-1), upper=False
+        ).squeeze(-1)
+
+    def __call__(self, d) -> float:
+        """Return the full scalar log density log N(d; mu, C + K).
 
         Parameters
         ----------
-        data : heron.timeseries.TimeSeries
-            The time series data to be used in the likelihood.
-        psd : heron.psd.PSD
-            The PSD object used to compute the noise covariance matrix.
-        waveform : heron.waveform.Waveform, optional
-            The waveform model to be used in the likelihood. If not provided,
-            it must be provided when calling the likelihood.
-        detector : heron.detector.Detector, optional
-            The detector to be used in the likelihood. If not provided,
-            it must be provided when calling the likelihood.
-        fixed_parameters : dict, optional
-            A dictionary of parameters to be held fixed in the likelihood.
-        timing_basis : str, optional
-            The timing basis to be used (e.g., 'geocentre_time').
+        d : array-like, shape (N,)
+            Observed data vector.
 
-        Examples
-        --------
-        >>> from heron.timeseries import TimeSeries
-        >>> from heron.psd import FlatPSD
-        >>> from heron.waveform.lalsimulation import IMRPhenomPv2
-        >>> from heron.detector import LIGOHanford
-        >>> data = TimeSeries(...) 
-        >>> psd = FlatPSD()
-        >>> waveform = IMRPhenomPv2()
-        >>> detector = LIGOHanford()
-        >>> likelihood = TimeDomainLikelihood(data, psd, waveform, detector)
+        Returns
+        -------
+        float
+            -0.5 (n log 2π + log|C+K| + r^T (C+K)^{-1} r), r = d - mu.
         """
-        self.psd = psd
-        self.timeseries = data
-        self.data = self.array(data.data)
-        self.times = data.times
-        self.C = NumericallyScaled(self.psd.covariance_matrix(times=self.times))
-        self.C_scaled = self.C.scaled
-        self.data = NumericallyScaled(self.data.data, scale=np.sqrt(self.C.scale))
-        self.data_scaled = self.data.scaled
-        # self.inverse_C = self.inverse(self.C)
+        d_ = torch.as_tensor(np.asarray(d, dtype=float), dtype=self.dtype, device=self.device)
 
-        self.dt = (self.times[1] - self.times[0]).value
-        self.N = len(self.times)
+        # Whitened residual: u = L_C^{-1}(d - mu).
+        u_d = torch.linalg.solve_triangular(
+            self._L_C, d_.unsqueeze(-1), upper=False
+        ).squeeze(-1)
+        u = u_d - self._u_mu
 
-        if waveform is not None:
-            self.waveform = waveform
-
-        if detector is not None:
-            self.detector = detector
-
-        self.fixed_parameters = fixed_parameters
-        if timing_basis is not None:
-            self.fixed_parameters["reference_frame"] = timing_basis
-
-        self.logger = logger = logging.getLogger(
-            "heron.likelihood.TimeDomainLikelihood"
-        )
-
-    def snr(self, waveform):
-        """
-        Calculate the optimal signal to noise ratio for a given waveform.
-        """
-        dt = (self.times[1] - self.times[0]).value
-        N = len(self.times)
-        w = self.array(waveform.data)
-        w = self.to_device(w, self.device)
-        h_h = (
-            (w.T @ self.solve(self.C, w))
-        )
-
-        return np.sqrt(h_h)
-
-    def log_likelihood(self, waveform, norm=True):
-        w = self.timeseries.determine_overlap(self, waveform)
-        if w is not None:
-            (a,b) = w
+        # Mahalanobis term: u^T (I+A)^{-1} u = ||L_A^{-1} u||^2. When K == 0,
+        # A == 0 and L_A == I exactly, so the whitened residual itself is v.
+        if self._k_is_zero:
+            v = u
         else:
-            return -np.inf
+            v = torch.linalg.solve_triangular(
+                self._L_A, u.unsqueeze(-1), upper=False
+            ).squeeze(-1)
 
-        wf = NumericallyScaled(self.array(waveform.data[b[0]:b[1]]), scale=np.sqrt(self.C.scale))
-        data = self.array(self.data_scaled[a[0]:a[1]])
-
-        residual = self.to_device(data-wf, self.device)
-        N = len(residual)
-
-        C_scaled = self.C_scaled[a[0]:a[1], a[0]:a[1]]
-
-        weighted_residual = (
-            (residual) @ self.solve(C_scaled, residual)
-        )
-
-        normalisation = N * self.log(2*np.pi) + self.logdet(C_scaled) - 2 * N * self.log(wf.scale) if norm else 0
-
-        return   (- 0.5 * weighted_residual - 0.5 * normalisation)
-
-    def __call__(self, parameters):
-        self.logger.info(parameters)
-
-        keys = set(parameters.keys())
-        extrinsic = {"phase", "psi", "ra", "dec", "theta_jn", "gpstime", "geocent_time"}
-        conversions = {"mass_ratio", "total_mass", "luminosity_distance"}
-        bad_keys = keys - set(self.waveform._args.keys()) - extrinsic - conversions
-        if len(bad_keys) > 0:
-            print("The following keys were not recognised", bad_keys)
-        parameters.update(self.fixed_parameters)
-        test_waveform = self.waveform.time_domain(
-            parameters=parameters, times=self.times
-        )
-        projected_waveform = test_waveform.project(self.detector)
-        return self.log_likelihood(projected_waveform)
-
-
-class TimeDomainLikelihoodModelUncertainty(TimeDomainLikelihood):
-
-    def __init__(self,
-    data,
-    psd,
-    fixed_parameters={},
-    timing_basis=None,
-    waveform=None,
-    detector=None):
-        super().__init__(data, psd, waveform, detector, fixed_parameters=fixed_parameters, timing_basis=timing_basis)
-
-        #self.norm_factor_2 = np.max(self.C)
-        #self.norm_factor = np.sqrt(self.norm_factor_2)
-
-    def log_likelihood(self, waveform, norm=True):
-        a, b = self.timeseries.determine_overlap(self, waveform)
-
-        wf = NumericallyScaled(self.to_device(self.array(waveform.data), self.device)[b[0]:b[1]])
-        data = NumericallyScaled(self.data[a[0]:a[1]], scale=wf.scale)
-
-        C = NumericallyScaled(self.C[a[0]:a[1], a[0]:a[1]], scale=wf.scale**2)
-        K = NumericallyScaled(
-            self.to_device(self.array(waveform.covariance[b[0]:b[1],b[0]:b[1]]), self.device), 
-            scale=wf.scale**2)
-        total_cov = C.scaled + K.scaled
-        residual = self.to_device(self.array(data.scaled - wf.scaled), device=self.device)
-        N_samp = len(residual)
-
-        print("C", C.value)
-        print("K", K.value)
-        print("Cs", C.scaled)
-        print("Ks", K.scaled)
-
-        self.logger.debug(f"Data scale: {np.mean(np.abs(data.scaled))}")
-        self.logger.debug(f"Residual scale: {np.mean(np.abs(residual))}")
-        self.logger.debug(f"Cov diagonal range: [{np.min(np.diag(total_cov))}, {np.max(np.diag(total_cov))}]")
-        self.logger.debug(f"Condition number: {np.linalg.cond(total_cov)}")
-
-        W = (- 0.5 * self.solve((total_cov), residual) @ residual)
-
-        print("W", W)
-
-        N = (- 0.5 * N_samp*self.log((2*self.pi)) - 0.5 * self.logdet((C+K)) + N_samp * self.log(wf.scale)) if norm else 0
-
-        return (W + N)
-
-
-class MultiDetector:
-    """
-    This class provides a means of calculating the log likelihood for multiple detectors.
-    """
-
-    def __init__(self, *args):
-        self._likelihoods = []
-        for detector in args:
-            if isinstance(detector, LikelihoodBase):
-                self._likelihoods.append(detector)
-
-    def __call__(self, parameters):
-        out = 0
-        for detector in self._likelihoods:
-            out += detector(parameters)
-
-        return out
+        quad = float(torch.dot(v, v))
+        return -0.5 * (self._n * _LOG_2PI + self._log_det + quad)

@@ -1,0 +1,10 @@
+{
+    "n_inputs": 2,
+    "n_neurons": 4,
+    "n_blocks": 4,
+    "n_layers": 2,
+    "ftype": "RealNVP",
+    "flow": null,
+    "distribution": null,
+    "distribution_kwargs": null
+}

@@ -1,0 +1,72 @@
+# Variant of train_phenomd_hf_dense30_phase_amplitude_xas_lsminq006.yaml
+# testing ls_min_q raised further, this time grounded in a direct
+# measurement rather than another guess: scripts run 2026-07-19/20
+# (manifold_probe2.py / manifold_lowq.py, see memory manifold_correlation_
+# length.md) measured the GP's actual fitting target's (training data
+# minus XAS mean) empirical correlation length in q via a structure
+# function -- 0.099 (log-amplitude) / 0.151 (phase) over the full q range,
+# vs the current ls_min_q=0.06 floor. Both are longer than the floor,
+# especially phase (2.5x).
+#
+# BUT the same analysis found a real non-stationarity: restricted to
+# q<0.30 alone, the correlation length collapses to 0.045 (log-amplitude)
+# / 0.030 (phase) -- close to or at the current floor. A single global
+# ls_min_q raised to serve the smooth q>0.3 region risks the same
+# "one region improves, another regresses" trade-off already documented
+# for MassRatioChirpTimeWarping (CLAUDE.md Known Issues) -- this config
+# deliberately tests that hypothesis directly, rather than assuming it
+# away. Check mismatch/phase-drift at q<0.3 specifically, not just the
+# q=0.50/0.60/0.80 NS points, before trusting this.
+#
+# Picked 0.12 (not the full 0.151 measured for phase) as one deliberate
+# step, not the theoretical maximum -- same "don't jump straight to the
+# measured value" caution CLAUDE.md documents elsewhere (ls_min_time
+# halvings, noise_floor_rel bumps).
+#
+# Everything else identical to lsminq006, including the same training
+# HDF5 (mode: data) and noise_floor_rel (1e-2, unchanged -- ls_min_q=0.12
+# is still only 4x the 0.03 grid spacing, comparable margin to lsminq006's
+# own 2x).
+#
+# Usage: heron train --settings examples/train_phenomd_hf_dense30_phase_amplitude_xas_lsminq012.yaml
+
+logging:
+  level: info
+
+training:
+  mode: data
+  data_path: checkpoints/phenomd_nonspinning_dense30_phase_amplitude_data.h5
+  model: phase_amplitude
+
+  total_mass: 60.0        # solar masses
+  distance: 100.0         # Mpc
+
+  nu: 2.5
+  optimizer: lbfgs
+  iterations: 80
+  device: cuda
+
+  warping:
+    type: chirp
+    alpha: 0.625
+
+  ls_min_q: 0.12
+  ls_min_time: 0.015
+  noise_floor_rel: 5.0e-2   # bumped from 1.0e-2: this ls_min_q is 4x grid
+                            # spacing (vs lsminq006's 2x), and 1e-2 was not
+                            # enough headroom -- first submit hit
+                            # NotPSDError (Cholesky failure) in the phase
+                            # model. 5e-2 matches the value already
+                            # validated to train cleanly for an elevated
+                            # floor (see the noisefloor experiment).
+
+  cholesky_size: 6000
+
+  mean_function_amplitude:
+    type: approximant
+    approximant: IMRPhenomXAS
+  mean_function_phase:
+    type: approximant
+    approximant: IMRPhenomXAS
+
+  checkpoint: checkpoints/phenomd_nonspinning_dense30_phase_amplitude_xas_lsminq012.pt

@@ -1,0 +1,13 @@
+Loading surrogate from checkpoints/phenomd_nonspinning_dense30_phase_amplitude_xas_lsminq006.pt on cpu ...
+Injected q=0.8, distance=100.0 Mpc, SNR=333.8
+Smoothing offsets: [-0.015, -0.0075, 0.0075, 0.015]
+  [no_K] 10/27
+  [no_K] 20/27
+[no_K] peak at q=0.80154  logL=12893.856  (truth q=0.8)
+  [with_K_raw] 10/27
+  [with_K_raw] 20/27
+[with_K_raw] peak at q=0.79077  logL=12383.144  (truth q=0.8)
+  [with_K_smoothed] 10/27
+  [with_K_smoothed] 20/27
+[with_K_smoothed] peak at q=0.80154  logL=12317.212  (truth q=0.8)
+Saved -> results/k_smoothing/profile_q080.png

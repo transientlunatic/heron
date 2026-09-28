@@ -1,0 +1,55 @@
+# PhaseAmplitudeGPSurrogate with a full-IMR (IMRPhenomXAS) mean function --
+# the multi-fidelity mean. Reuses the EXACT same 30-mass-ratio / N=6000
+# training data as checkpoints/phenomd_nonspinning_dense30_phase_amplitude.pt
+# (mode: data on its saved HDF5) so the only difference vs that checkpoint
+# is the mean function; grid hyperparameters copied unchanged from
+# examples/train_phenomd_hf_dense30_phase_amplitude.yaml.
+#
+# Why this should work where the PN means failed (measured,
+# scripts/probe_phase_mean_residuals.py, 2026-07-15): the XAS mean tracks
+# the IMRPhenomD targets to ~0.1 rad (inspiral) / ~0.7 rad (post-merger)
+# per-q residual -- an ~800x reduction over the zero-mean target structure
+# (94 rad), vs the PN means' ~12%. It also covers merger/ringdown natively
+# (log-amplitude residual 0.41 post-merger vs 3.77 zero-mean) and enables
+# mean-referenced phase unwrapping, which fixes the sparse-grid unwrap
+# corruption of the phase target (7-9 aliased samples per q near merger at
+# every q; 177/199 at q=0.10) that plain np.unwrap silently commits.
+#
+# Usage: heron train --settings examples/train_phenomd_hf_dense30_phase_amplitude_xas.yaml
+# Requires: lalsuite (pip install heron[lal]) -- the mean generates XAS
+# waveforms at train and predict time.
+
+logging:
+  level: info
+
+training:
+  mode: data
+  data_path: checkpoints/phenomd_nonspinning_dense30_phase_amplitude_data.h5
+  model: phase_amplitude
+
+  total_mass: 60.0        # solar masses
+  distance: 100.0         # Mpc
+
+  nu: 2.5
+  optimizer: lbfgs
+  iterations: 80
+  device: cpu
+
+  warping:
+    type: chirp
+    alpha: 0.625
+
+  ls_min_q: 0.03
+  ls_min_time: 0.015
+  noise_floor_rel: 1.0e-3
+
+  cholesky_size: 6000
+
+  mean_function_amplitude:
+    type: approximant
+    approximant: IMRPhenomXAS
+  mean_function_phase:
+    type: approximant
+    approximant: IMRPhenomXAS
+
+  checkpoint: checkpoints/phenomd_nonspinning_dense30_phase_amplitude_xas.pt

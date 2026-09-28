@@ -1,0 +1,28 @@
+# no-K (matched-filter) controls for the k-smoothing validation.
+# K=0 removes BOTH the data-fit-K and the log-det term, so any residual bias
+# here is pure surrogate-vs-IMRPhenomD template mismatch (NOT log-det, NOT
+# grid-snap). Disentangles the two failure modes: where nosmooth snaps to a node
+# but no-K sits at truth => log-det (k-smoothing should fix); where no-K ALSO
+# sits off truth (e.g. q=0.60 -> ~0.607) => mismatch (k-smoothing cannot fix).
+# Same seed=42 / distances as the with-K arms.
+universe        = vanilla
+executable      = condor/run_ns_exact_xas_lsminq006_dinj.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk")
+request_gpus    = 1
+request_cpus    = 2
+request_memory  = 4096
+should_transfer_files = NO
+getenv          = false
+arguments       = $(q) $(qtag) --distance $(dist) --no-uncertainty
+output          = condor_logs/ns_exact_lsminq006_dinj_$(qtag).out
+error           = condor_logs/ns_exact_lsminq006_dinj_$(qtag).err
+log             = condor_logs/ns_exact_lsminq006_dinj_$(qtag).log
+
+queue q,qtag,dist from (
+    0.50, q050_snr20_noK,  1500
+    0.60, q060_snr20_noK,  1500
+    0.80, q080_snr20_noK,  1500
+    0.50, q050_snr100_noK, 300
+    0.60, q060_snr100_noK, 300
+    0.80, q080_snr100_noK, 300
+)

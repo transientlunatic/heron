@@ -1,0 +1,40 @@
+# Train an exact GP surrogate on a fixed grid of mass ratios.
+# Usage: heron train --settings examples/train_exact_gp.yaml
+#
+# Requires: lalsuite (pip install heron[lal])
+
+logging:
+  level: info
+
+training:
+  mode: fixed                     # fixed | active | data
+  model: exact                    # exact | sparse
+
+  # Reference approximant (requires lalsuite)
+  approximant: IMRPhenomPv2
+
+  # Physical parameters
+  total_mass: 60.0                # solar masses
+  distance: 100.0                 # Mpc
+  mass_ratios: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+  n_samples: 200                  # time samples per waveform
+
+  # GP configuration
+  nu: 2.5                         # Matern smoothness
+  output_scale: 1.0e+27           # numerical rescaling
+  optimizer: lbfgs                # lbfgs (recommended) | adam
+  iterations: 100                 # L-BFGS steps (use ~1000 for adam)
+  device: cpu                     # cpu | cuda
+
+  # Time warping
+  warping:
+    type: chirp
+    alpha: 0.625
+
+  # Mean function (optional — GP learns residual to PN inspiral)
+  # mean_function:
+  #   type: newtonian              # zero | newtonian | taylort2
+
+  # Output
+  checkpoint: checkpoints/exact_gp.pt
+  save_training_data: checkpoints/training_data.h5

@@ -1,0 +1,569 @@
+# Asimov blueprints for Heron fake uncertainty injection study
+#
+# Each test case has TWO analyses:
+#   1. Injection analysis (creates frame files via "heron injection" pipeline)
+#   2. Inference analysis (runs PE via "heron" pipeline)
+#
+# Usage:
+#   asimov apply --file injections/asimov_blueprints.yaml
+
+# ==========================================
+# Events
+# ==========================================
+kind: event
+name: fake-uncertainty-q03
+interferometers:
+  - H1
+  - L1
+event time: 4000
+
+---
+
+kind: event
+name: fake-uncertainty-q05
+interferometers:
+  - H1
+  - L1
+event time: 4000
+
+---
+
+kind: event
+name: fake-uncertainty-q07
+interferometers:
+  - H1
+  - L1
+event time: 4000
+
+---
+
+kind: event
+name: standard-q05
+interferometers:
+  - H1
+  - L1
+event time: 4000
+
+---
+
+# ==========================================
+# Test Case 1: q=0.3 with Fake Uncertainty
+# ==========================================
+kind: analysis
+name: injection-q03-fake
+pipeline: heron injection
+event: fake-uncertainty-q03
+comment: "Create injection for q=0.3 test case"
+status: ready
+injection:
+  parameters:
+    luminosity_distance: 100
+    gpstime: 4000
+    mass_ratio: 0.3
+    total_mass: 20
+    ra: 1.0
+    dec: 0.3
+    psi: 0
+    phase: 0
+    theta_jn: 0
+  duration: 4
+  sample rate: 4096
+  psds:
+    H1: AdvancedLIGO
+    L1: AdvancedLIGO
+  waveform: IMRPhenomPv2
+
+---
+
+kind: analysis
+name: inference-q03-fake
+pipeline: heron
+event: fake-uncertainty-q03
+comment: "Inference with fake uncertainty for q=0.3"
+status: ready
+needs:
+  - injection-q03-fake
+event time: 4000
+segment length: 2
+after merger: 0.1
+waveform:
+  model: IMRPhenomPv2_FakeUncertainty
+likelihood:
+  function: TimeDomainUncertaintyLikelihood
+  timing basis: [H1, L1]
+  sampling rate: 512
+fixed_parameters:
+  total_mass: 20
+  gpstime: 4000
+priors:
+  mass_ratio:
+    name: mass_ratio
+    function: Uniform
+    minimum: 0.2
+    maximum: 0.8
+  luminosity_distance:
+    function: Uniform
+    name: luminosity_distance
+    minimum: 50.0
+    maximum: 200.0
+  ra:
+    name: ra
+    function: Uniform
+    minimum: 0.0
+    maximum: 6.283185
+    boundary: periodic
+  dec:
+    name: dec
+    function: Cosine
+  theta_jn:
+    name: theta_jn
+    function: Sine
+  psi:
+    name: psi
+    function: Uniform
+    minimum: 0.0
+    maximum: 3.14159
+  phase:
+    name: phase
+    function: Uniform
+    minimum: 0.0
+    maximum: 6.283185
+    boundary: periodic
+sampler:
+  sampler: nessai
+  live points: 1000
+  maximum uninformed: 2000
+  resume: true
+  checkpointing: true
+  checkpointing interval: 3600
+  logging interval: 10
+  log on iteration: true
+  seed: 1235
+  flow class: FlowProposal
+
+---
+
+# ==========================================
+# Test Case 2: q=0.5 with Fake Uncertainty
+# ==========================================
+kind: analysis
+name: injection-q05-fake
+pipeline: heron injection
+event: fake-uncertainty-q05
+comment: "Create injection for q=0.5 fiducial test"
+status: ready
+injection:
+  parameters:
+    luminosity_distance: 100
+    gpstime: 4000
+    mass_ratio: 0.5
+    total_mass: 20
+    ra: 1.0
+    dec: 0.3
+    psi: 0
+    phase: 0
+    theta_jn: 0
+  duration: 4
+  sample rate: 4096
+  psds:
+    H1: AdvancedLIGO
+    L1: AdvancedLIGO
+  waveform: IMRPhenomPv2
+
+---
+
+kind: analysis
+name: inference-q05-fake
+pipeline: heron
+event: fake-uncertainty-q05
+comment: "Inference with fake uncertainty for q=0.5"
+status: ready
+needs:
+  - injection-q05-fake
+event time: 4000
+segment length: 2
+after merger: 0.1
+waveform:
+  model: IMRPhenomPv2_FakeUncertainty
+likelihood:
+  function: TimeDomainUncertaintyLikelihood
+  timing basis: [H1, L1]
+  sampling rate: 512
+fixed_parameters:
+  total_mass: 20
+  gpstime: 4000
+priors:
+  mass_ratio:
+    name: mass_ratio
+    function: Uniform
+    minimum: 0.2
+    maximum: 0.8
+  luminosity_distance:
+    function: Uniform
+    name: luminosity_distance
+    minimum: 50.0
+    maximum: 200.0
+  ra:
+    name: ra
+    function: Uniform
+    minimum: 0.0
+    maximum: 6.283185
+    boundary: periodic
+  dec:
+    name: dec
+    function: Cosine
+  theta_jn:
+    name: theta_jn
+    function: Sine
+  psi:
+    name: psi
+    function: Uniform
+    minimum: 0.0
+    maximum: 3.14159
+  phase:
+    name: phase
+    function: Uniform
+    minimum: 0.0
+    maximum: 6.283185
+    boundary: periodic
+sampler:
+  sampler: nessai
+  live points: 1000
+  maximum uninformed: 2000
+  resume: true
+  checkpointing: true
+  checkpointing interval: 3600
+  logging interval: 10
+  log on iteration: true
+  seed: 1234
+  flow class: FlowProposal
+
+---
+
+# ==========================================
+# Test Case 3: q=0.7 with Fake Uncertainty
+# ==========================================
+kind: analysis
+name: injection-q07-fake
+pipeline: heron injection
+event: fake-uncertainty-q07
+comment: "Create injection for q=0.7 test case"
+status: ready
+injection:
+  parameters:
+    luminosity_distance: 100
+    gpstime: 4000
+    mass_ratio: 0.7
+    total_mass: 20
+    ra: 1.0
+    dec: 0.3
+    psi: 0
+    phase: 0
+    theta_jn: 0
+  duration: 4
+  sample rate: 4096
+  psds:
+    H1: AdvancedLIGO
+    L1: AdvancedLIGO
+  waveform: IMRPhenomPv2
+
+---
+
+kind: analysis
+name: inference-q07-fake
+pipeline: heron
+event: fake-uncertainty-q07
+comment: "Inference with fake uncertainty for q=0.7"
+status: ready
+needs:
+  - injection-q07-fake
+event time: 4000
+segment length: 2
+after merger: 0.1
+waveform:
+  model: IMRPhenomPv2_FakeUncertainty
+likelihood:
+  function: TimeDomainUncertaintyLikelihood
+  timing basis: [H1, L1]
+  sampling rate: 512
+fixed_parameters:
+  total_mass: 20
+  gpstime: 4000
+priors:
+  mass_ratio:
+    name: mass_ratio
+    function: Uniform
+    minimum: 0.2
+    maximum: 0.8
+  luminosity_distance:
+    function: Uniform
+    name: luminosity_distance
+    minimum: 50.0
+    maximum: 200.0
+  ra:
+    name: ra
+    function: Uniform
+    minimum: 0.0
+    maximum: 6.283185
+    boundary: periodic
+  dec:
+    name: dec
+    function: Cosine
+  theta_jn:
+    name: theta_jn
+    function: Sine
+  psi:
+    name: psi
+    function: Uniform
+    minimum: 0.0
+    maximum: 3.14159
+  phase:
+    name: phase
+    function: Uniform
+    minimum: 0.0
+    maximum: 6.283185
+    boundary: periodic
+sampler:
+  sampler: nessai
+  live points: 1000
+  maximum uninformed: 2000
+  resume: true
+  checkpointing: true
+  checkpointing interval: 3600
+  logging interval: 10
+  log on iteration: true
+  seed: 1236
+  flow class: FlowProposal
+
+---
+
+# ==========================================
+# Test Case 4: q=0.5 Standard (Baseline)
+# ==========================================
+kind: analysis
+name: injection-q05-standard
+pipeline: heron injection
+event: standard-q05
+comment: "Create injection for q=0.5 baseline (no uncertainty)"
+status: ready
+injection:
+  parameters:
+    luminosity_distance: 100
+    gpstime: 4000
+    mass_ratio: 0.5
+    total_mass: 20
+    ra: 1.0
+    dec: 0.3
+    psi: 0
+    phase: 0
+    theta_jn: 0
+  duration: 4
+  sample rate: 4096
+  psds:
+    H1: AdvancedLIGO
+    L1: AdvancedLIGO
+  waveform: IMRPhenomPv2
+
+---
+
+kind: analysis
+name: inference-q05-standard
+pipeline: heron
+event: standard-q05
+comment: "Standard inference without uncertainty (baseline)"
+status: ready
+needs:
+  - injection-q05-standard
+event time: 4000
+segment length: 2
+after merger: 0.1
+waveform:
+  model: IMRPhenomPv2
+likelihood:
+  function: TimeDomainLikelihood
+  timing basis: [H1, L1]
+  sampling rate: 512
+fixed_parameters:
+  total_mass: 20
+  gpstime: 4000
+priors:
+  mass_ratio:
+    name: mass_ratio
+    function: Uniform
+    minimum: 0.2
+    maximum: 0.8
+  luminosity_distance:
+    function: Uniform
+    name: luminosity_distance
+    minimum: 50.0
+    maximum: 200.0
+  ra:
+    name: ra
+    function: Uniform
+    minimum: 0.0
+    maximum: 6.283185
+    boundary: periodic
+  dec:
+    name: dec
+    function: Cosine
+  theta_jn:
+    name: theta_jn
+    function: Sine
+  psi:
+    name: psi
+    function: Uniform
+    minimum: 0.0
+    maximum: 3.14159
+  phase:
+    name: phase
+    function: Uniform
+    minimum: 0.0
+    maximum: 6.283185
+    boundary: periodic
+sampler:
+  sampler: nessai
+  live points: 1000
+  maximum uninformed: 2000
+  resume: true
+  checkpointing: true
+  checkpointing interval: 3600
+  logging interval: 10
+  log on iteration: true
+  seed: 1234
+  flow class: FlowProposal
+
+---
+
+# ==========================================
+# Events for GPR model tests
+# ==========================================
+kind: event
+name: gpr-q05
+interferometers:
+  - H1
+  - L1
+event time: 4000
+
+---
+
+# ==========================================
+# Test Case 5: q=0.5 with GPR Model
+# ==========================================
+
+# Step 1: Train the GPR model
+kind: analysis
+name: training-gpr
+pipeline: heron training
+event: gpr-q05
+comment: "Train Matern GPR waveform model"
+status: ready
+training:
+  approximant: IMRPhenomPv2
+  mass_ratios: [0.1, 0.3, 0.5, 0.7, 0.8, 1.0]
+  total_mass: 20
+  distance: 100
+  n_samples: 200
+  nu: 2.5
+  iterations: 400
+  checkpoint: heron_matern_checkpoint.pt
+  warping:
+    type: chirp
+    alpha: 0.625
+    t_ref: 0.1
+
+---
+
+# Step 2: Create injection
+kind: analysis
+name: injection-q05-gpr
+pipeline: heron injection
+event: gpr-q05
+comment: "Create injection for q=0.5 GPR test"
+status: ready
+injection:
+  parameters:
+    luminosity_distance: 100
+    gpstime: 4000
+    mass_ratio: 0.5
+    total_mass: 20
+    ra: 1.0
+    dec: 0.3
+    psi: 0
+    phase: 0
+    theta_jn: 0
+  duration: 4
+  sample rate: 4096
+  psds:
+    H1: AdvancedLIGO
+    L1: AdvancedLIGO
+  waveform: IMRPhenomPv2
+
+---
+
+kind: analysis
+name: inference-q05-gpr
+pipeline: heron
+event: gpr-q05
+comment: "Inference with GPR (Matern + chirp warping) for q=0.5"
+status: ready
+needs:
+  - training-gpr
+  - injection-q05-gpr
+event time: 4000
+segment length: 2
+after merger: 0.1
+waveform:
+  model: HeronGPR
+  checkpoint: /path/to/trained/heron_matern_checkpoint.pt
+likelihood:
+  function: TimeDomainUncertaintyLikelihood
+  timing basis: [H1, L1]
+  sampling rate: 512
+fixed_parameters:
+  total_mass: 20
+  gpstime: 4000
+priors:
+  mass_ratio:
+    name: mass_ratio
+    function: Uniform
+    minimum: 0.2
+    maximum: 0.8
+  luminosity_distance:
+    function: Uniform
+    name: luminosity_distance
+    minimum: 50.0
+    maximum: 200.0
+  ra:
+    name: ra
+    function: Uniform
+    minimum: 0.0
+    maximum: 6.283185
+    boundary: periodic
+  dec:
+    name: dec
+    function: Cosine
+  theta_jn:
+    name: theta_jn
+    function: Sine
+  psi:
+    name: psi
+    function: Uniform
+    minimum: 0.0
+    maximum: 3.14159
+  phase:
+    name: phase
+    function: Uniform
+    minimum: 0.0
+    maximum: 6.283185
+    boundary: periodic
+sampler:
+  sampler: nessai
+  live points: 1000
+  maximum uninformed: 2000
+  resume: true
+  checkpointing: true
+  checkpointing interval: 3600
+  logging interval: 10
+  log on iteration: true
+  seed: 1237
+  flow class: FlowProposal

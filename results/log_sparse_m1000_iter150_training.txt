@@ -1,0 +1,94 @@
+Training heron surrogate model
+INFO:heron.train:Generating training data (fixed grid)
+INFO:heron.train:Generating waveform for q=0.1
+INFO:heron.train:  Sampled 200 points for q=0.1
+INFO:heron.train:Generating waveform for q=0.13
+INFO:heron.train:  Sampled 200 points for q=0.13
+INFO:heron.train:Generating waveform for q=0.16
+INFO:heron.train:  Sampled 200 points for q=0.16
+INFO:heron.train:Generating waveform for q=0.19
+INFO:heron.train:  Sampled 200 points for q=0.19
+INFO:heron.train:Generating waveform for q=0.22
+INFO:heron.train:  Sampled 200 points for q=0.22
+INFO:heron.train:Generating waveform for q=0.25
+INFO:heron.train:  Sampled 200 points for q=0.25
+INFO:heron.train:Generating waveform for q=0.28
+INFO:heron.train:  Sampled 200 points for q=0.28
+INFO:heron.train:Generating waveform for q=0.31
+INFO:heron.train:  Sampled 200 points for q=0.31
+INFO:heron.train:Generating waveform for q=0.34
+INFO:heron.train:  Sampled 200 points for q=0.34
+INFO:heron.train:Generating waveform for q=0.37
+INFO:heron.train:  Sampled 200 points for q=0.37
+INFO:heron.train:Generating waveform for q=0.4
+INFO:heron.train:  Sampled 200 points for q=0.4
+INFO:heron.train:Generating waveform for q=0.43
+INFO:heron.train:  Sampled 200 points for q=0.43
+INFO:heron.train:Generating waveform for q=0.46
+INFO:heron.train:  Sampled 200 points for q=0.46
+INFO:heron.train:Generating waveform for q=0.49
+INFO:heron.train:  Sampled 200 points for q=0.49
+INFO:heron.train:Generating waveform for q=0.52
+INFO:heron.train:  Sampled 200 points for q=0.52
+INFO:heron.train:Generating waveform for q=0.55
+INFO:heron.train:  Sampled 200 points for q=0.55
+INFO:heron.train:Generating waveform for q=0.58
+INFO:heron.train:  Sampled 200 points for q=0.58
+INFO:heron.train:Generating waveform for q=0.61
+INFO:heron.train:  Sampled 200 points for q=0.61
+INFO:heron.train:Generating waveform for q=0.64
+INFO:heron.train:  Sampled 200 points for q=0.64
+INFO:heron.train:Generating waveform for q=0.67
+INFO:heron.train:  Sampled 200 points for q=0.67
+INFO:heron.train:Generating waveform for q=0.7
+INFO:heron.train:  Sampled 200 points for q=0.7
+INFO:heron.train:Generating waveform for q=0.73
+INFO:heron.train:  Sampled 200 points for q=0.73
+INFO:heron.train:Generating waveform for q=0.76
+INFO:heron.train:  Sampled 200 points for q=0.76
+INFO:heron.train:Generating waveform for q=0.79
+INFO:heron.train:  Sampled 200 points for q=0.79
+INFO:heron.train:Generating waveform for q=0.82
+INFO:heron.train:  Sampled 200 points for q=0.82
+INFO:heron.train:Generating waveform for q=0.85
+INFO:heron.train:  Sampled 200 points for q=0.85
+INFO:heron.train:Generating waveform for q=0.88
+INFO:heron.train:  Sampled 200 points for q=0.88
+INFO:heron.train:Generating waveform for q=0.91
+INFO:heron.train:  Sampled 200 points for q=0.91
+INFO:heron.train:Generating waveform for q=0.94
+INFO:heron.train:  Sampled 200 points for q=0.94
+INFO:heron.train:Generating waveform for q=0.97
+INFO:heron.train:  Sampled 200 points for q=0.97
+INFO:heron.train:Training data: 6000 samples
+INFO:heron.train:Training sparse GP (nu=2.5, iterations=150)
+INFO:heron.models.gp.sparse:  [plus] step 1/150  loss=1012.3167
+INFO:heron.models.gp.sparse:  [plus] step 15/150  loss=411.3706
+INFO:heron.models.gp.sparse:  [plus] step 30/150  loss=337.5722
+INFO:heron.models.gp.sparse:  [plus] step 45/150  loss=321.9972
+INFO:heron.models.gp.sparse:  [plus] step 60/150  loss=340.0716
+INFO:heron.models.gp.sparse:  [plus] step 75/150  loss=340.5156
+INFO:heron.models.gp.sparse:  [plus] step 90/150  loss=355.4639
+INFO:heron.models.gp.sparse:  [plus] step 105/150  loss=332.8014
+INFO:heron.models.gp.sparse:  [plus] step 120/150  loss=336.0509
+INFO:heron.models.gp.sparse:  [plus] step 135/150  loss=330.2725
+INFO:heron.models.gp.sparse:  [plus] step 150/150  loss=365.2304
+INFO:heron.models.gp.sparse:Trained plus SVGP for 150 iterations
+INFO:heron.models.gp.sparse:  [cross] step 1/150  loss=1012.7865
+/home/daniel/repositories/ligo/heron/environment/lib/python3.13/site-packages/linear_operator/utils/cholesky.py:40: NumericalWarning: A not p.d., added jitter of 4.7e+09 to the diagonal
+  warnings.warn(
+INFO:heron.models.gp.sparse:  [cross] step 15/150  loss=396.3506
+INFO:heron.models.gp.sparse:  [cross] step 30/150  loss=323.2272
+INFO:heron.models.gp.sparse:  [cross] step 45/150  loss=301.3681
+INFO:heron.models.gp.sparse:  [cross] step 60/150  loss=327.6849
+INFO:heron.models.gp.sparse:  [cross] step 75/150  loss=320.9518
+INFO:heron.models.gp.sparse:  [cross] step 90/150  loss=326.3173
+INFO:heron.models.gp.sparse:  [cross] step 105/150  loss=338.4236
+INFO:heron.models.gp.sparse:  [cross] step 120/150  loss=337.9735
+INFO:heron.models.gp.sparse:  [cross] step 135/150  loss=329.6096
+INFO:heron.models.gp.sparse:  [cross] step 150/150  loss=315.5371
+INFO:heron.models.gp.sparse:Trained cross SVGP for 150 iterations
+INFO:heron.models.gp.sparse:Saved SVGP checkpoint to checkpoints/phenomd_nonspinning_sparse_dense_m1000_iter150.pt
+INFO:heron.train:Checkpoint saved to checkpoints/phenomd_nonspinning_sparse_dense_m1000_iter150.pt
+INFO:heron.train:Training data saved to checkpoints/phenomd_nonspinning_sparse_dense_m1000_iter150_data.h5
+Training complete

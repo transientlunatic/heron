@@ -1,0 +1,18 @@
+# Retrain checkpoints/phenomd_nonspinning_dense30_exact_xas_lsminq006.pt
+# (ls_min_q=0.06 fix for the exact/plus-cross+XAS representation, matching
+# the phase-amplitude fix). Parent of EXACT_WITHK/EXACT_NOK in
+# dag_matched_lsminq006.dag. Submit from
+# /scratch/wiay/daniel/heron-dense45 on wiay.
+universe        = vanilla
+executable      = condor/train_exact_xas_lsminq006.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk")
+request_gpus    = 1
+request_cpus    = 2
+request_memory  = 8192
+should_transfer_files = NO
+getenv          = false
+output          = condor_logs/train_exact_xas_lsminq006.out
+error           = condor_logs/train_exact_xas_lsminq006.err
+log             = condor_logs/train_exact_xas_lsminq006.log
+
+queue

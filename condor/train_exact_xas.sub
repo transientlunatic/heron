@@ -1,0 +1,16 @@
+# Retrain checkpoints/phenomd_nonspinning_dense30_exact_xas.pt with the
+# phase_correction fix (see condor/train_exact_xas.sh). Submit from
+# /scratch/wiay/daniel/heron-dense45 on wiay.
+universe        = vanilla
+executable      = condor/train_exact_xas.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk")
+request_gpus    = 1
+request_cpus    = 2
+request_memory  = 8192
+should_transfer_files = NO
+getenv          = false
+output          = condor_logs/train_exact_xas.out
+error           = condor_logs/train_exact_xas.err
+log             = condor_logs/train_exact_xas.log
+
+queue

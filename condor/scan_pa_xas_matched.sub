@@ -1,0 +1,28 @@
+# Matched-injection-family test: inject IMRPhenomXAS (not the script's default
+# IMRPhenomD) and recover with the XAS-mean phase-amplitude surrogate + K, at
+# the three off-training-grid q's from scan_pa_xas.sub (0.50/0.60/0.80, each
+# ~0.01 from the nearest of the 30 training nodes) that snapped exactly onto
+# their nearest grid node when the injection family (D) didn't match the
+# surrogate's mean family (XAS). If matching the injection family removes the
+# snap, it confirms the family mismatch is the root enabler of that failure
+# mode, not just a coincidence. See memory xas_ns_condor_scan.md /
+# grid_snap_finding.md for the full writeup. Submit from
+# /scratch/wiay/daniel/heron-dense45 on wiay.
+universe        = vanilla
+executable      = condor/run_ns_pa_xas.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk")
+request_gpus    = 1
+request_cpus    = 2
+request_memory  = 4096
+should_transfer_files = NO
+getenv          = false
+arguments       = $(q) $(qtag) --approximant IMRPhenomXAS
+output          = condor_logs/ns_pa_xas_$(qtag).out
+error           = condor_logs/ns_pa_xas_$(qtag).err
+log             = condor_logs/ns_pa_xas_$(qtag).log
+
+queue q,qtag from (
+    0.50, q050_xasinj
+    0.60, q060_xasinj
+    0.80, q080_xasinj
+)

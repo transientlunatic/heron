@@ -1,0 +1,28 @@
+# Train a GP surrogate from pre-existing training data (e.g. NR catalogue).
+# Usage: heron train --settings examples/train_from_data.yaml
+#
+# Does not require lalsuite — just needs an HDF5 training set.
+
+logging:
+  level: info
+
+training:
+  mode: data                      # fixed | active | data
+  model: exact                    # exact | sparse
+
+  # Path to HDF5 training set (from TrainingSet.save())
+  data_path: checkpoints/training_data.h5
+
+  # GP configuration
+  total_mass: 60.0
+  distance: 100.0
+  nu: 2.5
+  output_scale: 1.0e+27
+  iterations: 400
+  device: cpu
+
+  warping:
+    type: chirp
+    alpha: 0.625
+
+  checkpoint: checkpoints/from_data.pt

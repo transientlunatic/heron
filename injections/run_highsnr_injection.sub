@@ -1,0 +1,25 @@
+# HTCondor submit file for high SNR injection test
+# Submit with: condor_submit run_highsnr_injection.sub
+
+universe                = vanilla
+request_cpus            = 1
+request_memory          = 8GB
+
+# Use wrapper script for proper environment
+executable              = /home/daniel/repositories/ligo/heron/scripts/run_with_gpu.sh
+
+# Use shared filesystem (don't transfer files)
+should_transfer_files   = NO
+initialdir              = /home/daniel/repositories/ligo/heron
+
+# Environment
+environment             = "PYTHONPATH=/home/daniel/repositories/ligo/heron"
+
+# Logs
+log                     = injections/logs/injection_highsnr.log
+output                  = injections/logs/injection_highsnr.out
+error                   = injections/logs/injection_highsnr.err
+
+# Run high SNR injection
+arguments               = "heron injection --settings injections/fake_uncertainty_highsnr.yaml"
+queue

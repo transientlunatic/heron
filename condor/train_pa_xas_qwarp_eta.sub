@@ -1,0 +1,17 @@
+# Train checkpoints/phenomd_nonspinning_dense30_phase_amplitude_xas_qwarp_eta.pt
+# (eta(q) mass-ratio warping experiment -- see condor/train_pa_xas_qwarp_eta.sh).
+# Parent of the NS scan in scan_pa_xas_qwarp_eta.sub. Submit from
+# /scratch/wiay/daniel/heron-dense45 on wiay.
+universe        = vanilla
+executable      = condor/train_pa_xas_qwarp_eta.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk")
+request_gpus    = 1
+request_cpus    = 2
+request_memory  = 8192
+should_transfer_files = NO
+getenv          = false
+output          = condor_logs/train_pa_xas_qwarp_eta.out
+error           = condor_logs/train_pa_xas_qwarp_eta.err
+log             = condor_logs/train_pa_xas_qwarp_eta.log
+
+queue

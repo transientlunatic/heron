@@ -1,0 +1,16 @@
+# k-smoothing NS validation at realistic SNR (2026-07-26).
+#
+# Question: does k-smoothing (variance-only envelope) remove the with-K grid-snap
+# at realistic SNR on the exact-GP+XAS ls_min_q=0.06 checkpoint? Memory
+# exact_xas_no_logdet_bias: no bias at SNR~300 but grid-snap REAPPEARS at SNR~20.
+#
+# 4 arms x 3 q (0.50/0.60/0.80) = 12 jobs. Clean IMRPhenomD self-consistency
+# injection (surrogate mismatch ~1e-4), seed=42 fixed so nosmooth vs ksmooth at
+# matched (q, SNR) share the identical noise realization.
+#   SNR~20  = distance 1500 Mpc   SNR~100 = distance 300 Mpc
+# Results -> results/injection_ns_exact_xas_lsminq006_dinj_<qtag>.{npz,png}
+
+JOB snr20_nosmooth   condor/exact_xas_lsminq006_dinj_snr20_nosmooth.sub
+JOB snr20_ksmooth    condor/exact_xas_lsminq006_dinj_snr20_ksmooth.sub
+JOB snr100_nosmooth  condor/exact_xas_lsminq006_dinj_snr100_nosmooth.sub
+JOB snr100_ksmooth   condor/exact_xas_lsminq006_dinj_snr100_ksmooth.sub

@@ -1,0 +1,27 @@
+# NS test for the ls_min_q=0.12 experiment (see
+# condor/train_pa_xas_lsminq012.sub and memory manifold_correlation_length.md):
+# with-K nested sampling against the retrained checkpoint, at the same
+# three q's as the unsmoothed lsminq006 baseline (q=0.50/0.60/0.80:
+# -6.2/+9.8/-16.0 sigma) and the noisefloor experiment. Same wide prior
+# [0.15, 0.97] and default IMRPhenomD injection.
+#
+# DAG-parented on train_pa_xas_lsminq012.sub in dag_manifold_grid.dag --
+# do not submit standalone before the checkpoint exists.
+universe        = vanilla
+executable      = condor/run_ns_pa_xas_lsminq012.sh
+requirements    = (Machine == "wiay.astro.gla.ac.uk") || (Machine == "puck.astro.gla.ac.uk")
+request_gpus    = 1
+request_cpus    = 2
+request_memory  = 4096
+should_transfer_files = NO
+getenv          = false
+arguments       = $(q) $(qtag)
+output          = condor_logs/ns_pa_xas_lsminq012_$(qtag).out
+error           = condor_logs/ns_pa_xas_lsminq012_$(qtag).err
+log             = condor_logs/ns_pa_xas_lsminq012_$(qtag).log
+
+queue q,qtag from (
+    0.50, q050
+    0.60, q060
+    0.80, q080
+)

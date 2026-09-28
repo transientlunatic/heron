@@ -1,0 +1,46 @@
+# Local CPU smoke test at dense10 density (10 mass ratios, N=2000) for
+# merger_kernel -- closer to the real training density than the 3-q smoke
+# test, to check the "collapses to short lengthscale nearly everywhere"
+# pathology seen there (see kernels.py docstring / exact.py comments) was
+# a sparse-data artifact and not a structural problem at realistic density.
+# Same grid/floors as examples/train_phenomd_hf_dense10.yaml.
+#
+# Usage: heron train --settings examples/train_phenomd_hf_dense10_merger_kernel.yaml
+# Requires: lalsuite (pip install heron[lal])
+
+logging:
+  level: info
+
+training:
+  mode: fixed
+  model: exact
+
+  approximant: IMRPhenomD
+
+  total_mass: 60.0
+  distance: 100.0
+
+  mass_ratios: [0.05, 0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95]
+  n_samples: 200
+
+  nu: 2.5
+  output_scale: 1.0e+27
+  optimizer: lbfgs
+  iterations: 60
+  device: cpu
+
+  warping:
+    type: chirp
+    alpha: 0.625
+
+  ls_min_q: 0.1
+  ls_min_time: 0.015
+  noise_floor_rel: 1.0e-3
+
+  merger_kernel: true
+  ls_min_time_merger: 0.0075
+  merger_center: 0.0
+  merger_width_init: 0.02
+
+  checkpoint: checkpoints/dense10_merger_kernel.pt
+  save_training_data: checkpoints/dense10_merger_kernel_data.h5

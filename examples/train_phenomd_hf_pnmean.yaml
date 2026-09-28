@@ -1,0 +1,66 @@
+# Variant of train_phenomd_hf.yaml that adds a Newtonian-inspiral mean
+# function (design.md roadmap step 3: "PhenomD with a physically-informed
+# mean function"). Same grid, same lengthscale floors, same everything else
+# as the zero-mean baseline (checkpoints/phenomd_nonspinning_hf.pt) so the
+# two checkpoints are directly comparable — only the mean function differs.
+#
+# Hypothesis: with the GP only needing to learn the merger/ringdown
+# residual (rather than the full waveform), K/C and its q-sensitivity
+# should shrink relative to the zero-mean baseline, partially or fully
+# resolving the log-det bias documented in CLAUDE.md without needing a
+# denser training grid / SparseGPSurrogate.
+#
+# Usage: heron train --settings examples/train_phenomd_hf_pnmean.yaml
+# Requires: lalsuite (pip install heron[lal])
+
+logging:
+  level: info
+
+training:
+  mode: fixed
+  model: exact
+
+  approximant: IMRPhenomD
+
+  total_mass: 60.0        # solar masses
+  distance: 100.0         # Mpc
+
+  # 5 mass ratios bracketing the q=0.8 demo injection; N = 1000 total
+  mass_ratios: [0.1, 0.3, 0.5, 0.7, 0.9]
+
+  # Uniform in warped time → spacing ≈ 2.946/200 = 0.0147 s (warped)
+  n_samples: 200
+
+  nu: 2.5
+  output_scale: 1.0e+27
+  optimizer: lbfgs
+  iterations: 80
+  device: cpu
+
+  warping:
+    type: chirp
+    alpha: 0.625
+
+  # Minimum mass-ratio lengthscale. Training qs are [0.1,0.3,0.5,0.7,0.9],
+  # spacing = 0.2. Setting ls_min_q = 0.2 forces the GP to interpolate across
+  # mass ratios (r ≈ 0.83 at d=0.1, the distance to q=0.8 from training qs).
+  # Without this, L-BFGS collapses ls_q → 0.0005, treating each q independently.
+  ls_min_q: 0.2
+
+  # Minimum time-dimension lengthscale in warped-time units.
+  # 0.030 s is ~2x the training spacing so the GP interpolates smoothly;
+  # the GW oscillation period at 100 Hz maps to ~0.006 s in warped time.
+  ls_min_time: 0.030
+
+  # Noise floor relative to y_var, needed to keep K + σ²I well-conditioned
+  # when ls_min_time > training spacing (highly correlated training points).
+  # Does NOT inflate the surrogate uncertainty because we use the latent GP
+  # covariance (not the predictive = latent + noise²) in the GW likelihood.
+  noise_floor_rel: 1.0e-3
+
+  # Physically-informed mean: GP learns h - h_Newtonian(q, t) instead of h.
+  mean_function:
+    type: newtonian
+
+  checkpoint: checkpoints/phenomd_nonspinning_hf_pnmean.pt
+  save_training_data: checkpoints/phenomd_nonspinning_hf_pnmean_data.h5

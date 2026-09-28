@@ -1,0 +1,18 @@
+Evaluation report: PhenomD_nonspinning_v1
+========================================
+
+Mismatch evaluation (200 points):
+  Median mismatch:  3.08e-01
+  Worst mismatch:   7.21e-01
+  Worst at:         {'mass_ratio': 0.3871557707898319}
+  < 1e-3 (detect):  0.0%
+  < 1e-2 (PE):      0.0%
+
+Uncertainty calibration (100 waveforms):
+  KS test vs N(0,1):  stat=0.5000, p=0.0000
+  50% coverage:    100.0% (expected 50%)
+  68% coverage:    100.0% (expected 68%)
+  90% coverage:    100.0% (expected 90%)
+  95% coverage:    100.0% (expected 95%)
+  99% coverage:    100.0% (expected 99%)
+  Mean log pred dens: 5424.12
