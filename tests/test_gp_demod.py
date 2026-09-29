@@ -51,6 +51,19 @@ class TestDemodGPSurrogate:
     def models_and_surrogate(self):
         return _make_surrogate()
 
+    def test_total_mass_scales_time_and_amplitude(self, models_and_surrogate):
+        _, _, surrogate = models_and_surrogate
+        t = np.linspace(-0.3, 0.02, 150)
+        m0 = surrogate.mass_factor
+        s = 1.2
+        at_m = surrogate.predict({"mass_ratio": 0.6, "total_mass": s * m0, "times": t * s},
+                                 covariance="diagonal")
+        ref = surrogate.predict({"mass_ratio": 0.6, "times": t}, covariance="diagonal")
+        for pol in ("plus", "cross"):
+            np.testing.assert_allclose(at_m[pol].data, s * ref[pol].data,
+                                       rtol=1e-8, atol=1e-12 * np.abs(ref[pol].data).max())
+            np.testing.assert_allclose(at_m[pol].variance, s**2 * ref[pol].variance, rtol=1e-8)
+
     def test_variance_grid_forwards_to_inner_gp(self, models_and_surrogate):
         _, _, surrogate = models_and_surrogate
         params = {"mass_ratio": 0.6, "time": {"lower": -0.3, "upper": 0.02, "number": 2000}}
