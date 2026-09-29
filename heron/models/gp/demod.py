@@ -372,6 +372,13 @@ class DemodGPSurrogate(WaveformSurrogate):
             output["cross"] = Waveform(data=h_cross, times=times_np)
         return output
 
+    def calibrate_residual_variance(self, n_bins: int = 20) -> dict:
+        """Calibrate the inner Re/Im GP's residual-variance profile (see
+        :meth:`ExactGPSurrogate.calibrate_residual_variance`). It propagates to
+        the strain variance through the same cos/sin congruence as the latent
+        variance."""
+        return self._gp.calibrate_residual_variance(n_bins=n_bins)
+
     @property
     def variance_grid(self) -> int | None:
         """Coarse-grid size for the inner GP's diagonal variance (runtime only;
@@ -518,6 +525,7 @@ class DemodGPSurrogate(WaveformSurrogate):
                 name: model.state_dict()
                 for name, model in self._gp.models.items()
             },
+            "residual_profile": self._gp.residual_profile,
             "base_approximant": self._base_name,
             "oracle_approximant": self._oracle_name,
             "phase_correction": self.phase_correction,
@@ -605,6 +613,7 @@ class DemodGPSurrogate(WaveformSurrogate):
             instance._gp.models[name].eval()
             instance._gp.models[name].likelihood.eval()
         instance._gp._predict_models = None  # invalidate float64 predict cache
+        instance._gp.residual_profile = checkpoint.get("residual_profile")
 
         logger.info(f"Loaded checkpoint from {path}")
         return instance

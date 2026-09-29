@@ -64,6 +64,24 @@ class TestDemodGPSurrogate:
                                        rtol=1e-8, atol=1e-12 * np.abs(ref[pol].data).max())
             np.testing.assert_allclose(at_m[pol].variance, s**2 * ref[pol].variance, rtol=1e-8)
 
+    def test_residual_variance_forwards_and_persists(self, models_and_surrogate, tmp_path):
+        reference, _, surrogate = models_and_surrogate
+        params = {"mass_ratio": 0.6, "time": {"lower": -0.3, "upper": 0.02, "number": 200}}
+        base = surrogate.predict(params, covariance="diagonal")
+        surrogate.calibrate_residual_variance(n_bins=6)
+        try:
+            assert surrogate._gp.residual_profile is not None
+            cal = surrogate.predict(params, covariance="diagonal")
+            surrogate.save(tmp_path / "d.pt")
+            loaded = type(surrogate).load(tmp_path / "d.pt", device="cpu",
+                                          base_approximant=reference)
+            assert loaded._gp.residual_profile is not None
+        finally:
+            surrogate._gp.residual_profile = None
+        for pol in ("plus", "cross"):
+            np.testing.assert_array_equal(cal[pol].data, base[pol].data)
+            assert np.all(cal[pol].variance >= base[pol].variance)
+
     def test_variance_grid_forwards_to_inner_gp(self, models_and_surrogate):
         _, _, surrogate = models_and_surrogate
         params = {"mass_ratio": 0.6, "time": {"lower": -0.3, "upper": 0.02, "number": 2000}}

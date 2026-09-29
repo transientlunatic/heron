@@ -551,3 +551,59 @@ def test_total_mass_scales_time_and_amplitude():
                                    rtol=1e-10, atol=0)
     diag = model._covariance_diag({"mass_ratio": 0.7, "total_mass": 70.0, "times": t * s})
     np.testing.assert_allclose(diag["plus"], s**2 * ref["plus"].variance, rtol=1e-8)
+
+
+class TestResidualVariance:
+    @pytest.fixture(scope="class")
+    def model(self):
+        train_x, yp, yc = _make_synthetic_training_data(n_per_q=40, mass_ratios=(0.5, 0.75, 1.0))
+        return ExactGPSurrogate(
+            train_x=train_x, train_y_plus=yp, train_y_cross=yc,
+            warping="chirp", nu=2.5, output_scale=1.0, device="cpu",
+            total_mass=60.0, distance=100.0, training_iterations=10,
+        )
+
+    def test_profile_matches_training_residuals(self, model):
+        prof = model.calibrate_residual_variance(n_bins=8)
+        try:
+            for name, gp in model._get_predict_models().items():
+                x, y = gp.train_inputs[0], gp.train_targets
+                with torch.no_grad():
+                    r2 = ((y - gp(x).mean) ** 2).numpy()
+                # Pooled mean of the binned variances == overall mean residual^2
+                # up to bin-size weighting (quantile bins are ~equal-sized).
+                assert np.mean(np.exp(prof[name]["logvar"])) == pytest.approx(r2.mean(), rel=0.05)
+        finally:
+            model.residual_profile = None
+
+    def test_added_to_variance_not_mean(self, model):
+        params = {"mass_ratio": 0.7, "times": np.linspace(-0.5, 0.02, 300)}
+        base = model.predict(params, covariance="diagonal")
+        full0 = model.predict(params, covariance="full")
+        model.calibrate_residual_variance(n_bins=8)
+        try:
+            cal = model.predict(params, covariance="diagonal")
+            full1 = model.predict(params, covariance="full")
+            diag1 = model._covariance_diag(params)
+        finally:
+            model.residual_profile = None
+        for pol in ("plus", "cross"):
+            np.testing.assert_array_equal(cal[pol].data, base[pol].data)
+            extra = cal[pol].variance - base[pol].variance
+            scale = np.max(extra)
+            assert scale > 0 and np.all(extra >= -1e-9 * scale)
+            np.testing.assert_allclose(diag1[pol], cal[pol].variance, rtol=1e-8)
+            np.testing.assert_allclose(np.diag(full1[pol].covariance - full0[pol].covariance),
+                                       extra, rtol=0, atol=1e-6 * scale)
+
+    def test_saved_and_loaded(self, model, tmp_path):
+        model.calibrate_residual_variance(n_bins=8)
+        try:
+            model.save(tmp_path / "m.pt")
+            loaded = ExactGPSurrogate.load(tmp_path / "m.pt")
+        finally:
+            model.residual_profile = None
+        assert loaded.residual_profile is not None
+        np.testing.assert_allclose(loaded.residual_profile["plus"]["logvar"],
+                                   model.calibrate_residual_variance(n_bins=8)["plus"]["logvar"])
+        model.residual_profile = None

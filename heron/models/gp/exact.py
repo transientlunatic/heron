@@ -323,6 +323,9 @@ class ExactGPSurrogate(WaveformSurrogate):
         # Runtime-only (never saved): evaluate the diagonal variance on this
         # many points and interpolate. See _latent_variance.
         self.variance_grid: int | None = None
+        # Time-dependent fit-residual variance (see calibrate_residual_variance);
+        # None = not calibrated (latent variance only, previous behaviour).
+        self.residual_profile: dict | None = None
         self.merger_kernel = merger_kernel
         self.ls_min_time_merger = ls_min_time_merger
         self.merger_center = merger_center
@@ -620,6 +623,49 @@ class ExactGPSurrogate(WaveformSurrogate):
         var = np.clip(spline(w.cpu().numpy()), 0.0, None)
         return torch.as_tensor(var, dtype=points_warped.dtype, device=points_warped.device)
 
+    def calibrate_residual_variance(self, n_bins: int = 20) -> dict:
+        """Estimate the GP's own fit error as a function of warped time.
+
+        The predictive mean does not pass exactly through the training data:
+        the observation-noise term regularises the fit, and the resulting
+        misfit is concentrated where the target varies fastest (near merger).
+        The latent variance omits it, and the fitted homoscedastic noise is a
+        single constant, so neither describes it. Here the mean is evaluated
+        at the training inputs, the squared residuals are pooled over mass
+        ratio in ``n_bins`` quantile bins of warped time, and their mean is
+        stored as a log-variance profile per output. When set, it is added to
+        the predictive variance (a heteroscedastic, white term) by
+        :meth:`predict` and :meth:`_covariance_diag`.
+
+        Returns the profile, which is also stored as ``self.residual_profile``
+        and saved with the checkpoint.
+        """
+        models = self._get_predict_models()
+        profile = {}
+        for name, model in models.items():
+            x = model.train_inputs[0]
+            y = model.train_targets
+            with torch.no_grad(), gpytorch.settings.max_cholesky_size(self.cholesky_size):
+                mu = model(x).mean
+            w = x[:, -1].cpu().numpy()
+            r2 = ((y - mu) ** 2).cpu().numpy()
+            edges = np.quantile(w, np.linspace(0.0, 1.0, n_bins + 1))
+            idx = np.clip(np.searchsorted(edges, w, side="right") - 1, 0, n_bins - 1)
+            centres = np.array([np.median(w[idx == b]) for b in range(n_bins)])
+            var = np.array([r2[idx == b].mean() for b in range(n_bins)])
+            profile[name] = {"w": centres, "logvar": np.log(np.maximum(var, 1e-300))}
+        self.residual_profile = profile
+        return profile
+
+    def _residual_variance(self, name: str, points_warped: torch.Tensor) -> torch.Tensor | None:
+        """Residual-variance profile at ``points_warped`` (model units), or None."""
+        prof = self.residual_profile
+        if prof is None:
+            return None
+        w = points_warped[:, -1].detach().cpu().numpy()
+        var = np.exp(np.interp(w, prof[name]["w"], prof[name]["logvar"]))
+        return torch.as_tensor(var, dtype=points_warped.dtype, device=points_warped.device)
+
     def _covariance_diag(self, parameters: dict) -> dict:
         """Per-polarisation diagonal predictive variance, without the mean.
 
@@ -644,7 +690,11 @@ class ExactGPSurrogate(WaveformSurrogate):
                     # `.variance` (LOVE, under fast_pred_var) computes only the
                     # diagonal — O(N·rank) — instead of forming the full N×N
                     # `.covariance_matrix` just to take its diagonal.
-                    diag = self._latent_variance(model, points_warped).cpu().numpy()
+                    diag = self._latent_variance(model, points_warped)
+                    extra = self._residual_variance(pol_name, points_warped)
+                    if extra is not None:
+                        diag = diag + extra
+                    diag = diag.cpu().numpy()
             finally:
                 model.mean_module = saved_mean
             out[pol_name] = diag / self.output_scale**2 / distance_factor**2
@@ -732,14 +782,22 @@ class ExactGPSurrogate(WaveformSurrogate):
                 # uncertainty is the latent posterior covariance K_latent.
                 latent = model(points_warped)
                 mean = latent.mean.cpu()
+                extra = (self._residual_variance(pol_name, points_warped)
+                         if covariance != "none" else None)
                 if covariance == "full":
-                    cov = latent.covariance_matrix.cpu()
+                    cov = latent.covariance_matrix
+                    if extra is not None:
+                        cov = cov + torch.diag(extra)
+                    cov = cov.cpu()
                 elif covariance == "diagonal":
                     # Diagonal only — O(N·rank), no N×N matrix formed.
                     if self.variance_grid is None:
-                        var = latent.variance.cpu()
+                        var = latent.variance
                     else:
-                        var = self._latent_variance(model, points_warped).cpu()
+                        var = self._latent_variance(model, points_warped)
+                    if extra is not None:
+                        var = var + extra
+                    var = var.cpu()
 
             data = (mean / scale).numpy()
             if covariance == "full":
@@ -821,6 +879,7 @@ class ExactGPSurrogate(WaveformSurrogate):
                 name: model.state_dict()
                 for name, model in self.models.items()
             },
+            "residual_profile": self.residual_profile,
             "train_x": self._train_x_raw.cpu(),
             "train_y": {
                 name: model.train_y.cpu() for name, model in self.models.items()
@@ -934,6 +993,7 @@ class ExactGPSurrogate(WaveformSurrogate):
             instance.models[name].load_state_dict(state)
             instance.models[name].eval()
             instance.models[name].likelihood.eval()
+        instance.residual_profile = checkpoint.get("residual_profile")
 
         logger.info(f"Loaded checkpoint from {path}")
         return instance
