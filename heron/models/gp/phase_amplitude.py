@@ -364,7 +364,10 @@ class PhaseAmplitudeGPSurrogate(WaveformSurrogate):
         -------
         points_warped : torch.Tensor, shape (N, D), float64, on self._device
         times_np : ndarray, shape (N,)
-        distance_factor : float
+        amplitude_divisor : float
+            ``(D / D_ref) / (M / M_ref)``: divide the reference-scale strain
+            by this (and its variance by its square). Strain scales as M/D, so
+            the time stretch for total mass M comes with an amplitude factor.
         """
         mass_ratio = parameters.get("mass_ratio")
         total_mass = parameters.get("total_mass", self.mass_factor)
@@ -392,7 +395,7 @@ class PhaseAmplitudeGPSurrogate(WaveformSurrogate):
         points_warped[:, -1] = self.warping.warp(
             points_warped[:, -1], mass_ratio=points_warped[:, 0]
         )
-        return points_warped, times.numpy(), distance_factor
+        return points_warped, times.numpy(), distance_factor / mass_factor
 
     def _gp_variance_diags(self, parameters: dict):
         """Diagonal posterior variance of the log-amplitude and phase GPs.
