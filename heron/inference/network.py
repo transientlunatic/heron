@@ -62,6 +62,7 @@ from __future__ import annotations
 
 import inspect
 import math
+import warnings
 
 import numpy as np
 import torch
@@ -172,10 +173,16 @@ class NetworkLikelihood:
         default 50 µs. The ``tc`` likelihood peak is ~1/(2π B ρ) wide (≈0.1 ms
         at SNR ~20), far narrower than a sample at typical rates, so the grid
         is refined below the sample spacing: the cross term (which carries the
-        sharp ``tc`` dependence) by zero-padded FFT, i.e. an exact band-limited
-        fractional shift; the data-only term, which varies only on the
-        variance-envelope timescale, by cubic interpolation from whole-sample
-        shifts. Set to the sample spacing to disable refinement.
+        sharp ``tc`` dependence) by zero-padded FFT and the data-only term by
+        phase-ramp-shifting the whitened data, i.e. both use the exact
+        band-limited fractional shift. This requires the template to be
+        band-limited at the sample rate: sampling a waveform with power above
+        Nyquist aliases it, the fractional shift of the aliased samples is not
+        the shifted waveform, and the result can be off by tens of nats (seen
+        at 512 Hz for a 60 Msun merger, which has ~1% of its power above
+        256 Hz). A warning is issued when the template carries significant
+        power in the top of the band. Set to the sample spacing to disable
+        refinement (whole-sample shifts are exact regardless).
     covariance_inflation : float
         Scalar multiplier applied to K's variance (not the mean) wherever it
         is used, after any k-smoothing envelope. Default 1.0 (no-op). Unlike
@@ -242,6 +249,7 @@ class NetworkLikelihood:
         self._noise_args = dict(f_low=f_low, f_high=f_high,
                                 jitter=jitter, jitter_rel=jitter_rel)
         self._marginalize_time = marginalize_time
+        self._alias_warned = False
         if marginalize_time:
             if linalg != "stationary":
                 raise ValueError("marginalize_time requires linalg='stationary'")
@@ -255,9 +263,6 @@ class NetworkLikelihood:
             self._tc_centre = 0.5 * (lo + hi)
             self._shifts = np.arange(-half, half + 1)            # in units of `step`
             self._tc_grid = self._tc_centre + self._shifts * step
-            # Whole-sample shifts bracketing the fine grid, for the data-only term.
-            m = int(np.ceil(half / self._oversample)) + 2
-            self._coarse_shifts = np.arange(-m, m + 1)
 
         # Only the diagonal of K is ever used (project_variances). If the
         # surrogate's predict() accepts a `covariance` mode, request the cheap
@@ -499,17 +504,13 @@ class NetworkLikelihood:
 
         for ch in self._channels:
             mus, k_diag = self._detector_model(ch, intrinsic, extr, phases)
+            if u > 1 and not self._alias_warned:
+                self._check_band_limited(ch, mus[0])
             mll = self._marginal(ch, mus[0], k_diag)
             d = ch.noise.tensor(ch.data)
             z_a = mll.solve(mus[0])
             # (S_k^T d - mu)^T Sigma^-1 (S_k^T d - mu) = D_k - 2 X_k + mu^T Sigma^-1 mu
-            if u == 1:
-                dd = mll.shifted_quadratic(d, shifts).cpu().numpy()
-            else:
-                from scipy.interpolate import CubicSpline
-                cs = self._coarse_shifts
-                dd_c = mll.shifted_quadratic(d, cs).cpu().numpy()
-                dd = CubicSpline(cs, dd_c)(shifts / u)
+            dd = mll.shifted_quadratic(d, shifts, oversample=u).cpu().numpy()
             xa = correlate(z_a, d, shifts, oversample=u).cpu().numpy()
             aa = float(torch.dot(ch.noise.tensor(mus[0]), z_a))
             base = -0.5 * mll.log_det - 0.5 * self._n * _LOG_2PI
@@ -525,6 +526,29 @@ class NetworkLikelihood:
             r = np.hypot(p_tot, q_tot)
             return const + r + np.log(i0e(r))
         return const
+
+    def _check_band_limited(self, ch, mu: np.ndarray, threshold: float = 1e-4) -> None:
+        """Warn (once) if the whitened template has significant power near Nyquist.
+
+        Sub-sample time marginalisation shifts the sampled template by a
+        band-limited phase ramp, which is only the shifted waveform if the
+        sampling did not alias it.  Power in the top 10% of the band is the
+        tell-tale.
+        """
+        power = (torch.abs(torch.fft.rfft(ch.noise.tensor(mu))) ** 2
+                 * ch.noise.g_spectrum()).cpu().numpy()
+        top = self._freqs >= 0.9 * self._freqs[-1]
+        frac = float(power[top].sum() / max(power.sum(), 1e-300))
+        if frac > threshold:
+            self._alias_warned = True
+            warnings.warn(
+                f"{frac:.1e} of the whitened template power is within 10% of Nyquist "
+                f"({self._freqs[-1]:.0f} Hz): the template is probably aliased at this "
+                "sample rate, and sub-sample time marginalisation can then be wrong "
+                "by many nats. Raise the sample rate, or set time_resolution to the "
+                "sample spacing.",
+                stacklevel=3,
+            )
 
     def _detector_model(self, ch, intrinsic: dict, extr: dict, phases: list[float]):
         """Projected, high-passed mean(s) and tapered variance for one detector.

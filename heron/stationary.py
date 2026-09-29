@@ -356,14 +356,15 @@ class StationaryMarginalLikelihood:
         """``x^T Sigma^{-1} y`` for ``x``, ``y`` in the range of ``P``."""
         return float(torch.dot(self.noise.tensor(x), self.solve(y)))
 
-    def shifted_quadratic(self, d, shifts) -> torch.Tensor:
-        """``D_k = (S_k^T d)^T Sigma^{-1} (S_k^T d)`` for every shift ``k``.
+    def shifted_quadratic(self, d, shifts, oversample: int = 1) -> torch.Tensor:
+        """``D(tau) = (S_tau^T d)^T Sigma^{-1} (S_tau^T d)`` for every shift ``tau``.
 
-        ``S_k`` is the cyclic shift by ``k`` samples (``(S_k^T d)_i = d_{i+k}``).
-        Because ``G`` commutes with ``S_k``, ``D_k = d^T G d - b_k^T (I+A)^{-1} b_k``
-        with ``b_k = W^{1/2} S_k^T G d``: one FFT plus one batched solve for all
-        shifts.  Used for time marginalisation, where ``Sigma`` moves rigidly
-        with the template.
+        ``shifts`` are in units of ``1/oversample`` samples; ``S_tau`` is the
+        cyclic shift (``(S_tau^T d)(t) = d(t + tau)``), band-limited (a phase
+        ramp) for fractional ``tau``.  Because ``G`` commutes with ``S_tau``,
+        ``D(tau) = d^T G d - b^T (I+A)^{-1} b`` with ``b = W^{1/2} S_tau^T G d``:
+        one FFT to shift ``G d`` and one batched solve for all shifts.  Used for
+        time marginalisation, where ``Sigma`` moves rigidly with the template.
         """
         d_ = self.noise.tensor(d)
         y = self.noise.apply(self._f.g_spec, d_)
@@ -371,10 +372,18 @@ class StationaryMarginalLikelihood:
         k = torch.as_tensor(np.asarray(shifts), device=self.noise.device)
         if self._f.method == "none":
             return base.expand(k.numel()).clone()
-        ar = torch.arange(self.n, device=self.noise.device)
+        n = self.n
+        y_spec = torch.fft.rfft(y)
+        freqs = torch.arange(y_spec.shape[-1], device=self.noise.device, dtype=self.noise.dtype)
         out = []
-        for kc in torch.split(k, max(1, (1 << 24) // self.n)):   # bound memory
-            b = self._f.sqrt_w[None, :] * y[(ar[None, :] + kc[:, None]) % self.n]
+        for kc in torch.split(k, max(1, (1 << 24) // n)):   # bound memory
+            tau = kc.to(self.noise.dtype) / oversample          # in samples
+            ramp = torch.exp(2j * np.pi * tau[:, None] * freqs[None, :] / n)
+            if n % 2 == 0 and oversample > 1:
+                # Real part of the Nyquist term, as for a real band-limited shift.
+                ramp[:, -1] = torch.cos(np.pi * tau)
+            shifted = torch.fft.irfft(y_spec[None, :] * ramp, n=n)
+            b = self._f.sqrt_w[None, :] * shifted
             out.append((b * self._solve_i_plus_a(b)).sum(-1))
         return base - torch.cat(out)
 

@@ -243,9 +243,10 @@ class _CompactStub:
 
     distance_factor = 100.0
 
-    def __init__(self, var=1e-2, amp=100.0):
+    def __init__(self, var=1e-2, amp=100.0, f0=60.0):
         self.var = var
         self.amp = amp
+        self.f0 = f0
 
     def training_time_bounds(self, parameters):
         return (-0.08, 0.04)
@@ -255,8 +256,8 @@ class _CompactStub:
 
         t = np.asarray(params["times"], dtype=float)
         env = np.exp(-(t / 0.03) ** 2)
-        hp = self.amp * env * np.sin(2 * np.pi * 60 * t)
-        hx = self.amp * env * np.cos(2 * np.pi * 60 * t)
+        hp = self.amp * env * np.sin(2 * np.pi * self.f0 * t)
+        hx = self.amp * env * np.cos(2 * np.pi * self.f0 * t)
         var = self.var * env
         return WaveformDict(
             plus=Waveform(data=hp, times=t, variance=var),
@@ -267,8 +268,8 @@ class _CompactStub:
 class TestTimeMarginalisation:
     PRIOR = (TC - 0.02, TC + 0.02)
 
-    def _nets(self, psd, var=1e-2, time_resolution=1.0 / 512.0, **kw):
-        surrogate = _CompactStub(var=var)
+    def _nets(self, psd, var=1e-2, time_resolution=1.0 / 512.0, f0=60.0, **kw):
+        surrogate = _CompactStub(var=var, f0=f0)
         times = _times(n=512, fs=512.0)
         params = {"mass_ratio": Q, "tc": TC + 0.004, "ra": RA, "dec": DEC, "psi": PSI,
                   "inclination": 0.4, "coalescence_phase": 0.7}
@@ -305,8 +306,10 @@ class TestTimeMarginalisation:
         if marg_phase:
             p.pop("coalescence_phase")
         grid, series = tm.time_series(p)
-        # Band-limited fractional shift + interpolated data term: ~1e-5 of range.
-        tol = 5e-5 * np.ptp(series)
+        # For fractional shifts K moves rigidly as S K S^T (band-limited), while
+        # brute force re-evaluates diag(v) at the shifted times; with this
+        # large K they differ at ~5e-5 of the logL range.
+        tol = 1e-4 * np.ptp(series)
         for i in np.linspace(0, len(grid) - 1, 15).astype(int):
             assert series[i] == pytest.approx(plain({**p, "tc": grid[i]}), abs=tol)
 
@@ -328,3 +331,14 @@ class TestTimeMarginalisation:
             NetworkLikelihood(data=np.zeros(256), times=_times(),
                               detectors=Detector.from_name("H1", psd_fn=flat_psd),
                               surrogate=stub_surrogate, marginalize_time=True)
+
+    def test_warns_when_template_near_nyquist(self, flat_psd):
+        tm, _, params = self._nets(flat_psd, time_resolution=5e-5, f0=245.0)
+        p = {k: v for k, v in params.items() if k != "tc"}
+        with pytest.warns(UserWarning, match="Nyquist"):
+            tm(p)
+        ok, _, _ = self._nets(flat_psd, time_resolution=5e-5)
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            ok(p)
