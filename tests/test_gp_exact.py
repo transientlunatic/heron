@@ -530,3 +530,24 @@ class TestVarianceGrid:
         finally:
             model.variance_grid = None
         assert ExactGPSurrogate.load(tmp_path / "m.pt").variance_grid is None
+
+
+def test_total_mass_scales_time_and_amplitude():
+    """h(t; M) = (M/M0) h(t M0/M; M0); variance scales by (M/M0)^2."""
+    train_x, yp, yc = _make_synthetic_training_data(n_per_q=30, mass_ratios=(0.5, 1.0))
+    model = ExactGPSurrogate(
+        train_x=train_x, train_y_plus=yp, train_y_cross=yc,
+        warping="chirp", nu=2.5, output_scale=1.0, device="cpu",
+        total_mass=60.0, distance=100.0, training_iterations=5,
+    )
+    t = np.linspace(-0.4, 0.02, 200)
+    s = 70.0 / 60.0
+    at_m = model.predict({"mass_ratio": 0.7, "total_mass": 70.0, "times": t * s},
+                         covariance="diagonal")
+    ref = model.predict({"mass_ratio": 0.7, "times": t}, covariance="diagonal")
+    for pol in ("plus", "cross"):
+        np.testing.assert_allclose(at_m[pol].data, s * ref[pol].data, rtol=1e-10, atol=0)
+        np.testing.assert_allclose(at_m[pol].variance, s**2 * ref[pol].variance,
+                                   rtol=1e-10, atol=0)
+    diag = model._covariance_diag({"mass_ratio": 0.7, "total_mass": 70.0, "times": t * s})
+    np.testing.assert_allclose(diag["plus"], s**2 * ref["plus"].variance, rtol=1e-8)

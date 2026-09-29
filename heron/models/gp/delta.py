@@ -483,6 +483,9 @@ class DeltaGPSurrogate(PhaseAmplitudeGPSurrogate):
         mass_factor = total_mass / self.mass_factor
         distance = parameters.get("luminosity_distance", self.distance_factor)
         distance_factor = distance / self.distance_factor
+        # Strain amplitude scales as M/D: the time stretch for total mass M
+        # comes with an amplitude factor M/M_ref (variance by its square).
+        distance_factor = distance_factor / mass_factor
 
         if "times" in parameters:
             times = torch.tensor(parameters["times"], dtype=torch.float64) / mass_factor

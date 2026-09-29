@@ -329,8 +329,12 @@ class DemodGPSurrogate(WaveformSurrogate):
         q_arr = np.full(len(times_np), mass_ratio, dtype=np.float64)
         hXp, hXc, cosP, sinP = self._reference(q_arr, times_np)
 
-        h_plus = (hXp + re_z * cosP + im_z * sinP) / distance_factor
-        h_cross = (hXc + re_z * sinP - im_z * cosP) / distance_factor
+        # The inner GP already scales Re/Im(z) (and their variances) by the
+        # total-mass amplitude factor M/M_ref; the reference strain needs the
+        # same factor (strain scales as M/D).
+        m_amp = float(parameters.get("total_mass", self.mass_factor)) / self.mass_factor
+        h_plus = (m_amp * hXp + re_z * cosP + im_z * sinP) / distance_factor
+        h_cross = (m_amp * hXc + re_z * sinP - im_z * cosP) / distance_factor
 
         output = WaveformDict(
             parameters={
