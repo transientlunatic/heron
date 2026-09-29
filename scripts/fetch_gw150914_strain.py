@@ -70,13 +70,14 @@ def load_strain(path: str) -> tuple[np.ndarray, np.ndarray]:
         return np.asarray(f["strain"]), np.asarray(f["times"])
 
 
-def sanity_check(strain_paths: dict[str, str], psd_dir: str, checkpoint: str) -> None:
+def sanity_check(strain_paths: dict[str, str], psd_dir: str, checkpoint: str,
+                 roll_off: float) -> None:
     """Wire the ingested strain into NetworkLikelihood and confirm it runs.
 
     Deliberately NOT a GW150914 recovery: the checkpoint is trained at
     total_mass=60 and this evaluates it near GW150914's approximate total
-    mass (~65) via the surrogate's total-mass rescaling, which the "GW150914
-    / heron recovery" task explicitly flags as implemented-but-unvalidated.
+    mass (~65) via the surrogate's total-mass rescaling (time stretch and
+    amplitude, see PR #68).
     Sky location/psi below are the codebase's generic placeholder values
     (same as scripts/network_injection_ns.py's build_truth), not GW150914's
     real sky position. This only checks that real strain + real PSDs +
@@ -102,6 +103,7 @@ def sanity_check(strain_paths: dict[str, str], psd_dir: str, checkpoint: str) ->
     like = NetworkLikelihood(
         data=data, times=times, detectors=detectors, surrogate=surrogate,
         use_waveform_uncertainty=False,  # matched-filter: cheapest sane check
+        data_taper=roll_off,  # the model sees the same Tukey window as the data
     )
 
     base = {
@@ -148,7 +150,7 @@ def main():
     )
 
     if args.sanity_check:
-        sanity_check(written, args.psd_dir, args.checkpoint)
+        sanity_check(written, args.psd_dir, args.checkpoint, args.roll_off)
 
 
 if __name__ == "__main__":

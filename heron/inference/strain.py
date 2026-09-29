@@ -63,13 +63,21 @@ def taper_strain(strain: np.ndarray, dt: float, roll_off: float = 0.4) -> np.nda
     ndarray
         The windowed strain, same shape as the input.
     """
+    strain = np.asarray(strain, dtype=float)
+    return strain * tukey_window(len(strain), dt, roll_off)
+
+
+def tukey_window(n: int, dt: float, roll_off: float) -> np.ndarray:
+    """The window :func:`taper_strain` applies to an ``n``-sample segment.
+
+    Exposed so the likelihood can apply the *same* window to the model
+    (``NetworkLikelihood(data_taper=roll_off)``) as was applied to the data.
+    """
     from scipy.signal.windows import tukey
 
-    strain = np.asarray(strain, dtype=float)
-    n = len(strain)
     duration = n * dt
     alpha = min(1.0, 2.0 * roll_off / duration) if duration > 0 else 1.0
-    return strain * tukey(n, alpha=alpha)
+    return tukey(n, alpha=alpha)
 
 
 def fetch_gwosc_strain(
