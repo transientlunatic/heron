@@ -59,6 +59,28 @@ import torch
 _LOG_2PI = math.log(2.0 * math.pi)
 
 
+def correlate(x: torch.Tensor, y: torch.Tensor, shifts, oversample: int = 1) -> torch.Tensor:
+    """Cyclic cross-correlation ``c(tau) = sum_i x_i y(t_i + tau)``.
+
+    ``shifts`` are in units of ``1/oversample`` samples.  For ``oversample > 1``
+    the correlation is evaluated between samples by zero-padding its spectrum,
+    i.e. ``y`` is shifted by a band-limited (phase-ramp) fractional delay,
+    which is itself circulant.
+    """
+    n = x.shape[-1]
+    spec = torch.conj(torch.fft.rfft(x)) * torch.fft.rfft(y)
+    if oversample > 1:
+        if n % 2 == 0:
+            spec = spec.clone()
+            spec[..., -1] *= 0.5    # split Nyquist between +/- f before padding
+        pad = torch.zeros(spec.shape[:-1] + (oversample * n // 2 + 1 - spec.shape[-1],),
+                          dtype=spec.dtype, device=spec.device)
+        spec = torch.cat([spec, pad], dim=-1)
+    c = torch.fft.irfft(spec, n=oversample * n) * oversample
+    k = torch.as_tensor(np.asarray(shifts), device=x.device) % (oversample * n)
+    return c[..., k]
+
+
 class StationaryNoise:
     """Exact spectral representation of :func:`heron.noise.noise_covariance`.
 
@@ -286,30 +308,37 @@ class StationaryMarginalLikelihood:
         return s * self.noise.apply(self._f.g_spec, s * x)
 
     def _solve_i_plus_a(self, b: torch.Tensor) -> torch.Tensor:
-        """Solve ``(I + A) y = b``."""
+        """Solve ``(I + A) y = b``; ``b`` may carry leading batch axes."""
         f = self._f
         if f.chol is not None:
             y = b.clone()
-            rhs = b[f.support]
-            y[f.support] = torch.cholesky_solve(rhs.unsqueeze(-1), f.chol).squeeze(-1)
+            rhs = b[..., f.support].reshape(-1, f.support.numel()).T
+            sol = torch.cholesky_solve(rhs, f.chol).T
+            y[..., f.support] = sol.reshape(b.shape[:-1] + (f.support.numel(),))
             return y
         return self._cg(b)
 
     def _cg(self, b: torch.Tensor) -> torch.Tensor:
-        x = torch.zeros_like(b)
-        r = b.clone()
+        """Conjugate gradients on ``I + A``, independently for each row of ``b``."""
+        batched = b.dim() > 1
+        b2 = b if batched else b.unsqueeze(0)
+        x = torch.zeros_like(b2)
+        r = b2.clone()
         p = r.clone()
-        rs = torch.dot(r, r)
-        stop = (self._cg_tol ** 2) * float(rs)
+        rs = (r * r).sum(-1, keepdim=True)
+        stop = (self._cg_tol ** 2) * rs
         for _ in range(self._cg_maxiter):
-            if float(rs) <= stop:
-                return x
+            active = rs > stop
+            if not bool(active.any()):
+                return x if batched else x.squeeze(0)
             ap = p + self._apply_a(p)
-            alpha = rs / torch.dot(p, ap)
+            pap = (p * ap).sum(-1, keepdim=True)
+            alpha = torch.where(active, rs / torch.where(active, pap, 1.0), 0.0)
             x = x + alpha * p
             r = r - alpha * ap
-            rs_new = torch.dot(r, r)
-            p = r + (rs_new / rs) * p
+            rs_new = (r * r).sum(-1, keepdim=True)
+            beta = torch.where(active, rs_new / torch.where(active, rs, 1.0), 0.0)
+            p = r + beta * p
             rs = rs_new
         raise RuntimeError("CG did not converge; ||A|| may be unexpectedly large")
 
@@ -326,6 +355,37 @@ class StationaryMarginalLikelihood:
     def inner(self, x, y) -> float:
         """``x^T Sigma^{-1} y`` for ``x``, ``y`` in the range of ``P``."""
         return float(torch.dot(self.noise.tensor(x), self.solve(y)))
+
+    def shifted_quadratic(self, d, shifts, oversample: int = 1) -> torch.Tensor:
+        """``D(tau) = (S_tau^T d)^T Sigma^{-1} (S_tau^T d)`` for every shift ``tau``.
+
+        ``shifts`` are in units of ``1/oversample`` samples; ``S_tau`` is the
+        cyclic shift (``(S_tau^T d)(t) = d(t + tau)``), band-limited (a phase
+        ramp) for fractional ``tau``.  Because ``G`` commutes with ``S_tau``,
+        ``D(tau) = d^T G d - b^T (I+A)^{-1} b`` with ``b = W^{1/2} S_tau^T G d``:
+        one FFT to shift ``G d`` and one batched solve for all shifts.  Used for
+        time marginalisation, where ``Sigma`` moves rigidly with the template.
+        """
+        d_ = self.noise.tensor(d)
+        y = self.noise.apply(self._f.g_spec, d_)
+        base = torch.dot(d_, y)
+        k = torch.as_tensor(np.asarray(shifts), device=self.noise.device)
+        if self._f.method == "none":
+            return base.expand(k.numel()).clone()
+        n = self.n
+        y_spec = torch.fft.rfft(y)
+        freqs = torch.arange(y_spec.shape[-1], device=self.noise.device, dtype=self.noise.dtype)
+        out = []
+        for kc in torch.split(k, max(1, (1 << 24) // n)):   # bound memory
+            tau = kc.to(self.noise.dtype) / oversample          # in samples
+            ramp = torch.exp(2j * np.pi * tau[:, None] * freqs[None, :] / n)
+            if n % 2 == 0 and oversample > 1:
+                # Real part of the Nyquist term, as for a real band-limited shift.
+                ramp[:, -1] = torch.cos(np.pi * tau)
+            shifted = torch.fft.irfft(y_spec[None, :] * ramp, n=n)
+            b = self._f.sqrt_w[None, :] * shifted
+            out.append((b * self._solve_i_plus_a(b)).sum(-1))
+        return base - torch.cat(out)
 
     # -- public API mirroring MarginalLogLikelihood ---------------------------
 

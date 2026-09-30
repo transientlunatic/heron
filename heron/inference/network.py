@@ -62,14 +62,15 @@ from __future__ import annotations
 
 import inspect
 import math
+import warnings
 
 import numpy as np
 import torch
-from scipy.special import i0e
+from scipy.special import i0e, logsumexp
 
 from heron.likelihood import MarginalLogLikelihood
 from heron.noise import noise_covariance
-from heron.stationary import StationaryMarginalLikelihood, StationaryNoise
+from heron.stationary import StationaryMarginalLikelihood, StationaryNoise, correlate
 from heron.inference.projection import (
     project_polarisations, project_variances, variance_window,
 )
@@ -149,6 +150,39 @@ class NetworkLikelihood:
         module docstring for the exact/approximate distinction. When enabled,
         ``params`` passed to ``__call__`` must NOT contain
         ``coalescence_phase``/``phase`` (raises ``ValueError`` if present).
+    marginalize_time : bool
+        Marginalise geocentre coalescence time over the uniform prior
+        ``time_prior`` instead of sampling it (default ``False``). Needs
+        ``linalg="stationary"``. Because ``C`` and ``P`` are circulant they
+        commute with time shifts, and the template and its (tapered) variance
+        move rigidly with ``tc``; so one surrogate evaluation at the centre of
+        the prior gives the likelihood at every sample-grid shift in the prior
+        exactly: a fixed log-determinant, the cross term by FFT
+        cross-correlation, and the data term by one batched solve. The
+        marginal is the average over that grid. Shifts are cyclic, so the
+        template and its variance must be negligible within
+        ``max|tc - centre|`` of the segment ends (the variance taper and the
+        usual data taper see to this). Antenna patterns and detector delays
+        are evaluated at the prior centre. ``params`` must not contain ``tc``
+        / ``geocent_time``. Combines with ``marginalize_phase``. See
+        :meth:`time_series` for reconstructing ``tc`` posterior samples.
+    time_prior : (float, float) or None
+        Geocentre ``tc`` prior bounds (GPS seconds) for ``marginalize_time``.
+    time_resolution : float
+        Spacing (seconds) of the ``tc`` grid used for time marginalisation,
+        default 50 µs. The ``tc`` likelihood peak is ~1/(2π B ρ) wide (≈0.1 ms
+        at SNR ~20), far narrower than a sample at typical rates, so the grid
+        is refined below the sample spacing: the cross term (which carries the
+        sharp ``tc`` dependence) by zero-padded FFT and the data-only term by
+        phase-ramp-shifting the whitened data, i.e. both use the exact
+        band-limited fractional shift. This requires the template to be
+        band-limited at the sample rate: sampling a waveform with power above
+        Nyquist aliases it, the fractional shift of the aliased samples is not
+        the shifted waveform, and the result can be off by tens of nats (seen
+        at 512 Hz for a 60 Msun merger, which has ~1% of its power above
+        256 Hz). A warning is issued when the template carries significant
+        power in the top of the band. Set to the sample spacing to disable
+        refinement (whole-sample shifts are exact regardless).
     covariance_inflation : float
         Scalar multiplier applied to K's variance (not the mean) wherever it
         is used, after any k-smoothing envelope. Default 1.0 (no-op). Unlike
@@ -177,6 +211,9 @@ class NetworkLikelihood:
         k_smoothing_offsets: list[float] | None = None,
         k_smoothing_param: str = "mass_ratio",
         marginalize_phase: bool = False,
+        marginalize_time: bool = False,
+        time_prior: tuple[float, float] | None = None,
+        time_resolution: float = 5e-5,
         covariance_inflation: float = 1.0,
         variance_taper: float | None = 0.02,
         linalg: str = "stationary",
@@ -211,6 +248,21 @@ class NetworkLikelihood:
         self._linalg_options = dict(linalg_options or {})
         self._noise_args = dict(f_low=f_low, f_high=f_high,
                                 jitter=jitter, jitter_rel=jitter_rel)
+        self._marginalize_time = marginalize_time
+        self._alias_warned = False
+        if marginalize_time:
+            if linalg != "stationary":
+                raise ValueError("marginalize_time requires linalg='stationary'")
+            if time_prior is None:
+                raise ValueError("marginalize_time requires time_prior=(tc_min, tc_max)")
+            lo, hi = map(float, time_prior)
+            dt = float(self.times[1] - self.times[0])
+            self._oversample = max(1, int(np.ceil(dt / float(time_resolution) - 1e-9)))
+            step = dt / self._oversample
+            half = int(np.floor(0.5 * (hi - lo) / step))
+            self._tc_centre = 0.5 * (lo + hi)
+            self._shifts = np.arange(-half, half + 1)            # in units of `step`
+            self._tc_grid = self._tc_centre + self._shifts * step
 
         # Only the diagonal of K is ever used (project_variances). If the
         # surrogate's predict() accepts a `covariance` mode, request the cheap
@@ -413,48 +465,125 @@ class NetworkLikelihood:
                 "coalescence_phase is analytically marginalised "
                 "(marginalize_phase=True); do not include it in params."
             )
+        if self._marginalize_time:
+            series = self._time_series(params)
+            return float(logsumexp(series) - math.log(len(series)))
         intrinsic, extr = self._split_params(params)
         if self._marginalize_phase:
             return self._log_likelihood_marginal_phase(intrinsic, extr)
         return self._log_likelihood_fixed_phase(intrinsic, extr)
 
-    def _log_likelihood_fixed_phase(self, intrinsic: dict, extr: dict) -> float:
-        tc = extr["tc"]
-        total = 0.0
-        predict_mode = self._predict_mode()
+    def time_series(self, params: dict) -> tuple[np.ndarray, np.ndarray]:
+        """``(tc_grid, log L(tc))`` over the time prior grid (``marginalize_time``).
+
+        ``log L`` is the (phase-marginalised, if enabled) log-likelihood at each
+        geocentre ``tc`` on the sample grid. Draw ``tc`` posterior samples for a
+        posterior point by sampling this grid with weights ``exp(log L)``.
+        """
+        if not self._marginalize_time:
+            raise ValueError("time_series needs marginalize_time=True")
+        return self._tc_grid.copy(), self._time_series(params)
+
+    def _time_series(self, params: dict) -> np.ndarray:
+        if "tc" in params or "geocent_time" in params:
+            raise ValueError(
+                "tc is analytically marginalised (marginalize_time=True); "
+                "do not include it in params."
+            )
+        if self._marginalize_phase and ("coalescence_phase" in params or "phase" in params):
+            raise ValueError(
+                "coalescence_phase is analytically marginalised "
+                "(marginalize_phase=True); do not include it in params."
+            )
+        intrinsic, extr = self._split_params({**params, "tc": self._tc_centre})
+        shifts, u = self._shifts, self._oversample
+        const = np.zeros(len(shifts))
+        p_tot = np.zeros(len(shifts))
+        q_tot = np.zeros(len(shifts))
+        phases = [0.0, _QUARTER_TURN] if self._marginalize_phase else [extr["coalescence_phase"]]
 
         for ch in self._channels:
-            det = ch.detector
-            dt_geo = det.time_delay_from_geocentre(extr["ra"], extr["dec"], tc)
-            t_rel = self.times - (tc + dt_geo)
-
-            surrogate_params = {**intrinsic, "times": t_rel}
-            wf = self._predict(surrogate_params, predict_mode)
-
-            fp, fc = det.antenna_patterns(extr["ra"], extr["dec"], extr["psi"], tc)
-            mu, k_diag = project_polarisations(
-                wf, f_plus=fp, f_cross=fc,
-                distance=extr["distance"], distance_ref=self._distance_ref,
-                inclination=extr["inclination"],
-                coalescence_phase=extr["coalescence_phase"],
-            )
-            mu = self._hp_filter(mu)
-
-            if self.use_waveform_uncertainty:
-                if self._k_smoothing_offsets:
-                    var_p, var_c = self._enveloped_variances(wf, surrogate_params)
-                    k_diag = project_variances(
-                        var_p, var_c, f_plus=fp, f_cross=fc,
-                        distance=extr["distance"], distance_ref=self._distance_ref,
-                        inclination=extr["inclination"],
-                        coalescence_phase=extr["coalescence_phase"],
-                    )
+            mus, k_diag = self._detector_model(ch, intrinsic, extr, phases)
+            if u > 1 and not self._alias_warned:
+                self._check_band_limited(ch, mus[0])
+            mll = self._marginal(ch, mus[0], k_diag)
+            d = ch.noise.tensor(ch.data)
+            z_a = mll.solve(mus[0])
+            # (S_k^T d - mu)^T Sigma^-1 (S_k^T d - mu) = D_k - 2 X_k + mu^T Sigma^-1 mu
+            dd = mll.shifted_quadratic(d, shifts, oversample=u).cpu().numpy()
+            xa = correlate(z_a, d, shifts, oversample=u).cpu().numpy()
+            aa = float(torch.dot(ch.noise.tensor(mus[0]), z_a))
+            base = -0.5 * mll.log_det - 0.5 * self._n * _LOG_2PI
+            if self._marginalize_phase:
+                z_b = mll.solve(mus[1])
+                p_tot += xa
+                q_tot += correlate(z_b, d, shifts, oversample=u).cpu().numpy()
+                const += base - 0.5 * (dd + aa)
             else:
-                k_diag = None
-            k_diag = self._taper(intrinsic, t_rel, k_diag)
+                const += base - 0.5 * (dd - 2.0 * xa + aa)
 
-            total += self._marginal(ch, mu, k_diag)(ch.data)
+        if self._marginalize_phase:
+            r = np.hypot(p_tot, q_tot)
+            return const + r + np.log(i0e(r))
+        return const
 
+    def _check_band_limited(self, ch, mu: np.ndarray, threshold: float = 1e-4) -> None:
+        """Warn (once) if the whitened template has significant power near Nyquist.
+
+        Sub-sample time marginalisation shifts the sampled template by a
+        band-limited phase ramp, which is only the shifted waveform if the
+        sampling did not alias it.  Power in the top 10% of the band is the
+        tell-tale.
+        """
+        power = (torch.abs(torch.fft.rfft(ch.noise.tensor(mu))) ** 2
+                 * ch.noise.g_spectrum()).cpu().numpy()
+        top = self._freqs >= 0.9 * self._freqs[-1]
+        frac = float(power[top].sum() / max(power.sum(), 1e-300))
+        if frac > threshold:
+            self._alias_warned = True
+            warnings.warn(
+                f"{frac:.1e} of the whitened template power is within 10% of Nyquist "
+                f"({self._freqs[-1]:.0f} Hz): the template is probably aliased at this "
+                "sample rate, and sub-sample time marginalisation can then be wrong "
+                "by many nats. Raise the sample rate, or set time_resolution to the "
+                "sample spacing.",
+                stacklevel=3,
+            )
+
+    def _detector_model(self, ch, intrinsic: dict, extr: dict, phases: list[float]):
+        """Projected, high-passed mean(s) and tapered variance for one detector.
+
+        Returns ``([mu(phase) for phase in phases], k_diag)`` with ``k_diag``
+        evaluated at ``phases[0]`` (``None`` without waveform uncertainty).
+        """
+        tc = extr["tc"]
+        dt_geo = ch.detector.time_delay_from_geocentre(extr["ra"], extr["dec"], tc)
+        t_rel = self.times - (tc + dt_geo)
+        surrogate_params = {**intrinsic, "times": t_rel}
+        wf = self._predict(surrogate_params, self._predict_mode())
+        fp, fc = ch.detector.antenna_patterns(extr["ra"], extr["dec"], extr["psi"], tc)
+        proj = dict(f_plus=fp, f_cross=fc, distance=extr["distance"],
+                    distance_ref=self._distance_ref, inclination=extr["inclination"])
+        mus = []
+        k_diag = None
+        for i, phase in enumerate(phases):
+            mu, kd = project_polarisations(wf, coalescence_phase=phase, **proj)
+            mus.append(self._hp_filter(mu))
+            if i == 0:
+                k_diag = kd
+        if self.use_waveform_uncertainty:
+            if self._k_smoothing_offsets:
+                var_p, var_c = self._enveloped_variances(wf, surrogate_params)
+                k_diag = project_variances(var_p, var_c, coalescence_phase=phases[0], **proj)
+        else:
+            k_diag = None
+        return mus, self._taper(intrinsic, t_rel, k_diag)
+
+    def _log_likelihood_fixed_phase(self, intrinsic: dict, extr: dict) -> float:
+        total = 0.0
+        for ch in self._channels:
+            mus, k_diag = self._detector_model(ch, intrinsic, extr, [extr["coalescence_phase"]])
+            total += self._marginal(ch, mus[0], k_diag)(ch.data)
         return float(total)
 
     def _log_likelihood_marginal_phase(self, intrinsic: dict, extr: dict) -> float:
@@ -477,47 +606,13 @@ class NetworkLikelihood:
         ``scipy.special.i0e`` for numerical stability at large argument:
         ``log I0(x) = x + log(i0e(x))``).
         """
-        tc = extr["tc"]
-        predict_mode = self._predict_mode()
-
         const_total = 0.0
         p_total = 0.0
         q_total = 0.0
 
         for ch in self._channels:
-            det = ch.detector
-            dt_geo = det.time_delay_from_geocentre(extr["ra"], extr["dec"], tc)
-            t_rel = self.times - (tc + dt_geo)
-
-            surrogate_params = {**intrinsic, "times": t_rel}
-            wf = self._predict(surrogate_params, predict_mode)
-
-            fp, fc = det.antenna_patterns(extr["ra"], extr["dec"], extr["psi"], tc)
-            mu_a, k_diag = project_polarisations(
-                wf, f_plus=fp, f_cross=fc,
-                distance=extr["distance"], distance_ref=self._distance_ref,
-                inclination=extr["inclination"], coalescence_phase=0.0,
-            )
-            mu_q, _ = project_polarisations(
-                wf, f_plus=fp, f_cross=fc,
-                distance=extr["distance"], distance_ref=self._distance_ref,
-                inclination=extr["inclination"], coalescence_phase=_QUARTER_TURN,
-            )
-            mu_a = self._hp_filter(mu_a)
-            mu_b = self._hp_filter(mu_q)
-
-            if self.use_waveform_uncertainty:
-                if self._k_smoothing_offsets:
-                    var_p, var_c = self._enveloped_variances(wf, surrogate_params)
-                    k_diag = project_variances(
-                        var_p, var_c, f_plus=fp, f_cross=fc,
-                        distance=extr["distance"], distance_ref=self._distance_ref,
-                        inclination=extr["inclination"], coalescence_phase=0.0,
-                    )
-            else:
-                k_diag = None
-            k_diag = self._taper(intrinsic, t_rel, k_diag)
-
+            (mu_a, mu_b), k_diag = self._detector_model(
+                ch, intrinsic, extr, [0.0, _QUARTER_TURN])
             mll = self._marginal(ch, mu_a, k_diag)
             aa = mll.inner(mu_a, mu_a)
             dd = mll.inner(ch.data, ch.data)
