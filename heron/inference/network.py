@@ -215,6 +215,7 @@ class NetworkLikelihood:
         time_prior: tuple[float, float] | None = None,
         time_resolution: float = 5e-5,
         covariance_inflation: float = 1.0,
+        data_taper: float | None = None,
         variance_taper: float | None = 0.02,
         linalg: str = "stationary",
         linalg_options: dict | None = None,
@@ -248,7 +249,13 @@ class NetworkLikelihood:
         self._linalg_options = dict(linalg_options or {})
         self._noise_args = dict(f_low=f_low, f_high=f_high,
                                 jitter=jitter, jitter_rel=jitter_rel)
+        self._data_window = None
+        if data_taper is not None:
+            from heron.inference.strain import tukey_window
+            dt = float(self.times[1] - self.times[0])
+            self._data_window = tukey_window(len(self.times), dt, float(data_taper))
         self._marginalize_time = marginalize_time
+        self._taper_warned = False
         self._alias_warned = False
         if marginalize_time:
             if linalg != "stationary":
@@ -506,6 +513,8 @@ class NetworkLikelihood:
             mus, k_diag = self._detector_model(ch, intrinsic, extr, phases)
             if u > 1 and not self._alias_warned:
                 self._check_band_limited(ch, mus[0])
+            if self._data_window is not None and not self._taper_warned:
+                self._check_taper_edges(ch, mus[0])
             mll = self._marginal(ch, mus[0], k_diag)
             d = ch.noise.tensor(ch.data)
             z_a = mll.solve(mus[0])
@@ -526,6 +535,33 @@ class NetworkLikelihood:
             r = np.hypot(p_tot, q_tot)
             return const + r + np.log(i0e(r))
         return const
+
+    def _check_taper_edges(self, ch, mu: np.ndarray, threshold: float = 1e-4) -> None:
+        """Warn (once) if the windowed template has power where the window < 1.
+
+        With ``marginalize_time`` the data window stays on the sample grid
+        while the template shifts, so the shifted-template algebra is only
+        exact where the window is flat.
+        """
+        edge = self._data_window < 1.0 - 1e-12
+shift = int(np.max(np.abs(self._shifts))) // self._oversample + 1
+        if 2 * shift + 1 >= len(edge):
+            edge = np.ones_like(edge, dtype=bool)
+        else:
+            edge = np.convolve(edge.astype(float), np.ones(2 * shift + 1), "same") > 0
+        mu_edge = np.where(edge, mu, 0.0)
+        g = ch.noise.g_spectrum()
+        num = float((torch.abs(torch.fft.rfft(ch.noise.tensor(mu_edge))) ** 2 * g).sum())
+        den = float((torch.abs(torch.fft.rfft(ch.noise.tensor(mu))) ** 2 * g).sum())
+        if den > 0 and num / den > threshold:
+            self._taper_warned = True
+            warnings.warn(
+                f"{num / den:.1e} of the whitened template power lies within the data "
+                "taper's roll-off (widened by the time prior): time marginalisation "
+                "holds the window fixed while the template shifts, so it is approximate "
+                "here. Use a longer segment or a shorter roll-off.",
+                stacklevel=3,
+            )
 
     def _check_band_limited(self, ch, mu: np.ndarray, threshold: float = 1e-4) -> None:
         """Warn (once) if the whitened template has significant power near Nyquist.
@@ -564,10 +600,13 @@ class NetworkLikelihood:
         fp, fc = ch.detector.antenna_patterns(extr["ra"], extr["dec"], extr["psi"], tc)
         proj = dict(f_plus=fp, f_cross=fc, distance=extr["distance"],
                     distance_ref=self._distance_ref, inclination=extr["inclination"])
+        win = self._data_window
         mus = []
         k_diag = None
         for i, phase in enumerate(phases):
             mu, kd = project_polarisations(wf, coalescence_phase=phase, **proj)
+            if win is not None:
+                mu = win * mu
             mus.append(self._hp_filter(mu))
             if i == 0:
                 k_diag = kd
@@ -577,7 +616,10 @@ class NetworkLikelihood:
                 k_diag = project_variances(var_p, var_c, coalescence_phase=phases[0], **proj)
         else:
             k_diag = None
-        return mus, self._taper(intrinsic, t_rel, k_diag)
+        k_diag = self._taper(intrinsic, t_rel, k_diag)
+        if win is not None and k_diag is not None:
+            k_diag = win**2 * k_diag
+        return mus, k_diag
 
     def _log_likelihood_fixed_phase(self, intrinsic: dict, extr: dict) -> float:
         total = 0.0

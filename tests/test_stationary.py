@@ -342,3 +342,65 @@ class TestTimeMarginalisation:
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             ok(p)
+
+
+class TestDataTaper:
+    def test_window_matches_taper_strain(self):
+        from heron.inference.strain import taper_strain, tukey_window
+        x = np.random.default_rng(0).standard_normal(1000)
+        np.testing.assert_array_equal(taper_strain(x, 1 / 512, 0.2),
+                                      x * tukey_window(1000, 1 / 512, 0.2))
+
+    def _like(self, surrogate, psd, data, **kw):
+        times = _times()
+        det = Detector.from_name("H1", psd_fn=psd)
+        return NetworkLikelihood(data={"H1": data}, times=times, detectors=[det],
+                                 surrogate=surrogate, use_waveform_uncertainty=False, **kw)
+
+    def test_tapered_data_with_matching_model_is_exact(self, flat_psd):
+        from conftest import StubSurrogate
+        from heron.inference.strain import tukey_window
+        stub_surrogate = StubSurrogate(amplitude=50.0)
+        times = _times()
+        params = {"mass_ratio": Q, "tc": TC, "ra": RA, "dec": DEC, "psi": PSI}
+        signal = _detector_signal(stub_surrogate, Detector.from_name("H1", psd_fn=flat_psd),
+                                  params, times)
+        w = tukey_window(len(times), times[1] - times[0], 0.1)
+        untapered = self._like(stub_surrogate, flat_psd, signal)(params)
+        matched = self._like(stub_surrogate, flat_psd, w * signal, data_taper=0.1)(params)
+        mismatched = self._like(stub_surrogate, flat_psd, w * signal)(params)
+        assert matched == pytest.approx(untapered, abs=1e-8)
+        assert mismatched < matched - 1.0
+
+    def test_variance_is_windowed(self, stub_surrogate, flat_psd):
+        from heron.inference.strain import tukey_window
+        like = NetworkLikelihood(data={"H1": np.zeros(256)}, times=_times(),
+                                 detectors=[Detector.from_name("H1", psd_fn=flat_psd)],
+                                 surrogate=stub_surrogate, data_taper=0.1)
+        seen = {}
+        orig = like._marginal
+        like._marginal = lambda ch, mu, k: seen.setdefault("k", k) is None or orig(ch, mu, k)
+        like({"mass_ratio": Q, "tc": TC, "ra": RA, "dec": DEC, "psi": PSI})
+        w = tukey_window(256, _times()[1] - _times()[0], 0.1)
+        expected = stub_surrogate.var * np.ones(256)   # stub variance (face-on, fp^2 + fc^2 weights)
+        ratio = seen["k"] / np.where(w > 0, w**2, 1)
+        np.testing.assert_allclose(seen["k"][w == 0], 0.0)
+        assert np.allclose(ratio[w > 0.5], ratio[w > 0.5][0], rtol=1e-12)
+
+    def test_time_marginalisation_warns_when_signal_in_rolloff(self, flat_psd):
+        surrogate = _CompactStub(var=1e-2)
+        times = _times(n=512, fs=512.0)
+        det = [Detector.from_name("H1", psd_fn=flat_psd)]
+        p = {"mass_ratio": Q, "ra": RA, "dec": DEC, "psi": PSI, "inclination": 0.4,
+             "coalescence_phase": 0.7}
+        make = lambda roll: NetworkLikelihood(
+            data={"H1": np.zeros(512)}, times=times, detectors=det, surrogate=surrogate,
+            marginalize_time=True, time_prior=(TC - 0.02, TC + 0.02), data_taper=roll)
+        # Signal (at TC, mid-segment) far from a 0.1 s roll-off: no warning.
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            make(0.1)(p)
+        # A roll-off covering most of the segment reaches the signal: warns.
+        with pytest.warns(UserWarning, match="roll-off"):
+            make(0.45)(p)
