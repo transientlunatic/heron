@@ -544,8 +544,11 @@ class NetworkLikelihood:
         exact where the window is flat.
         """
         edge = self._data_window < 1.0 - 1e-12
-        shift = int(np.max(np.abs(self._shifts))) // self._oversample + 1
-        edge = np.convolve(edge.astype(float), np.ones(2 * shift + 1), "same") > 0
+shift = int(np.max(np.abs(self._shifts))) // self._oversample + 1
+        if 2 * shift + 1 >= len(edge):
+            edge = np.ones_like(edge, dtype=bool)
+        else:
+            edge = np.convolve(edge.astype(float), np.ones(2 * shift + 1), "same") > 0
         mu_edge = np.where(edge, mu, 0.0)
         g = ch.noise.g_spectrum()
         num = float((torch.abs(torch.fft.rfft(ch.noise.tensor(mu_edge))) ** 2 * g).sum())
