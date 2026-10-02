@@ -649,10 +649,11 @@ class ExactGPSurrogate(WaveformSurrogate):
                 mu = model(x).mean
             w = x[:, -1].cpu().numpy()
             r2 = ((y - mu) ** 2).cpu().numpy()
-            edges = np.quantile(w, np.linspace(0.0, 1.0, n_bins + 1))
-            idx = np.clip(np.searchsorted(edges, w, side="right") - 1, 0, n_bins - 1)
-            centres = np.array([np.median(w[idx == b]) for b in range(n_bins)])
-            var = np.array([r2[idx == b].mean() for b in range(n_bins)])
+            if not isinstance(n_bins, int) or isinstance(n_bins, bool) or not 1 <= n_bins <= len(w):
+                raise ValueError(f"n_bins must be an integer in [1, {len(w)}]")
+            bins = np.array_split(np.argsort(w, kind="stable"), n_bins)
+            centres = np.array([np.median(w[b]) for b in bins])
+            var = np.array([r2[b].mean() for b in bins])
             profile[name] = {"w": centres, "logvar": np.log(np.maximum(var, 1e-300))}
         self.residual_profile = profile
         return profile
