@@ -117,6 +117,37 @@ class DemodGPSurrogate(WaveformSurrogate):
         this (via `scripts/calibrate_demod_k.py`) to recalibrate K to a
         trustworthy uncertainty for coverage/PP-plot work. Never affects the
         mean.
+    amplitude_normalise : bool
+        Fit the GPs to the amplitude-normalised residual
+        ``z / a(q, t) = delta - i*deltaPhi`` (relative amplitude and phase
+        error) rather than ``z``, with ``a`` the reference amplitude floored at
+        ``amp_floor_rel`` times its per-q peak. A stationary prior on ``z``
+        asserts equal uncertainty at every time although the residual scales
+        with the signal (~100x from early inspiral to merger), so the latent
+        variance is far too large in the inspiral and too small at merger.
+        Prediction multiplies the mean by ``a`` and the variance by ``a**2``
+        (still an exact linear congruence). Changes the trained target.
+    amp_floor_rel : float
+        Floor on ``a`` relative to the per-q peak reference amplitude, so the
+        division is well-behaved where the reference decays (ringdown).
+    envelope_smoothness : float
+        Weight of the second-difference roughness penalty on the envelope's
+        log-scale knots in the training loss (training only, not persisted).
+    objective : str
+        ``"mll"`` (marginal likelihood) or ``"loo"`` (leave-one-mass-ratio-out
+        predictive likelihood); training-only, not persisted.
+    q_warping : str or None
+        Fixed monotone warp of the mass-ratio kernel distance (``"eta"`` =
+        symmetric mass ratio), so the q-lengthscale is shorter at low q.
+    q_envelope_knots : int
+        Knots of an optional learned outputscale Q(q) over the first input
+        (needs ``envelope_knots``).
+    envelope_knots : int
+        If > 0, the inner GPs use a learned time envelope s(t) (piecewise-linear
+        log s through this many knots) multiplying the kernel amplitude and
+        scaling the noise variance by s^2, fitted by marginal likelihood. This
+        lets the prior variance follow how the residual actually varies in time
+        (see :class:`~heron.models.gp.kernels.TimeEnvelope`). 0 = stationary.
     """
 
     def __init__(
@@ -142,9 +173,19 @@ class DemodGPSurrogate(WaveformSurrogate):
         noise_floor_rel: float = 1e-6,
         cholesky_size: int = 2000,
         covariance_inflation: float = 1.0,
+        amplitude_normalise: bool = False,
+        amp_floor_rel: float = 1e-3,
+        envelope_knots: int = 0,
+        q_envelope_knots: int = 0,
+        q_warping: str | None = None,
+        envelope_smoothness: float = 1e-3,
+        objective: str = "mll",
     ):
         self._device = torch.device(device)
         self.output_scale = output_scale
+        self.amplitude_normalise = bool(amplitude_normalise)
+        self.amp_floor_rel = float(amp_floor_rel)
+        self._amp_peak_cache: dict[float, float] = {}
         self.nu = nu
         self.mass_factor = total_mass
         self.distance_factor = distance
@@ -202,6 +243,13 @@ class DemodGPSurrogate(WaveformSurrogate):
         rc = Dc - hXc
         re_z = rp * cosP + rc * sinP
         im_z = rp * sinP - rc * cosP
+        inner_scale = output_scale
+        if self.amplitude_normalise:
+            amp = self._amplitude(q_np, t_np)
+            re_z = re_z / amp
+            im_z = im_z / amp
+            # z/a is dimensionless and ~1e-3; rescale so the inner GP sees O(1).
+            inner_scale = 1.0 / float(np.std(np.concatenate([re_z, im_z])))
         logger.info(
             "Demod targets: |D-XAS_plus| median %.3g, Re(z) std %.3g, Im(z) std %.3g "
             "(reference=%s, phase_correction=%.4f rad)",
@@ -218,7 +266,7 @@ class DemodGPSurrogate(WaveformSurrogate):
             train_y_cross=torch.tensor(im_z, dtype=torch.float32),
             warping=self.warping,
             nu=nu,
-            output_scale=output_scale,
+            output_scale=inner_scale,
             device=device,
             mean_module=None,
             total_mass=total_mass,
@@ -230,6 +278,11 @@ class DemodGPSurrogate(WaveformSurrogate):
             ls_min_q=ls_min_q,
             noise_floor_rel=noise_floor_rel,
             cholesky_size=cholesky_size,
+            envelope_knots=envelope_knots,
+            q_envelope_knots=q_envelope_knots,
+            q_warping=q_warping,
+            envelope_smoothness=envelope_smoothness,
+            objective=objective,
         )
 
     # -- reference / phase-correction helpers ------------------------------
@@ -290,6 +343,26 @@ class DemodGPSurrogate(WaveformSurrogate):
             hXc[m] = np.where(in_sup, amp * s, 0.0)
         return hXp, hXc, cosP, sinP
 
+    def _amplitude(self, q_col: np.ndarray, t_col: np.ndarray) -> np.ndarray:
+        """Floored reference amplitude a(q, t) at the reference mass/distance.
+
+        The floor is ``amp_floor_rel`` times the per-q peak amplitude over the
+        native support, so ``z / a`` stays bounded through the ringdown.
+        """
+        q_col = np.asarray(q_col, dtype=np.float64)
+        t_col = np.asarray(t_col, dtype=np.float64)
+        out = np.empty_like(t_col)
+        for qv in np.unique(q_col):
+            m = q_col == qv
+            key = float(qv)
+            if key not in self._amp_peak_cache:
+                t0, t1 = self._ref.support(qv)
+                log_amp, _ = self._ref.log_amplitude_phase(qv, np.linspace(t0, t1, 8192))
+                self._amp_peak_cache[key] = float(np.exp(log_amp).max())
+            log_amp, _ = self._ref.log_amplitude_phase(qv, t_col[m])
+            out[m] = np.maximum(np.exp(log_amp), self.amp_floor_rel * self._amp_peak_cache[key])
+        return out
+
     # -- prediction --------------------------------------------------------
 
     def predict(self, parameters: dict, covariance: str = "full") -> WaveformDict:
@@ -328,6 +401,10 @@ class DemodGPSurrogate(WaveformSurrogate):
         # Reference at the same physical times.
         q_arr = np.full(len(times_np), mass_ratio, dtype=np.float64)
         hXp, hXc, cosP, sinP = self._reference(q_arr, times_np)
+        amp = self._amplitude(q_arr, times_np) if self.amplitude_normalise else None
+        if amp is not None:
+            re_z = re_z * amp
+            im_z = im_z * amp
 
         # The inner GP already scales Re/Im(z) (and their variances) by the
         # total-mass amplitude factor M/M_ref; the reference strain needs the
@@ -352,6 +429,10 @@ class DemodGPSurrogate(WaveformSurrogate):
             # adds no covariance.
             cov_re = wf["plus"].covariance
             cov_im = wf["cross"].covariance
+            if amp is not None:
+                aa = np.outer(amp, amp)
+                cov_re = aa * cov_re
+                cov_im = aa * cov_im
             cc = np.outer(cosP, cosP)
             ss = np.outer(sinP, sinP)
             cov_plus = infl * (cc * cov_re + ss * cov_im) / distance_factor**2
@@ -363,6 +444,9 @@ class DemodGPSurrogate(WaveformSurrogate):
             # = cos² . diag(cov_re) = cos² . var_re, etc. — O(N), no N×N.
             var_re = wf["plus"].variance
             var_im = wf["cross"].variance
+            if amp is not None:
+                var_re = amp**2 * var_re
+                var_im = amp**2 * var_im
             var_plus = infl * (cosP**2 * var_re + sinP**2 * var_im) / distance_factor**2
             var_cross = infl * (sinP**2 * var_re + cosP**2 * var_im) / distance_factor**2
             output["plus"] = Waveform(data=h_plus, times=times_np, variance=var_plus)
@@ -410,6 +494,10 @@ class DemodGPSurrogate(WaveformSurrogate):
         _, times_np, _ = self._gp._build_eval_points(inner_params)
         q_arr = np.full(len(times_np), mass_ratio, dtype=np.float64)
         _, _, cosP, sinP = self._reference(q_arr, times_np)
+        if self.amplitude_normalise:
+            a2 = self._amplitude(q_arr, times_np) ** 2
+            var_re = a2 * var_re
+            var_im = a2 * var_im
         infl = self.covariance_inflation
         return {
             "plus": infl * (cosP**2 * var_re + sinP**2 * var_im),
@@ -505,6 +593,10 @@ class DemodGPSurrogate(WaveformSurrogate):
         )
         self.__dict__.update(obj.__dict__)
 
+    def fit_scale_fields_loo(self, iterations: int = 30):
+        """Refit the amplitude fields against the leave-one-mass-ratio-out likelihood."""
+        return self._gp.fit_scale_fields_loo(iterations)
+
     def save(self, path: str | Path) -> None:
         """Save checkpoint.
 
@@ -543,6 +635,11 @@ class DemodGPSurrogate(WaveformSurrogate):
             "noise_floor_rel": self.noise_floor_rel,
             "cholesky_size": self.cholesky_size,
             "covariance_inflation": self.covariance_inflation,
+            "amplitude_normalise": self.amplitude_normalise,
+            "amp_floor_rel": self.amp_floor_rel,
+            "envelope_knots": self._gp.envelope_knots,
+            "q_envelope_knots": self._gp.q_envelope_knots,
+            "q_warping": self._gp.q_warping,
         }
         torch.save(checkpoint, path)
         logger.info(f"Saved checkpoint to {path} (heron {heron_version})")
@@ -606,6 +703,11 @@ class DemodGPSurrogate(WaveformSurrogate):
             noise_floor_rel=checkpoint.get("noise_floor_rel", 1e-6),
             cholesky_size=checkpoint.get("cholesky_size", 2000),
             covariance_inflation=checkpoint.get("covariance_inflation", 1.0),
+            amplitude_normalise=checkpoint.get("amplitude_normalise", False),
+            amp_floor_rel=checkpoint.get("amp_floor_rel", 1e-3),
+            envelope_knots=checkpoint.get("envelope_knots", 0),
+            q_envelope_knots=checkpoint.get("q_envelope_knots", 0),
+            q_warping=checkpoint.get("q_warping"),
         )
 
         for name, state in checkpoint["model_states"].items():
