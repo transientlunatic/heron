@@ -364,3 +364,78 @@ class TestDemodGPSurrogate:
         lo, hi = surrogate.parameter_bounds["mass_ratio"]
         assert lo == pytest.approx(0.3)
         assert hi == pytest.approx(0.9)
+
+
+class TestAmplitudeNormalisedDemod:
+    """amplitude_normalise fits z/a and multiplies back by a at predict time."""
+
+    @pytest.fixture(scope="class")
+    def built(self):
+        reference, oracle = _make_models()
+        train_x, y_plus, y_cross = _make_training_data(oracle)
+        kw = dict(
+            train_x=train_x, train_y_plus=y_plus, train_y_cross=y_cross,
+            base_approximant=reference, oracle_approximant=None, phase_correction=0.0,
+            warping="chirp", nu=2.5, output_scale=1.0, device="cpu",
+            total_mass=60.0, distance=100.0, training_iterations=25,
+        )
+        return reference, DemodGPSurrogate(**kw), DemodGPSurrogate(amplitude_normalise=True, **kw)
+
+    def test_targets_are_divided_by_amplitude(self, built):
+        _, plain, norm = built
+        q = plain._train_x_raw[:, 0].numpy().astype(float)
+        t = plain._train_x_raw[:, -1].numpy().astype(float)
+        a = norm._amplitude(q, t)
+        assert np.all(a > 0)
+        ratio = (plain._gp.models["plus"].train_targets.numpy() / plain._gp.output_scale) / a
+        got = norm._gp.models["plus"].train_targets.numpy() / norm._gp.output_scale
+        np.testing.assert_allclose(got, ratio, rtol=1e-4, atol=1e-6 * np.abs(ratio).max())
+
+    def test_variance_is_amplitude_congruence_of_inner(self, built):
+        _, _, norm = built
+        times = np.linspace(-0.3, 0.02, 80)
+        params = {"mass_ratio": 0.6, "times": times}
+        wf = norm.predict(params, covariance="full")
+        inner = norm._gp.predict(params)
+        amp = norm._amplitude(np.full(len(times), 0.6), times)
+        _, _, cosP, sinP = norm._reference(np.full(len(times), 0.6), times)
+        aa = np.outer(amp, amp)
+        expect = (np.outer(cosP, cosP) * aa * inner["plus"].covariance
+                  + np.outer(sinP, sinP) * aa * inner["cross"].covariance)
+        np.testing.assert_allclose(wf["plus"].covariance, expect, rtol=1e-6,
+                                   atol=1e-12 * np.abs(expect).max())
+
+    def test_diagonal_helpers_agree_with_full(self, built):
+        _, _, norm = built
+        params = {"mass_ratio": 0.6, "times": np.linspace(-0.3, 0.02, 90)}
+        full = norm.predict(params, covariance="full")
+        diag = norm.predict(params, covariance="diagonal")
+        cd = norm.covariance_diagonal(params)
+        for pol in ("plus", "cross"):
+            v = np.diag(full[pol].covariance)
+            np.testing.assert_allclose(diag[pol].variance, v, rtol=1e-6, atol=1e-12 * v.max())
+            np.testing.assert_allclose(cd[pol], v, rtol=1e-6, atol=1e-12 * v.max())
+
+    def test_mean_close_to_plain_and_mass_scaling(self, built):
+        _, plain, norm = built
+        t = np.linspace(-0.3, 0.02, 120)
+        a = plain.predict({"mass_ratio": 0.6, "times": t}, covariance="none")["plus"].data
+        b = norm.predict({"mass_ratio": 0.6, "times": t}, covariance="none")["plus"].data
+        assert np.max(np.abs(a - b)) < 0.05 * np.abs(a).max()
+        s = 1.2
+        m = norm.predict({"mass_ratio": 0.6, "total_mass": s * 60.0, "times": t * s},
+                         covariance="diagonal")
+        r = norm.predict({"mass_ratio": 0.6, "times": t}, covariance="diagonal")
+        np.testing.assert_allclose(m["plus"].data, s * r["plus"].data,
+                                   rtol=1e-8, atol=1e-12 * np.abs(r["plus"].data).max())
+        np.testing.assert_allclose(m["plus"].variance, s**2 * r["plus"].variance, rtol=1e-8)
+
+    def test_checkpoint_roundtrip(self, built, tmp_path):
+        reference, _, norm = built
+        norm.save(tmp_path / "n.pt")
+        loaded = DemodGPSurrogate.load(tmp_path / "n.pt", device="cpu", base_approximant=reference)
+        assert loaded.amplitude_normalise and loaded.amp_floor_rel == norm.amp_floor_rel
+        p = {"mass_ratio": 0.6, "times": np.linspace(-0.3, 0.02, 60)}
+        a, b = norm.predict(p, covariance="diagonal"), loaded.predict(p, covariance="diagonal")
+        np.testing.assert_allclose(a["plus"].data, b["plus"].data, rtol=1e-6, atol=1e-12)
+        np.testing.assert_allclose(a["plus"].variance, b["plus"].variance, rtol=1e-6, atol=1e-14)

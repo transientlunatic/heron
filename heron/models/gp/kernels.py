@@ -44,6 +44,7 @@ import math
 
 import torch
 import gpytorch
+from linear_operator.operators import DiagLinearOperator
 from gpytorch.constraints import GreaterThan, Interval
 
 
@@ -313,3 +314,92 @@ def symmetric_mass_ratio_warp(q: torch.Tensor) -> torch.Tensor:
 Q_WARP_FUNCTIONS = {
     "eta": symmetric_mass_ratio_warp,
 }
+
+
+class TimeEnvelope(torch.nn.Module):
+    """Learned positive amplitude envelope s(t) over (warped) time.
+
+    ``log s`` is piecewise-linear through ``n_knots`` fixed knots spaced
+    uniformly over the (warped) training times, so the sparsely sampled
+    inspiral is resolved as well as the densely sampled merger and is held constant beyond the outer
+    knots. The knot values are ordinary parameters, so the envelope is fitted
+    by marginal likelihood with everything else. The raw knot values are
+    soft-bounded to +-``max_log`` and centred to zero mean, which removes the
+    flat direction against the kernel outputscale and keeps the line search
+    from driving the kernel to an ill-conditioned extreme.
+    """
+
+    max_log = 5.0
+
+    def __init__(self, times: torch.Tensor, n_knots: int = 12, max_log: float | None = None):
+        super().__init__()
+        if max_log is not None:
+            self.max_log = float(max_log)
+        t = times.detach().flatten()
+        knots = torch.linspace(float(t.min()), float(t.max()), n_knots, dtype=t.dtype, device=t.device)
+        self.register_buffer("knots", knots)
+        self.log_s = torch.nn.Parameter(torch.zeros_like(knots))
+
+    def effective_log_s(self) -> torch.Tensor:
+        bounded = self.max_log * torch.tanh(self.log_s / self.max_log)
+        return bounded - bounded.mean()
+
+    def roughness(self) -> torch.Tensor:
+        d2 = torch.diff(self.effective_log_s(), n=2)
+        return (d2**2).sum()
+
+    def forward(self, t: torch.Tensor) -> torch.Tensor:
+        knots = self.knots
+        log_s = self.effective_log_s()
+        idx = torch.clamp(torch.searchsorted(knots, t.contiguous()) - 1, 0, len(knots) - 2)
+        k0, k1 = knots[idx], knots[idx + 1]
+        frac = torch.clamp((t - k0) / (k1 - k0), 0.0, 1.0)
+        return torch.exp(log_s[idx] * (1.0 - frac) + log_s[idx + 1] * frac)
+
+
+def _scale(envelope, q_envelope, x):
+    s = envelope(x[..., -1])
+    if q_envelope is not None:
+        s = s * q_envelope(x[..., 0])
+    return s
+
+
+class EnvelopeKernel(gpytorch.kernels.Kernel):
+    """k(x, x') = s(t) s(t') k_base(x, x'), with t the last input column.
+
+    An optional ``q_envelope`` adds a second factor Q(q) Q(q') over the first
+    input column, so the outputscale can differ between parameter regions.
+    """
+
+    def __init__(self, base_kernel: gpytorch.kernels.Kernel, envelope: TimeEnvelope,
+                 q_envelope: TimeEnvelope | None = None):
+        super().__init__()
+        self.base_kernel = base_kernel
+        self.envelope = envelope
+        self.q_envelope = q_envelope
+
+    def forward(self, x1, x2, diag: bool = False, last_dim_is_batch: bool = False, **params):
+        s1 = _scale(self.envelope, self.q_envelope, x1)
+        s2 = _scale(self.envelope, self.q_envelope, x2)
+        if diag:
+            return self.base_kernel(x1, x2, diag=True, **params) * s1 * s2
+        k = self.base_kernel(x1, x2, **params).to_dense()
+        return s1.unsqueeze(-1) * k * s2.unsqueeze(-2)
+
+
+class EnvelopeNoise(gpytorch.likelihoods.noise_models.HomoskedasticNoise):
+    """Observation noise sigma^2 s(t)^2, sharing the kernel's envelope so the
+    signal-to-noise ratio is stationary."""
+
+    def __init__(self, envelope: TimeEnvelope, q_envelope: TimeEnvelope | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self.envelope = envelope
+        self.q_envelope = q_envelope
+
+    def forward(self, *params, shape=None, **kwargs):
+        base = super().forward(*params, shape=shape, **kwargs)
+        x = params[0] if params else None
+        if x is None or not torch.is_tensor(x) or "noise" in kwargs:
+            return base
+        s = _scale(self.envelope, self.q_envelope, x)
+        return DiagLinearOperator(base.diagonal(dim1=-1, dim2=-2) * s**2)
