@@ -544,7 +544,7 @@ class NetworkLikelihood:
         exact where the window is flat.
         """
         edge = self._data_window < 1.0 - 1e-12
-shift = int(np.max(np.abs(self._shifts))) // self._oversample + 1
+        shift = int(np.max(np.abs(self._shifts))) // self._oversample + 1
         if 2 * shift + 1 >= len(edge):
             edge = np.ones_like(edge, dtype=bool)
         else:

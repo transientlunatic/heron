@@ -23,6 +23,9 @@ from .kernels import (
     build_additive_floor_kernel,
     WarpedMaternKernel,
     Q_WARP_FUNCTIONS,
+    TimeEnvelope,
+    EnvelopeKernel,
+    EnvelopeNoise,
 )
 
 logger = logging.getLogger("heron.models.gp.exact")
@@ -58,6 +61,8 @@ class _ExactGPModel(gpytorch.models.ExactGP):
         q_floor_outputscale_min: float = 0.05,
         q_floor_outputscale_init: float | None = None,
         q_warping: str | None = None,
+        envelope_knots: int = 0,
+        q_envelope_knots: int = 0,
     ):
         import math
         from gpytorch.priors import LogNormalPrior
@@ -227,6 +232,17 @@ class _ExactGPModel(gpytorch.models.ExactGP):
         product_kernel = kernels[0]
         for k in kernels[1:]:
             product_kernel = product_kernel * k
+        if envelope_knots:
+            # Learned amplitude envelope s(t) shared by kernel and noise:
+            # k = s(t)s(t')k0, noise = sigma^2 s(t)^2 (see TimeEnvelope).
+            envelope = TimeEnvelope(train_x[:, -1], envelope_knots)
+            q_envelope = (
+                TimeEnvelope(train_x[:, 0], q_envelope_knots, max_log=3.0) if q_envelope_knots else None
+            )
+            product_kernel = EnvelopeKernel(product_kernel, envelope, q_envelope)
+            self.likelihood.noise_covar = EnvelopeNoise(
+                envelope, q_envelope, noise_constraint=gpytorch.constraints.GreaterThan(noise_floor),
+            )
         self.covar_module = gpytorch.kernels.ScaleKernel(product_kernel)
 
         # Initialise outputscale and noise from data statistics.
@@ -310,6 +326,10 @@ class ExactGPSurrogate(WaveformSurrogate):
         q_floor_outputscale_min: float = 0.05,
         q_floor_outputscale_init: float | None = None,
         q_warping: str | None = None,
+        envelope_knots: int = 0,
+        q_envelope_knots: int = 0,
+        envelope_smoothness: float = 1e-3,
+        objective: str = "mll",
     ):
         self._device = torch.device(device)
         self.output_scale = output_scale
@@ -335,6 +355,12 @@ class ExactGPSurrogate(WaveformSurrogate):
         self.q_floor_outputscale_min = q_floor_outputscale_min
         self.q_floor_outputscale_init = q_floor_outputscale_init
         self.q_warping = q_warping
+        self.envelope_knots = int(envelope_knots)
+        self.q_envelope_knots = int(q_envelope_knots)
+        self.envelope_smoothness = float(envelope_smoothness)
+        if objective not in ("mll", "loo"):
+            raise ValueError("objective must be 'mll' or 'loo'")
+        self.objective = objective
 
         # Set up warping
         if isinstance(warping, str):
@@ -385,6 +411,8 @@ class ExactGPSurrogate(WaveformSurrogate):
                 q_floor_outputscale_min=q_floor_outputscale_min,
                 q_floor_outputscale_init=q_floor_outputscale_init,
                 q_warping=q_warping,
+                envelope_knots=self.envelope_knots,
+                q_envelope_knots=self.q_envelope_knots,
             ).to(self._device)
             model.likelihood.to(self._device)
             self.models[name] = model
@@ -400,6 +428,76 @@ class ExactGPSurrogate(WaveformSurrogate):
 
         if training_iterations > 0:
             self._train(training_iterations, optimizer_type=optimizer, lr=lr)
+
+    @staticmethod
+    def _block_loo_nll(model, output) -> torch.Tensor:
+        """Leave-one-parameter-node-out predictive NLL per training point.
+
+        Each block is all rows sharing the same non-time inputs (one mass
+        ratio). With P = (K + noise)^-1 and alpha = P y, leaving block B out
+        gives a Gaussian with mean y_B - P_BB^-1 alpha_B and covariance
+        P_BB^-1, so the score is exact and needs no refits.
+        """
+        x = model.train_x
+        y = model.train_y.double()
+        Ky = model.likelihood(output, *model.train_inputs).covariance_matrix.double()
+        Ky = Ky + 1e-6 * torch.diagonal(Ky).mean().detach() * torch.eye(
+            Ky.shape[0], dtype=Ky.dtype, device=Ky.device)
+        L = torch.linalg.cholesky(Ky)
+        P = torch.cholesky_inverse(L)
+        alpha = P @ y
+        _, inverse = torch.unique(x[:, :-1], dim=0, return_inverse=True)
+        nll = y.new_zeros(())
+        for g in range(int(inverse.max()) + 1):
+            idx = (inverse == g).nonzero(as_tuple=True)[0]
+            Pbb = P[idx][:, idx]
+            Lb = torch.linalg.cholesky(Pbb)
+            z = torch.linalg.solve_triangular(Lb, alpha[idx, None], upper=False)
+            nll = nll + 0.5 * (z.pow(2).sum() - 2.0 * torch.log(torch.diagonal(Lb)).sum())
+        return nll / y.numel()
+
+    def fit_scale_fields_loo(self, iterations: int = 30) -> dict[str, list[float]]:
+        """Refit only the amplitude fields (time envelope, q envelope, outputscale)
+        against the leave-one-parameter-node-out predictive likelihood.
+
+        Lengthscales and noise stay at their marginal-likelihood values.
+        Marginal likelihood only sees the fit at the nodes, so it cannot place
+        variance where the between-node error is large; the LOO score can.
+        """
+        self._predict_models = None
+        history = {}
+        for name, model in self.models.items():
+            free = []
+            for pname, p in model.named_parameters():
+                p.requires_grad_("envelope" in pname or "raw_outputscale" in pname)
+                if p.requires_grad:
+                    free.append(p)
+            model.train()
+            model.likelihood.train()
+            opt = torch.optim.LBFGS(free, lr=1.0, line_search_fn="strong_wolfe", max_iter=20)
+            losses = []
+            cholesky_ctx = gpytorch.settings.max_cholesky_size(self.cholesky_size)
+
+            def closure():
+                opt.zero_grad()
+                with cholesky_ctx:
+                    loss = self._block_loo_nll(model, model(model.train_x))
+                for module in model.modules():
+                    if isinstance(module, TimeEnvelope):
+                        loss = loss + self.envelope_smoothness * module.roughness()
+                loss.backward()
+                losses.append(float(loss.item()))
+                return loss
+
+            for _ in range(iterations):
+                opt.step(closure)
+            for p in model.parameters():
+                p.requires_grad_(True)
+            model.eval()
+            model.likelihood.eval()
+            history[name] = losses
+            logger.info(f"  [{name}] LOO scale-field fit: {losses[0]:.4f} -> {losses[-1]:.4f}")
+        return history
 
     def _train(
         self,
@@ -451,7 +549,13 @@ class ExactGPSurrogate(WaveformSurrogate):
                     opt.zero_grad()
                     with cholesky_ctx:
                         output = model(model.train_x)
-                        loss = -mll(output, model.train_y)
+                        if self.objective == "loo":
+                            loss = self._block_loo_nll(model, output)
+                        else:
+                            loss = -mll(output, model.train_y)
+                    for module in model.modules():
+                        if isinstance(module, TimeEnvelope):
+                            loss = loss + self.envelope_smoothness * module.roughness()
                     loss.backward()
                     loss_val = float(loss.item())
                     loss_history.append(loss_val)
@@ -916,6 +1020,8 @@ class ExactGPSurrogate(WaveformSurrogate):
             "q_floor_outputscale_min": self.q_floor_outputscale_min,
             "q_floor_outputscale_init": self.q_floor_outputscale_init,
             "q_warping": self.q_warping,
+            "envelope_knots": self.envelope_knots,
+            "q_envelope_knots": self.q_envelope_knots,
         }
         torch.save(checkpoint, path)
         logger.info(f"Saved checkpoint to {path} (heron {heron_version})")
@@ -988,6 +1094,8 @@ class ExactGPSurrogate(WaveformSurrogate):
             q_floor_outputscale_min=checkpoint.get("q_floor_outputscale_min", 0.05),
             q_floor_outputscale_init=checkpoint.get("q_floor_outputscale_init"),
             q_warping=checkpoint.get("q_warping"),
+            envelope_knots=checkpoint.get("envelope_knots", 0),
+            q_envelope_knots=checkpoint.get("q_envelope_knots", 0),
         )
 
         for name, state in checkpoint["model_states"].items():

@@ -42,6 +42,20 @@ def main():
     ap.add_argument("--ls-min-time", type=float, default=None, help="Default: source checkpoint's ls_min_time.")
     ap.add_argument("--noise-floor-rel", type=float, default=None, help="Default: source checkpoint's noise_floor_rel.")
     ap.add_argument("--cholesky-size", type=int, default=None, help="Default: source checkpoint's cholesky_size.")
+    ap.add_argument("--amplitude-normalise", action="store_true",
+                    help="Fit z/a(q,t) (amplitude-normalised residual) instead of z.")
+    ap.add_argument("--amp-floor-rel", type=float, default=1e-3,
+                    help="Floor on a(q,t) relative to the per-q peak reference amplitude.")
+    ap.add_argument("--envelope-knots", type=int, default=0,
+                    help="Learned time-envelope knots for the kernel amplitude/noise (0=off).")
+    ap.add_argument("--q-warping", default=None, choices=(None, "eta"),
+                    help="Warp mass ratio inside the q kernel (eta = q/(1+q)^2); --ls-min-q is then in eta units.")
+    ap.add_argument("--q-envelope-knots", type=int, default=0,
+                    help="Knots of a learned outputscale Q(q) over mass ratio (needs --envelope-knots).")
+    ap.add_argument("--envelope-smoothness", type=float, default=1e-3,
+                    help="Weight of the roughness penalty on the envelope log-scale knots.")
+    ap.add_argument("--objective", choices=("mll", "loo"), default="mll",
+                    help="Hyperparameter objective: marginal likelihood or leave-one-mass-ratio-out predictive likelihood.")
     ap.add_argument("--mismatch-scan", action="store_true",
                     help="After training, scan mismatch-vs-D over q=0.45..0.90 and report median.")
     args = ap.parse_args()
@@ -89,6 +103,13 @@ def main():
         ls_min_q=ls_min_q,
         noise_floor_rel=noise_floor_rel,
         cholesky_size=cholesky_size,
+        amplitude_normalise=args.amplitude_normalise,
+        amp_floor_rel=args.amp_floor_rel,
+        envelope_knots=args.envelope_knots,
+        q_envelope_knots=args.q_envelope_knots,
+        q_warping=args.q_warping,
+        envelope_smoothness=args.envelope_smoothness,
+        objective=args.objective,
     )
     print(f"Trained in {time.time() - t0:.0f}s")
     surrogate.save(args.output)
