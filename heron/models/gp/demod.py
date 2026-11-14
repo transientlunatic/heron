@@ -75,6 +75,13 @@ from ..warping import (
 from .exact import ExactGPSurrogate
 from .delta import _ApproximantEvaluator
 
+from .checkpoint import (
+    check_hyperparameters,
+    environment_versions,
+    hyperparameter_summary,
+    load_gp_state,
+)
+
 logger = logging.getLogger("heron.models.gp.demod")
 
 
@@ -495,6 +502,11 @@ class DemodGPSurrogate(WaveformSurrogate):
             "model_class": type(self).__name__,
             "saved_at": datetime.datetime.utcnow().isoformat() + "Z",
             "parameter_names": self.parameter_names,
+            "hyperparameters": {
+                name: hyperparameter_summary(model)
+                for name, model in self._gp.models.items()
+            },
+            "environment": environment_versions(),
             "model_states": {
                 name: model.state_dict()
                 for name, model in self._gp.models.items()
@@ -582,7 +594,14 @@ class DemodGPSurrogate(WaveformSurrogate):
         )
 
         for name, state in checkpoint["model_states"].items():
-            instance._gp.models[name].load_state_dict(state)
+            load_gp_state(
+                instance._gp.models[name], state, name=f"{cls.__name__}.{name}"
+            )
+            check_hyperparameters(
+                instance._gp.models[name],
+                (checkpoint.get("hyperparameters") or {}).get(name),
+                name=f"{cls.__name__}.{name}",
+            )
             instance._gp.models[name].eval()
             instance._gp.models[name].likelihood.eval()
         instance._gp._predict_models = None  # invalidate float64 predict cache
