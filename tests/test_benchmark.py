@@ -162,3 +162,104 @@ class TestTestSet:
         assert all(0.15 <= q < 0.4 for q in ts.low_q)
         # off-grid q's are genuinely off the training grid
         assert all(min(abs(q - n) for n in ts.nodes) > 0.002 for q in ts.off_grid)
+
+
+# --- NS / PP / training-cost / scaling summaries (B0 measurements 3-6) ----
+
+from heron.benchmark import (  # noqa: E402
+    bound_position, compare_with_without_k, multi_seed_shift, node_clustering,
+    ns_summary, pp_summary, scaling_benchmark, training_cost_summary,
+)
+
+NODES = np.round(np.arange(0.40, 0.95, 0.03), 2)
+
+
+class TestNSSummary:
+
+    def test_unbiased_posterior(self):
+        x = np.random.default_rng(0).normal(0.505, 0.01, 20000)
+        s = ns_summary(x, 0.505, nodes=NODES)
+        assert abs(s["displacement_sigma"]) < 0.1 and s["n_modes"] == 1
+
+    def test_displacement_in_sigma(self):
+        x = np.random.default_rng(1).normal(0.52, 0.005, 20000)
+        assert ns_summary(x, 0.50)["displacement_sigma"] == pytest.approx(4.0, abs=0.2)
+
+    def test_bimodal_is_flagged(self):
+        rng = np.random.default_rng(2)
+        x = np.concatenate([rng.normal(0.495, 0.002, 5000), rng.normal(0.505, 0.002, 5000)])
+        assert ns_summary(x, 0.50)["n_modes"] == 2
+
+    def test_snap_to_node_is_detected(self):
+        rng = np.random.default_rng(3)
+        snapped = rng.normal(0.52, 0.0006, 20000)          # on the q=0.52 node
+        smooth = rng.normal(0.505, 0.02, 20000)
+        assert node_clustering(snapped, NODES) > 5
+        assert node_clustering(smooth, NODES) == pytest.approx(1.0, abs=0.5)
+
+    def test_with_k_pass_and_fail(self):
+        rng = np.random.default_rng(4)
+        no_k = rng.normal(0.505, 0.004, 20000)
+        good = rng.normal(0.505, 0.006, 20000)
+        snapped = rng.normal(0.52, 0.0006, 20000)
+        assert compare_with_without_k(good, no_k, 0.505, nodes=NODES)["passed"]
+        bad = compare_with_without_k(snapped, no_k, 0.505, nodes=NODES)
+        assert not bad["passed"]
+
+
+class TestMultiSeed:
+
+    def test_noise_only_is_not_significant(self):
+        rng = np.random.default_rng(5)
+        med = 0.505 + 0.005 * rng.standard_normal(5)
+        assert not multi_seed_shift(med, np.full(5, 0.005), 0.505)["significant"]
+
+    def test_systematic_shift_is_significant(self):
+        rng = np.random.default_rng(6)
+        med = 0.505 + 0.010 + 0.001 * rng.standard_normal(5)     # ~2 sigma, every seed
+        out = multi_seed_shift(med, np.full(5, 0.005), 0.505)
+        assert out["significant"] and out["mean_sigma"] == pytest.approx(2.0, abs=0.4)
+
+
+class TestPP:
+
+    def test_uniform_levels_pass(self):
+        cl = np.random.default_rng(7).uniform(size=300)
+        s = pp_summary(cl)
+        assert s["ks_pvalue"] > 0.01 and s["within_band_fraction"] > 0.85
+
+    def test_overconfident_levels_fail(self):
+        cl = np.random.default_rng(8).beta(0.4, 0.4, 300)        # piled at 0 and 1
+        s = pp_summary(cl)
+        assert s["ks_pvalue"] < 1e-3 and s["within_band_fraction"] < 0.6
+
+
+class TestTrainingCost:
+
+    def test_stuck_lengthscale_is_flagged(self):
+        pinned = bound_position(0.0601, 0.06, 5.0)
+        free = bound_position(0.56, 0.06, 5.0)
+        assert pinned["stuck_at_lower"] and not free["stuck_at_lower"]
+        assert 0 < free["position"] < 1
+
+    def test_summary_counts_stuck(self):
+        s = training_cost_summary(12.0, {"ls_q": 0.06, "ls_t": 0.5},
+                                  {"ls_q": (0.06, 5.0), "ls_t": (0.015, 5.0)},
+                                  gpu_memory_bytes=1e9)
+        assert s["n_stuck"] == 1 and s["wall_seconds"] == 12.0
+
+
+class TestScalingBenchmark:
+
+    def test_extrapolation_is_labelled(self):
+        import time
+
+        def make(n):
+            return lambda: time.sleep(1e-3 * n / 100)
+
+        rows = scaling_benchmark(make, [100, 200, 400, 800], measure_up_to=200,
+                                 repeats=1, exponent=1.0)
+        by_n = {r["N"]: r for r in rows}
+        assert not by_n[100]["extrapolated"] and not by_n[200]["extrapolated"]
+        assert by_n[400]["extrapolated"] and by_n[800]["extrapolated"]
+        assert by_n[800]["seconds"] == pytest.approx(4 * by_n[200]["seconds"], rel=1e-6)
