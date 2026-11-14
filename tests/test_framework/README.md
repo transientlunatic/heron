@@ -12,47 +12,52 @@ This framework implements a **progressive complexity approach** to model validat
 
 Each level must pass before proceeding to the next. This ensures we catch problems early and understand exactly where models fail.
 
+## Status
+
+Implemented: levels 0-2 plus the harness self-tests. Level 3 (full parameter
+space, mismatch heatmaps) and level 4 (model comparison) are not written yet;
+the held-out-q check in level 2 is the seed of level 3.
+
 ## Structure
 
 ```
 tests/test_framework/
-├── README.md                  # This file
-├── __init__.py               # Framework exports
-├── base.py                   # Base test classes
-├── metrics.py                # Validation metrics (mismatch, overlap, etc.)
-├── fixtures.py               # Common test fixtures
-├── progressive/              # Progressive test suites
-│   ├── level0_single_point.py
-│   ├── level1_time_series.py
-│   ├── level2_multi_waveform.py
-│   ├── level3_parameter_space.py
-│   └── level4_model_comparison.py
-└── reports/                  # Test result reports (gitignored)
+├── base.py          Harness (surrogate + oracle + grids + per-level limits),
+│                    Prediction, WaveformSurrogateAdapter (wraps heron models)
+├── metrics.py       mismatch, correlation, amplitude ratio, phase error,
+│                    Thresholds, compare_waveforms -> MetricReport (numpy/scipy only)
+├── fixtures.py      analytic chirp oracle, OraclePlusError (injectable defects),
+│                    make_analytic_harness, make_gp_harness (needs torch)
+├── conftest.py      `harness` fixture (analytic + gp) and level gating
+├── test_harness_selftest.py   injected defects MUST be caught
+├── progressive/
+│   ├── test_level0_single_point.py
+│   ├── test_level1_time_series.py
+│   └── test_level2_multi_waveform.py
+└── reports/         (gitignored)
 ```
 
 ## Usage
 
-### Run a specific level
-
 ```bash
-pytest tests/test_framework/progressive/level1_time_series.py -v
+pytest tests/test_framework -v                 # everything
+pytest tests/test_framework -k analytic        # no torch needed
+pytest tests/test_framework -m "level(1)"      # one level
 ```
 
-### Run all levels sequentially
+**Gating**: tests are marked `@pytest.mark.level(n)`. If any test at level
+`< n` failed for a harness, level `n` tests for that harness are skipped with
+the reason, so a broken model stops at the first failing level.
 
-```bash
-pytest tests/test_framework/progressive/ -v --tb=short
-```
+**Adding a model**: write a `Harness` (an adapter exposing
+`predict(q, times) -> Prediction`, an oracle `(q, times) -> (plus, cross)`, and
+`Thresholds` per level) and add it to the `harness` fixture params. Models
+that are less accurate relax their `Thresholds` explicitly; the tests do not
+change.
 
-### Generate a validation report
-
-```python
-from tests.test_framework import ValidationReport
-
-report = ValidationReport("my_model")
-report.run_progressive_tests()
-report.save("validation_report.html")
-```
+**Ratchets**: thresholds for known-weak behaviour (e.g. the GP harness's
+held-out-q limit) record today's measured baseline, not an aspiration.
+Tighten them as the model improves.
 
 ## Metrics
 
