@@ -669,8 +669,15 @@ class ExactGPSurrogate(WaveformSurrogate):
             # _train() already raises this for training — predict() needs
             # the same override (self.cholesky_size) for consistent, exact
             # covariances at the same N.
+            # Mean only: tell GPyTorch to skip the posterior covariance. Its
+            # eager predictive-covariance correction inside model(points)
+            # otherwise does a dense (N x n_train) @ (n_train x n_train)
+            # matmul per call that the mean never uses (2.6 s -> 0.7 s per GP
+            # for N=2048, n_train=6000 on one CPU thread; mean bit-identical).
+            skip_var = covariance == "none"
             with torch.no_grad(), gpytorch.settings.fast_pred_var(), \
-                    gpytorch.settings.max_cholesky_size(self.cholesky_size):
+                    gpytorch.settings.max_cholesky_size(self.cholesky_size), \
+                    gpytorch.settings.skip_posterior_variances(skip_var):
                 # Use the LATENT distribution (no observation noise) for the
                 # covariance. The training noise σ² is a regularisation artefact
                 # (LALSuite training data is noiseless); the physical surrogate
