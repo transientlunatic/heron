@@ -1,0 +1,20 @@
+# SNR ladder (self-injection, H1+L1, 2-D q,tc, nessai nlive 250) on the frozen checkpoint (#396).
+universe = vanilla
+executable = /home/daniel/repositories/ligo/heron-registry/condor/frozen/run_frozen.sh
+request_cpus = 10
+request_memory = 18432
+should_transfer_files = NO
+getenv = false
+environment = "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1"
+arguments = /scratch/wiay/daniel/heron-frozen/results/net_ladder_$(tag) scripts/network_injection_ns.py --device cpu --approximant IMRPhenomD --q-true 0.8 --distance $(dist) --sampler nessai --seed 42 --detectors H1,L1 --sample mass_ratio,tc --nlive 250 --n-pool 8 --self-inject $(extra)
+output = /scratch/wiay/daniel/heron-frozen/condor_logs/ladder_$(tag).out
+error = /scratch/wiay/daniel/heron-frozen/condor_logs/ladder_$(tag).err
+log = /scratch/wiay/daniel/heron-frozen/condor_logs/ladder_$(tag).log
+queue tag,dist,extra from (
+  snr20_withK, 1400,
+  snr20_noK, 1400, --no-uncertainty
+  snr75_withK, 370,
+  snr75_noK, 370, --no-uncertainty
+  snr250_withK, 110,
+  snr250_noK, 110, --no-uncertainty
+)
