@@ -28,6 +28,13 @@ from ..base import WaveformSurrogate
 from ...types import Waveform, WaveformDict
 from ..warping import get_warping, SimpleWarping, ChirpTimeWarping
 
+from .checkpoint import (
+    check_hyperparameters,
+    environment_versions,
+    hyperparameter_summary,
+    load_gp_state,
+)
+
 logger = logging.getLogger("heron.models.gp.sparse")
 
 
@@ -401,6 +408,15 @@ class SparseGPSurrogate(WaveformSurrogate):
         checkpoint = {
             "version": 2,
             "model_type": "sparse",
+            "hyperparameters": {
+                name: hyperparameter_summary(model)
+                for name, model in self.models.items()
+            },
+            "environment": environment_versions(),
+            "likelihood_hyperparameters": {
+                name: hyperparameter_summary(lik)
+                for name, lik in self.likelihoods.items()
+            },
             "model_states": {
                 name: model.state_dict() for name, model in self.models.items()
             },
@@ -455,10 +471,25 @@ class SparseGPSurrogate(WaveformSurrogate):
         )
 
         for name, state in checkpoint["model_states"].items():
-            instance.models[name].load_state_dict(state)
+            load_gp_state(
+                instance.models[name], state, name=f"{cls.__name__}.{name}"
+            )
+            check_hyperparameters(
+                instance.models[name],
+                (checkpoint.get("hyperparameters") or {}).get(name),
+                name=f"{cls.__name__}.{name}",
+            )
             instance.models[name].eval()
         for name, state in checkpoint["likelihood_states"].items():
-            instance.likelihoods[name].load_state_dict(state)
+            load_gp_state(
+                instance.likelihoods[name], state,
+                name=f"{cls.__name__}.{name}",
+            )
+            check_hyperparameters(
+                instance.likelihoods[name],
+                (checkpoint.get("likelihood_hyperparameters") or {}).get(name),
+                name=f"{cls.__name__}.{name}",
+            )
             instance.likelihoods[name].eval()
 
         logger.info(f"Loaded SVGP checkpoint from {path}")

@@ -25,6 +25,13 @@ from .kernels import (
     Q_WARP_FUNCTIONS,
 )
 
+from .checkpoint import (
+    check_hyperparameters,
+    environment_versions,
+    hyperparameter_summary,
+    load_gp_state,
+)
+
 logger = logging.getLogger("heron.models.gp.exact")
 
 
@@ -752,6 +759,11 @@ class ExactGPSurrogate(WaveformSurrogate):
             "model_class": type(self).__name__,
             "saved_at": datetime.datetime.utcnow().isoformat() + "Z",
             "parameter_names": self.parameter_names,
+            "hyperparameters": {
+                name: hyperparameter_summary(model)
+                for name, model in self.models.items()
+            },
+            "environment": environment_versions(),
             "model_states": {
                 name: model.state_dict()
                 for name, model in self.models.items()
@@ -866,7 +878,14 @@ class ExactGPSurrogate(WaveformSurrogate):
         )
 
         for name, state in checkpoint["model_states"].items():
-            instance.models[name].load_state_dict(state)
+            load_gp_state(
+                instance.models[name], state, name=f"{cls.__name__}.{name}"
+            )
+            check_hyperparameters(
+                instance.models[name],
+                (checkpoint.get("hyperparameters") or {}).get(name),
+                name=f"{cls.__name__}.{name}",
+            )
             instance.models[name].eval()
             instance.models[name].likelihood.eval()
 
