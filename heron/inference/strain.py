@@ -135,12 +135,14 @@ def fetch_gwosc_strain(
         GPS times, uniformly spaced, same length as ``strain`` — ready to
         pass to :class:`heron.inference.network.NetworkLikelihood`.
     """
-    from gwpy.timeseries import TimeSeries
-
+    # Validate before importing gwpy, so bad arguments are reported as such
+    # even where the optional gwpy dependency is not installed.
     if post_trigger_duration >= duration:
         raise ValueError("post_trigger_duration must be less than duration")
     if sample_rate > native_sample_rate:
         raise ValueError("sample_rate cannot exceed native_sample_rate")
+
+    from gwpy.timeseries import TimeSeries
 
     start = trigger_time + post_trigger_duration - duration
     end = start + duration

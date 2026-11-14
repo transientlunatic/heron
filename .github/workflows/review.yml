@@ -26,4 +26,6 @@ jobs:
         
     - name: Run Tests
       run: |
-        python -m unittest discover tests/
+        # The suite is written for pytest; "slow" marks the long
+        # integration tests (e.g. dynesty), excluded from the fast suite.
+        python -m pytest tests/ -m "not slow"
