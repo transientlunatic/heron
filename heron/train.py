@@ -32,6 +32,7 @@ MODEL_REGISTRY = {
     "phase_amplitude": ("heron.models.gp.phase_amplitude", "PhaseAmplitudeGPSurrogate"),
     "delta": ("heron.models.gp.delta", "DeltaGPSurrogate"),
     "demod": ("heron.models.gp.demod", "DemodGPSurrogate"),
+    "demod_kron": ("heron.models.gp.demod_kron", "KroneckerDemodGPSurrogate"),
 }
 
 # Approximant registry — maps config string to (module, class) for lazy import
@@ -418,6 +419,84 @@ def generate_training_data_scattered(settings: dict) -> TrainingSet:
     )
 
 
+def train_demod_kron(train_settings: dict):
+    """Build the product grid and train a ``KroneckerDemodGPSurrogate``.
+
+    Separate from the generic pipeline because Kronecker algebra needs every
+    mass ratio sampled at the *same* (geometric, warped) times -- an arbitrary
+    ``TrainingSet`` is not a product grid -- so the grid is generated here
+    directly from the oracle. YAML keys (under ``training``)::
+
+        model: demod_kron
+        approximant: IMRPhenomD          # oracle
+        base_approximant: IMRPhenomXAS   # reference
+        mass_ratios: [...]
+        tau_window: [-5000, 100]         # residual support, units of M
+        n_tau: 200                       # nodes, uniform in warped tau
+        reference_mass: 60.0             # M_sun (generation mass; default M)
+        reference_distance: 100.0        # Mpc
+        f_low: 20.0                      # Hz at reference_mass
+        warping: {alpha: 0.625, tau_ref: 338.4}
+        q_warping: none                  # or eta
+        ls_min_q: null                   # null => derived from the grid
+        ls_min_time: null
+        noise_floor_rel: 1.0e-6
+        iterations: 200                  # L-BFGS-B max iterations per GP
+        n_restarts: 0
+        factor_rank: null
+        covariance_inflation: 1.0
+    """
+    from heron.models.gp.demod_kron import (
+        DEFAULT_TAU_REF,
+        KroneckerDemodGPSurrogate,
+        generate_kronecker_grid,
+        warped_tau_grid,
+    )
+
+    oracle_name = train_settings.get("approximant", "IMRPhenomD")
+    base_name = train_settings.get("base_approximant", "IMRPhenomXAS")
+    reference_mass = train_settings.get("reference_mass",
+                                        train_settings.get("total_mass", 60.0))
+    reference_distance = train_settings.get("reference_distance",
+                                            train_settings.get("distance", 100.0))
+    f_low = train_settings.get("f_low", 20.0)
+    warp_cfg = train_settings.get("warping", {}) or {}
+    alpha = warp_cfg.get("alpha", 0.625)
+    tau_ref = warp_cfg.get("tau_ref", DEFAULT_TAU_REF)
+    tau_lo, tau_hi = train_settings.get("tau_window", [-5000.0, 100.0])
+    tau = warped_tau_grid(tau_lo, tau_hi, train_settings.get("n_tau", 200),
+                          alpha=alpha, tau_ref=tau_ref)
+    mass_ratios = np.asarray(train_settings["mass_ratios"], dtype=float)
+
+    logger.info(
+        "Generating %d x %d Kronecker grid (oracle=%s, tau in [%g, %g] M)",
+        len(mass_ratios), len(tau), oracle_name, tau_lo, tau_hi,
+    )
+    y_plus, y_cross = generate_kronecker_grid(
+        oracle_name, mass_ratios, tau, reference_mass, reference_distance, f_low,
+    )
+    return KroneckerDemodGPSurrogate(
+        mass_ratios, tau, y_plus, y_cross,
+        base_approximant=base_name,
+        oracle_approximant=oracle_name,
+        phase_correction=train_settings.get("phase_correction"),
+        reference_mass=reference_mass,
+        reference_distance=reference_distance,
+        f_low=f_low,
+        alpha=alpha,
+        tau_ref=tau_ref,
+        q_warping=train_settings.get("q_warping", "none") or "none",
+        nu=train_settings.get("nu", 2.5),
+        ls_min_q=train_settings.get("ls_min_q"),
+        ls_min_time=train_settings.get("ls_min_time"),
+        noise_floor_rel=train_settings.get("noise_floor_rel", 1e-6),
+        maxiter=train_settings.get("iterations", 200),
+        n_restarts=train_settings.get("n_restarts", 0),
+        covariance_inflation=train_settings.get("covariance_inflation", 1.0),
+        factor_rank=train_settings.get("factor_rank"),
+    )
+
+
 def heron_train(settings):
     """Run the full training pipeline.
 
@@ -444,6 +523,14 @@ def heron_train(settings):
             "warning": logging.WARNING,
         }
         logging.basicConfig(level=LOGGER_LEVELS[level])
+
+    if train_settings.get("model") == "demod_kron":
+        model = train_demod_kron(train_settings)
+        checkpoint_path = train_settings.get("checkpoint", "heron_checkpoint.pt")
+        os.makedirs(os.path.dirname(checkpoint_path) or ".", exist_ok=True)
+        model.save(checkpoint_path)
+        logger.info(f"Checkpoint saved to {checkpoint_path}")
+        return model
 
     # --- Step 1: Get training data ---
     mode = train_settings.get("mode", "fixed")

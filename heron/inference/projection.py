@@ -168,3 +168,47 @@ def project_polarisations(
     )
 
     return mu, k_diag
+
+
+def project_factors(
+    factor_plus: np.ndarray,
+    factor_cross: np.ndarray,
+    *,
+    f_plus: float,
+    f_cross: float,
+    distance: float | None = None,
+    distance_ref: float | None = None,
+    inclination: float = 0.0,
+    coalescence_phase: float = 0.0,
+) -> np.ndarray:
+    """Project plus/cross covariance *factors* onto a detector, exactly.
+
+    ``factor_plus`` and ``factor_cross`` (each ``N x m``) must share their
+    latent columns: the waveform uncertainty is ``h+ = factor_plus @ z``,
+    ``hx = factor_cross @ z`` with one ``z ~ N(0, I_m)``. Every extrinsic step
+    (phase rotation, inclination weighting, antenna projection, distance) is
+    linear in ``(h+, hx)``, so applying it column-wise to the factors gives the
+    exact detector-frame factor ``U`` with ``K_det = U U^T``.
+
+    Unlike :func:`project_variances`, this needs **no** plus/cross-independence
+    approximation: the correlation between h+ and hx (both built from the same
+    latent GPs, e.g. the demod surrogate's Re/Im residual) is carried through
+    exactly, as are the temporal correlations.
+    """
+    up = np.asarray(factor_plus, dtype=float)
+    uc = np.asarray(factor_cross, dtype=float)
+
+    if coalescence_phase != 0.0:
+        c2, s2 = np.cos(2.0 * coalescence_phase), np.sin(2.0 * coalescence_phase)
+        up, uc = c2 * up - s2 * uc, s2 * up + c2 * uc
+
+    if inclination != 0.0:
+        cos_i = np.cos(inclination)
+        up = 0.5 * (1.0 + cos_i**2) * up
+        uc = cos_i * uc
+
+    U = f_plus * up + f_cross * uc
+
+    if distance is not None and distance_ref is not None:
+        U = U * (distance_ref / distance)
+    return U
