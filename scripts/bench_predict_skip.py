@@ -57,7 +57,13 @@ def main():
 
     @contextlib.contextmanager
     def old_behaviour():
-        gpytorch.settings.skip_posterior_variances = lambda state=True: contextlib.nullcontext()
+        # Forcing the flag off == the pre-fix behaviour. (Only the callable is
+        # replaced; ``.on()`` is a classmethod looked up on the real class.)
+        class _Off(real):
+            def __init__(self, state=True):
+                super().__init__(False)
+
+        gpytorch.settings.skip_posterior_variances = _Off
         try:
             yield
         finally:
