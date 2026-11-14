@@ -71,7 +71,7 @@ heron/                      Main Python package
     sampling.py             sobol_sample, latin_hypercube_sample
     active.py               active_learning_loop (uncertainty-guided refinement)
     data.py                 LEGACY: DataWrapper001 (old HDF5 format)
-  benchmark/                Shared benchmark-harness metrics (manager B0 #641): sub-sample overlap, K calibration, low-rank likelihood check, test-set generator
+  benchmark/                Shared benchmark-harness metrics (manager B0 #641): sub-sample overlap, K calibration, low-rank likelihood check, test-set generator, NS-bias/PP/training-cost summaries, scaling benchmark
   evaluation/
     mismatch.py             MismatchEvaluator
     calibration.py          CalibrationEvaluator
@@ -85,7 +85,7 @@ tests/
   test_gp_demod_kron.py     KroneckerDemodGPSurrogate — accuracy, exact M/D rescaling, factor vs full covariance, save/load (no lalsuite)
   test_likelihood_lowrank.py  LowRankMarginalLogLikelihood + NetworkLikelihood(waveform_covariance='lowrank') vs dense
   test_gp_demod.py          DemodGPSurrogate — demod targets, exact-inverse reconstruction + covariance congruence, covariance_inflation, train/predict/save-load (synthetic base/oracle, no lalsuite)
-  test_benchmark.py         heron.benchmark metrics (B0 unit tests: sub-sample overlap, calibration, likelihood agreement, test-set reproducibility)
+  test_benchmark.py         heron.benchmark metrics (B0 unit tests: sub-sample overlap, calibration, likelihood agreement, test-set reproducibility, NS/PP/training-cost summaries)
   test_framework/           Progressive validation harness (levels 0-2, synthetic oracle; see its README)
   test_types.py             Waveform and WaveformDict
   test_training.py          TrainingSet, sobol_sample, latin_hypercube_sample
