@@ -4,7 +4,7 @@ executable      = /scratch/wiay/daniel/micromamba_envs/heron-dense45/bin/python
 arguments       = scripts/bench_predict_skip.py /scratch/wiay/daniel/heron-frozen/phenomd_nonspinning_dense30_demod_env28u_eta.pt --n 2048 --device cuda
 initialdir      = /home/daniel/repositories/ligo/heron-predict-skip
 environment     = "PYTHONPATH=/home/daniel/repositories/ligo/heron-predict-skip"
-requirements    = (Machine != "serenity.astro.gla.ac.uk")
+requirements    = (Machine != "serenity.astro.gla.ac.uk") && (Machine != "balta.physics.gla.ac.uk")
 request_gpus    = 1
 request_cpus    = 2
 request_memory  = 16384
