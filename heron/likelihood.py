@@ -163,3 +163,95 @@ class MarginalLogLikelihood:
 
         quad = float(torch.dot(v, v))
         return -0.5 * (self._n * _LOG_2PI + self._log_det + quad)
+
+
+class LowRankMarginalLogLikelihood:
+    """``log N(d; mu, C + U U^T)`` for a low-rank waveform covariance ``K = U U^T``.
+
+    Drop-in alternative to :class:`MarginalLogLikelihood` (same ``log_det``,
+    ``n``, :meth:`whiten` and ``__call__`` interface) for when the waveform
+    covariance is supplied as an ``N x m`` factor with ``m << N`` -- e.g. from
+    :meth:`heron.models.gp.kronecker.KroneckerGP.posterior` with
+    ``mode='factor'``. Per call it costs one ``N x m`` triangular solve
+    against the (pre-computed, fixed) noise Cholesky factor plus an
+    ``O(N m^2)`` thin SVD -- ``O(N^2 m)`` instead of the ``O(N^3)`` dense
+    ``C + K`` factorisation, and ``O(N m)`` extra memory instead of ``O(N^2)``.
+
+    With ``W = L_C^{-1} U = V S R^T`` (thin SVD, ``V`` orthonormal ``N x m``):
+
+        log|C + U U^T|      = log|C| + sum_k log(1 + s_k^2)
+        (I + W W^T)^{-1/2}  = I + V diag(1/sqrt(1 + s_k^2) - 1) V^T
+
+    so the whitening transform is ``(I + W W^T)^{-1/2} L_C^{-1}`` and every
+    bilinear form ``v^T (C + U U^T)^{-1} w`` equals ``whiten(v) . whiten(w)``
+    exactly (matrix determinant lemma + Woodbury; no approximation beyond
+    the factorisation of K itself).
+
+    Unlike a diagonal K, a factor keeps the *temporal correlations* of the
+    waveform uncertainty -- a GP phase error is coherent across the whole
+    signal, not white -- and, being a smooth band-limited basis once
+    high-passed, it has no overlap with the noise covariance's regularised
+    sub-``f_low`` null space (the leakage the diagonal path needs
+    ``_project_diag`` to suppress).
+
+    Parameters
+    ----------
+    L_C : torch.Tensor, shape (N, N)
+        Lower Cholesky factor of the noise covariance (fixed across calls).
+    mu : array-like, shape (N,)
+        Mean vector.
+    U : array-like, shape (N, m) or None
+        Covariance factor; ``None`` or ``m == 0`` means ``K = 0``.
+    """
+
+    def __init__(self, L_C: torch.Tensor, mu, U=None):
+        self._L_C = L_C
+        self.dtype = L_C.dtype
+        self.device = L_C.device
+        self._n = L_C.shape[0]
+        log_det_C = 2.0 * L_C.diagonal().log().sum()
+
+        self._V = None
+        if U is not None:
+            U_ = torch.as_tensor(np.asarray(U, dtype=float), dtype=self.dtype,
+                                 device=self.device)
+            if U_.ndim == 1:
+                U_ = U_[:, None]
+            if U_.shape[1] > 0 and bool(torch.count_nonzero(U_)):
+                W = torch.linalg.solve_triangular(L_C, U_, upper=False)
+                V, s, _ = torch.linalg.svd(W, full_matrices=False)
+                s2 = s * s
+                self._V = V
+                self._shrink = 1.0 / torch.sqrt(1.0 + s2) - 1.0
+                log_det_C = log_det_C + torch.log1p(s2).sum()
+        self._log_det = float(log_det_C)
+
+        mu_ = torch.as_tensor(np.asarray(mu, dtype=float), dtype=self.dtype,
+                              device=self.device)
+        self._u_mu = self._whiten_tensor(mu_)
+
+    def _whiten_tensor(self, v: torch.Tensor) -> torch.Tensor:
+        u = torch.linalg.solve_triangular(self._L_C, v.unsqueeze(-1), upper=False).squeeze(-1)
+        if self._V is None:
+            return u
+        return u + self._V @ (self._shrink * (self._V.T @ u))
+
+    @property
+    def log_det(self) -> float:
+        """``log|C + U U^T|``."""
+        return self._log_det
+
+    @property
+    def n(self) -> int:
+        return self._n
+
+    def whiten(self, v) -> torch.Tensor:
+        """Return ``G v`` with ``G^T G = (C + U U^T)^{-1}`` (see class docstring)."""
+        v_ = torch.as_tensor(np.asarray(v, dtype=float), dtype=self.dtype, device=self.device)
+        return self._whiten_tensor(v_)
+
+    def __call__(self, d) -> float:
+        """Full scalar ``log N(d; mu, C + U U^T)``."""
+        r = self.whiten(d) - self._u_mu
+        quad = float(torch.dot(r, r))
+        return -0.5 * (self._n * _LOG_2PI + self._log_det + quad)

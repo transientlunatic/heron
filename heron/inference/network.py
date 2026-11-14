@@ -67,9 +67,13 @@ import numpy as np
 import torch
 from scipy.special import i0e
 
-from heron.likelihood import MarginalLogLikelihood
+from heron.likelihood import LowRankMarginalLogLikelihood, MarginalLogLikelihood
 from heron.noise import noise_covariance
-from heron.inference.projection import project_polarisations, project_variances
+from heron.inference.projection import (
+    project_factors,
+    project_polarisations,
+    project_variances,
+)
 
 _LOG_2PI = math.log(2.0 * math.pi)
 _QUARTER_TURN = math.pi / 4.0
@@ -151,6 +155,25 @@ class NetworkLikelihood:
         look like if K were N times larger," e.g. on representations/points
         where the surrogate's own (well-calibrated) K is too small relative
         to C for the effect to show up naturally at any realistic SNR.
+    waveform_covariance : {'diagonal', 'lowrank'}
+        How K enters the likelihood. ``'diagonal'`` (default, previous
+        behaviour): the per-sample variance only, band-limited via
+        ``P diag(var) P^T`` and added to C densely -- O(N^3) per call, and it
+        discards the temporal correlations of the waveform uncertainty and the
+        h+/hx cross-covariance. ``'lowrank'``: K = U U^T from the surrogate's
+        ``predict_factor`` (e.g.
+        :class:`~heron.models.gp.demod_kron.KroneckerDemodGPSurrogate`),
+        projected *exactly* onto each detector
+        (:func:`~heron.inference.projection.project_factors`), high-passed
+        column-wise, and handled by a Woodbury solve
+        (:class:`~heron.likelihood.LowRankMarginalLogLikelihood`) -- O(N^2 r)
+        per call with no N x N K ever formed. Surrogates without
+        ``predict_factor`` fall back to an eigendecomposition of their full
+        covariance (O(N^3), plus/cross treated as independent; for testing).
+        Not combinable with ``k_smoothing_offsets``.
+    covariance_rank : int or None
+        For ``'lowrank'``: modes kept per latent GP (``None``: the
+        surrogate's default).
     """
 
     def __init__(
@@ -170,6 +193,8 @@ class NetworkLikelihood:
         k_smoothing_param: str = "mass_ratio",
         marginalize_phase: bool = False,
         covariance_inflation: float = 1.0,
+        waveform_covariance: str = "diagonal",
+        covariance_rank: int | None = None,
     ):
         # Normalise detectors and data into aligned lists keyed by prefix.
         if not isinstance(detectors, (list, tuple)):
@@ -193,6 +218,18 @@ class NetworkLikelihood:
         self._distance_ref = getattr(surrogate, "distance_factor", None)
         self._marginalize_phase = marginalize_phase
         self._covariance_inflation = float(covariance_inflation)
+        if waveform_covariance not in ("diagonal", "lowrank"):
+            raise ValueError(
+                "waveform_covariance must be 'diagonal' or 'lowrank'; "
+                f"got {waveform_covariance!r}"
+            )
+        if waveform_covariance == "lowrank" and self._k_smoothing_offsets:
+            raise ValueError(
+                "k_smoothing_offsets is a diagonal-K device and is not supported "
+                "with waveform_covariance='lowrank'."
+            )
+        self._lowrank = (waveform_covariance == "lowrank") and use_waveform_uncertainty
+        self._covariance_rank = covariance_rank
 
         # Only the diagonal of K is ever used (project_variances). If the
         # surrogate's predict() accepts a `covariance` mode, request the cheap
@@ -338,6 +375,46 @@ class NetworkLikelihood:
     # Likelihood evaluation
     # ------------------------------------------------------------------
 
+    def _hp_filter_columns(self, U: np.ndarray) -> np.ndarray:
+        """High-pass every column of an ``N x m`` factor (``P U``)."""
+        U_f = np.fft.rfft(U, axis=0)
+        U_f[~self._hp_mask, :] = 0.0
+        return np.fft.irfft(U_f, n=self._n, axis=0)
+
+    def _predict_factor(self, params: dict):
+        """Mean waveform and plus/cross covariance factors with shared latents."""
+        if hasattr(self.surrogate, "predict_factor"):
+            return self.surrogate.predict_factor(params, rank=self._covariance_rank)
+        # Fallback for surrogates without a native factor: eigendecompose the
+        # dense covariances (O(N^3)) and treat plus/cross as independent.
+        wf = self._predict(params, "full")
+        factors = []
+        for pol in ("plus", "cross"):
+            cov = wf[pol].covariance
+            if cov is None:
+                factors.append(np.zeros((self._n, 0)))
+                continue
+            w, V = np.linalg.eigh(0.5 * (cov + cov.T))
+            keep = w > 1e-12 * max(w.max(), 0.0)
+            order = np.argsort(w[keep])[::-1]
+            if self._covariance_rank is not None:
+                order = order[: self._covariance_rank]
+            factors.append(V[:, keep][:, order] * np.sqrt(w[keep][order])[None, :])
+        fp_, fc_ = factors
+        U_plus = np.hstack([fp_, np.zeros((self._n, fc_.shape[1]))])
+        U_cross = np.hstack([np.zeros((self._n, fp_.shape[1])), fc_])
+        return wf, {"plus": U_plus, "cross": U_cross}
+
+    def _detector_factor(self, factors: dict, fp: float, fc: float, extr: dict,
+                         coalescence_phase: float) -> np.ndarray:
+        """Exact detector-frame, band-limited covariance factor ``P U_det``."""
+        U = project_factors(
+            factors["plus"], factors["cross"], f_plus=fp, f_cross=fc,
+            distance=extr["distance"], distance_ref=self._distance_ref,
+            inclination=extr["inclination"], coalescence_phase=coalescence_phase,
+        )
+        return math.sqrt(self._covariance_inflation) * self._hp_filter_columns(U)
+
     def _predict_mode(self) -> str:
         """Cheapest ``predict()`` covariance mode for the current settings.
 
@@ -376,7 +453,10 @@ class NetworkLikelihood:
             t_rel = self.times - (tc + dt_geo)
 
             surrogate_params = {**intrinsic, "times": t_rel}
-            wf = self._predict(surrogate_params, predict_mode)
+            if self._lowrank:
+                wf, factors = self._predict_factor(surrogate_params)
+            else:
+                wf = self._predict(surrogate_params, predict_mode)
 
             fp, fc = det.antenna_patterns(extr["ra"], extr["dec"], extr["psi"], tc)
             mu, k_diag = project_polarisations(
@@ -386,6 +466,12 @@ class NetworkLikelihood:
                 coalescence_phase=extr["coalescence_phase"],
             )
             mu = self._hp_filter(mu)
+
+            if self._lowrank:
+                U = self._detector_factor(factors, fp, fc, extr,
+                                          extr["coalescence_phase"])
+                total += LowRankMarginalLogLikelihood(ch.L_C, mu, U)(ch.data)
+                continue
 
             if self.use_waveform_uncertainty:
                 if self._k_smoothing_offsets:
@@ -445,7 +531,10 @@ class NetworkLikelihood:
             t_rel = self.times - (tc + dt_geo)
 
             surrogate_params = {**intrinsic, "times": t_rel}
-            wf = self._predict(surrogate_params, predict_mode)
+            if self._lowrank:
+                wf, factors = self._predict_factor(surrogate_params)
+            else:
+                wf = self._predict(surrogate_params, predict_mode)
 
             fp, fc = det.antenna_patterns(extr["ra"], extr["dec"], extr["psi"], tc)
             mu_a, k_diag = project_polarisations(
@@ -461,22 +550,27 @@ class NetworkLikelihood:
             mu_a = self._hp_filter(mu_a)
             mu_b = self._hp_filter(mu_q)
 
-            if self.use_waveform_uncertainty:
-                if self._k_smoothing_offsets:
-                    var_p, var_c = self._enveloped_variances(wf, surrogate_params)
-                    k_diag = project_variances(
-                        var_p, var_c, f_plus=fp, f_cross=fc,
-                        distance=extr["distance"], distance_ref=self._distance_ref,
-                        inclination=extr["inclination"], coalescence_phase=0.0,
-                    )
-                K = self._project_diag(self._covariance_inflation * k_diag)
+            if self._lowrank:
+                # K held at the phi_c = 0 reference, as for the diagonal path.
+                U = self._detector_factor(factors, fp, fc, extr, 0.0)
+                mll = LowRankMarginalLogLikelihood(ch.L_C, mu_a, U)
             else:
-                K = 0.0  # see the fixed-phase branch's comment on this fast path
+                if self.use_waveform_uncertainty:
+                    if self._k_smoothing_offsets:
+                        var_p, var_c = self._enveloped_variances(wf, surrogate_params)
+                        k_diag = project_variances(
+                            var_p, var_c, f_plus=fp, f_cross=fc,
+                            distance=extr["distance"], distance_ref=self._distance_ref,
+                            inclination=extr["inclination"], coalescence_phase=0.0,
+                        )
+                    K = self._project_diag(self._covariance_inflation * k_diag)
+                else:
+                    K = 0.0  # see the fixed-phase branch's comment on this fast path
 
-            mll = MarginalLogLikelihood(
-                C=None, mu=mu_a, K=K, dtype=self.dtype, device=self.device,
-                _L_C=ch.L_C,
-            )
+                mll = MarginalLogLikelihood(
+                    C=None, mu=mu_a, K=K, dtype=self.dtype, device=self.device,
+                    _L_C=ch.L_C,
+                )
             u_a = mll.whiten(mu_a)
             u_b = mll.whiten(mu_b)
             u_d = mll.whiten(ch.data)
