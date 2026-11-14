@@ -1,0 +1,3 @@
+{"checkpoint": "/scratch/wiay/daniel/heron-frozen/phenomd_nonspinning_dense30_demod_env28u_eta.pt", "sha256": "3feffb4e269e62564038462f32b971eb295ce9a4da02de2f974f56d91b1b94ff", "h5": "/scratch/wiay/daniel/heron-dense45/checkpoints/phenomd_nonspinning_dense30_data.h5", "heron_commit": "bb3e69142497b5d0ce5cf7316ee65f75ad76a0f0",
+ "dirty": false,
+ "host": "balta", "started": "2026-11-14T09:35:40+00:00", "script": "scripts/r1_svd_gonogo.py", "args": ""}

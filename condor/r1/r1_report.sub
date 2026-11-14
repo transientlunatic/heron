@@ -1,0 +1,12 @@
+# R1 (task #642): SVD go/no-go on frozen dense30 demod residuals. CPU only.
+universe = vanilla
+executable = /home/daniel/claude-sessions/heron-registry-9ac2b20ed9da5bc4/r1-svd-gonogo-77b923/condor/r1/run_r1_report.sh
+request_cpus = 1
+request_memory = 4096
+should_transfer_files = NO
+getenv = false
+
+output = /scratch/wiay/daniel/heron-frozen/condor_logs/r1_report.out
+error = /scratch/wiay/daniel/heron-frozen/condor_logs/r1_report.err
+log = /scratch/wiay/daniel/heron-frozen/condor_logs/r1_report.log
+queue
