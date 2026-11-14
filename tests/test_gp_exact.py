@@ -523,6 +523,62 @@ class TestVarianceGrid:
         for pol in ("plus", "cross"):
             np.testing.assert_array_equal(coarse[pol].variance, exact[pol].variance)
 
+    def test_mean_only_skips_covariance_correction(self, model):
+        """Mean-only (and grid-variance) predictions must not pay for GPyTorch's
+        eager N x n_train x n_train predictive-covariance correction.
+
+        Before the fix each predict() ran one dense (N, n)@(n, n) matmul per
+        polarisation (2.3 s each at N=2048, n=6000), even for covariance="none".
+        """
+        n_train = model._train_x_raw.shape[0]
+        times = np.linspace(-0.5, 0.02, 400)
+        params = {"mass_ratio": 0.7, "times": times}
+
+        from torch.utils._python_dispatch import TorchDispatchMode
+
+        class _Spy(TorchDispatchMode):
+            # Dispatch-level spy: sees the matmul however GPyTorch /
+            # linear_operator reaches it (``@``, ``torch.mm``, addmm, ...).
+            def __init__(self):
+                super().__init__()
+                self.seen = []
+
+            def __torch_dispatch__(self, func, types, args=(), kwargs=None):
+                if func in (torch.ops.aten.mm.default, torch.ops.aten.matmul.default):
+                    a, b = args[0], args[1]
+                    if (a.dim() == 2 and b.dim() == 2
+                            and tuple(b.shape) == (n_train, n_train)
+                            and a.shape[0] == len(times)):
+                        self.seen.append(tuple(a.shape))
+                return func(*args, **(kwargs or {}))
+
+        def n_big_matmuls(covariance, grid):
+            model.variance_grid = grid
+            try:
+                with _Spy() as spy:
+                    model.predict(params, covariance=covariance)
+            finally:
+                model.variance_grid = None
+            return len(spy.seen)
+
+        assert n_big_matmuls("diagonal", None) > 0, "sanity: the exact-variance path should use the big matmul"
+        assert n_big_matmuls("none", None) == 0
+        assert n_big_matmuls("diagonal", 100) == 0
+
+    def test_mean_unchanged_by_skipping_covariance(self, model):
+        params = {"mass_ratio": 0.7, "times": np.linspace(-0.5, 0.02, 400)}
+        model.variance_grid = None
+        reference = model.predict(params, covariance="full")
+        mean_only = model.predict(params, covariance="none")
+        model.variance_grid = 100
+        try:
+            grid_diag = model.predict(params, covariance="diagonal")
+        finally:
+            model.variance_grid = None
+        for pol in ("plus", "cross"):
+            np.testing.assert_array_equal(mean_only[pol].data, reference[pol].data)
+            np.testing.assert_array_equal(grid_diag[pol].data, reference[pol].data)
+
     def test_not_saved_in_checkpoint(self, model, tmp_path):
         model.variance_grid = 512
         try:
