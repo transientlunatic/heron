@@ -1,0 +1,20 @@
+# Checkpoint registry. One entry per checkpoint that any reported result depends on.
+# Rule: every result file records the sha256 of the checkpoint it used
+# (condor/frozen/run_frozen.sh writes a .provenance.json next to each output).
+# status: frozen | variant | scratch.   Unknown provenance is null, not guessed.
+checkpoints:
+  - name: dense30_demod_env28u_eta
+    status: frozen            # treated as the paper's frozen model (Daniel, 2026-11-14)
+    sha256: 3feffb4e269e62564038462f32b971eb295ce9a4da02de2f974f56d91b1b94ff
+    model_class: DemodGPSurrogate
+    canonical_path: /scratch/wiay/daniel/heron-frozen/phenomd_nonspinning_dense30_demod_env28u_eta.pt
+    original_path: /home/daniel/heron-keops-bench/phenomd_nonspinning_dense30_demod_env28u_eta.pt
+    trained: 2026-10-02
+    training_commit: null     # TODO: not recoverable from disk; fill in from the training log
+    training_config: null     # TODO
+    training_data: null       # TODO: dense30 data h5 hash
+    tasks: ["#129 Heron Inference Paper", "#377 D1 freeze"]
+  - name: dense30_demod_env28u_eta_qenv
+    status: variant
+    original_path: /home/daniel/heron-keops-bench/phenomd_nonspinning_dense30_demod_env28u_eta_qenv.pt
+    trained: 2026-10-02

@@ -1,0 +1,18 @@
+# PP coverage on the frozen checkpoint (task #396/#384). Same settings as pp_demod.sub.
+universe = vanilla
+executable = /home/daniel/repositories/ligo/heron-registry/condor/frozen/run_frozen.sh
+# serenity: torch.cuda unavailable there (2026-11-14)
+requirements = (Machine != "serenity.astro.gla.ac.uk")
+request_gpus = 1
+request_cpus = 2
+request_memory = 8192
+should_transfer_files = NO
+getenv = false
+arguments = /scratch/wiay/daniel/heron-frozen/results/pp_$(tag).npz scripts/pp_plot_demod.py --device cuda --n-injections 300 --q-bounds 0.45 0.90 --tc-half-ms 3.0 --approximant IMRPhenomD --distance $(distance) --n-q 225 --n-tc 61 --seed 0 --plot
+output = /scratch/wiay/daniel/heron-frozen/condor_logs/pp_$(tag).out
+error = /scratch/wiay/daniel/heron-frozen/condor_logs/pp_$(tag).err
+log = /scratch/wiay/daniel/heron-frozen/condor_logs/pp_$(tag).log
+queue tag,distance from (
+  snr20_main, 1500
+  snr24_main, 1285.3
+)
