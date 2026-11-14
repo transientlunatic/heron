@@ -57,6 +57,34 @@ class TestExactGPSurrogate:
         )
         return model
 
+    def test_mean_identical_across_covariance_modes(self, trained_model):
+        params = {"mass_ratio": 0.7, "times": np.linspace(-0.4, 0.01, 40)}
+        means = [
+            trained_model.predict(dict(params), covariance=mode)["plus"].data
+            for mode in ("full", "diagonal", "none")
+        ]
+        np.testing.assert_array_equal(means[0], means[1])
+        np.testing.assert_array_equal(means[0], means[2])
+
+    def test_mean_only_predict_skips_posterior_variances(self, trained_model):
+        """covariance="none" must not pay for GPyTorch's eager covariance."""
+        params = {"mass_ratio": 0.7, "times": np.linspace(-0.4, 0.01, 40)}
+        model = trained_model._get_predict_models()["plus"]
+        seen = []
+        original = type(model).__call__
+
+        def spy(self, *args, **kwargs):
+            seen.append(gpytorch.settings.skip_posterior_variances.on())
+            return original(self, *args, **kwargs)
+
+        type(model).__call__ = spy
+        try:
+            trained_model.predict(dict(params), covariance="none")
+            trained_model.predict(dict(params), covariance="diagonal")
+        finally:
+            type(model).__call__ = original
+        assert seen == [True, True, False, False]  # plus, cross per call
+
     def test_predict_returns_waveform_dict(self, trained_model):
         params = {
             "mass_ratio": 0.7,

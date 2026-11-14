@@ -25,6 +25,13 @@ from .kernels import (
     Q_WARP_FUNCTIONS,
 )
 
+from .checkpoint import (
+    check_hyperparameters,
+    environment_versions,
+    hyperparameter_summary,
+    load_gp_state,
+)
+
 logger = logging.getLogger("heron.models.gp.exact")
 
 
@@ -662,8 +669,15 @@ class ExactGPSurrogate(WaveformSurrogate):
             # _train() already raises this for training — predict() needs
             # the same override (self.cholesky_size) for consistent, exact
             # covariances at the same N.
+            # Mean only: tell GPyTorch to skip the posterior covariance. Its
+            # eager predictive-covariance correction inside model(points)
+            # otherwise does a dense (N x n_train) @ (n_train x n_train)
+            # matmul per call that the mean never uses (2.6 s -> 0.7 s per GP
+            # for N=2048, n_train=6000 on one CPU thread; mean bit-identical).
+            skip_var = covariance == "none"
             with torch.no_grad(), gpytorch.settings.fast_pred_var(), \
-                    gpytorch.settings.max_cholesky_size(self.cholesky_size):
+                    gpytorch.settings.max_cholesky_size(self.cholesky_size), \
+                    gpytorch.settings.skip_posterior_variances(skip_var):
                 # Use the LATENT distribution (no observation noise) for the
                 # covariance. The training noise σ² is a regularisation artefact
                 # (LALSuite training data is noiseless); the physical surrogate
@@ -752,6 +766,11 @@ class ExactGPSurrogate(WaveformSurrogate):
             "model_class": type(self).__name__,
             "saved_at": datetime.datetime.utcnow().isoformat() + "Z",
             "parameter_names": self.parameter_names,
+            "hyperparameters": {
+                name: hyperparameter_summary(model)
+                for name, model in self.models.items()
+            },
+            "environment": environment_versions(),
             "model_states": {
                 name: model.state_dict()
                 for name, model in self.models.items()
@@ -866,7 +885,14 @@ class ExactGPSurrogate(WaveformSurrogate):
         )
 
         for name, state in checkpoint["model_states"].items():
-            instance.models[name].load_state_dict(state)
+            load_gp_state(
+                instance.models[name], state, name=f"{cls.__name__}.{name}"
+            )
+            check_hyperparameters(
+                instance.models[name],
+                (checkpoint.get("hyperparameters") or {}).get(name),
+                name=f"{cls.__name__}.{name}",
+            )
             instance.models[name].eval()
             instance.models[name].likelihood.eval()
 
