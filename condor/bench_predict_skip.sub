@@ -1,0 +1,16 @@
+# Benchmark predict() before/after skipping the eager covariance correction.
+universe        = vanilla
+executable      = /scratch/wiay/daniel/micromamba_envs/heron-dense45/bin/python
+arguments       = scripts/bench_predict_skip.py /scratch/wiay/daniel/heron-frozen/phenomd_nonspinning_dense30_demod_env28u_eta.pt --n 2048 --device cuda
+initialdir      = /home/daniel/repositories/ligo/heron-predict-skip
+environment     = "PYTHONPATH=/home/daniel/repositories/ligo/heron-predict-skip"
+requirements    = (Machine != "serenity.astro.gla.ac.uk") && (Machine != "balta.physics.gla.ac.uk")
+request_gpus    = 1
+request_cpus    = 2
+request_memory  = 16384
+should_transfer_files = NO
+getenv          = false
+output          = condor_logs/bench_predict_skip.out
+error           = condor_logs/bench_predict_skip.err
+log             = condor_logs/bench_predict_skip.log
+queue

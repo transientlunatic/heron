@@ -692,6 +692,14 @@ class ExactGPSurrogate(WaveformSurrogate):
         )
         return points_warped, times.numpy(), distance_factor / mass_factor
 
+    def _uses_variance_grid(self, points_warped: torch.Tensor) -> bool:
+        """True when :meth:`_latent_variance` will use the coarse grid."""
+        grid = self.variance_grid
+        if grid is None or points_warped.shape[0] <= grid:
+            return False
+        fixed = points_warped[:, :-1]
+        return bool(torch.all(fixed == fixed[:1]))
+
     def _latent_variance(self, model, points_warped: torch.Tensor, evaluate=None) -> torch.Tensor:
         """Latent predictive variance at ``points_warped`` (unscaled).
 
@@ -709,12 +717,10 @@ class ExactGPSurrogate(WaveformSurrogate):
         """
         if evaluate is None:
             evaluate = lambda p: model(p).variance
-        n = points_warped.shape[0]
+        if not self._uses_variance_grid(points_warped):
+            return evaluate(points_warped)
         grid = self.variance_grid
         fixed = points_warped[:, :-1]
-        if (grid is None or n <= grid
-                or not bool(torch.all(fixed == fixed[:1]))):
-            return evaluate(points_warped)
 
         from scipy.interpolate import CubicSpline
 
@@ -879,8 +885,18 @@ class ExactGPSurrogate(WaveformSurrogate):
             # _train() already raises this for training — predict() needs
             # the same override (self.cholesky_size) for consistent, exact
             # covariances at the same N.
+            # GPyTorch eagerly builds the predictive covariance inside
+            # ``model(x)`` — an (N, n_train)@(n_train, n_train) matmul even
+            # when only the mean is read. Skip it (covariance becomes a zero
+            # operator; the mean is untouched) unless the exact diagonal is
+            # what we are about to read off ``latent``. The grid-variance path
+            # evaluates its own coarse ``model(grid)`` call instead.
+            need_latent_cov = covariance == "full" or (
+                covariance == "diagonal"
+                and not self._uses_variance_grid(points_warped))
             with torch.no_grad(), gpytorch.settings.fast_pred_var(), \
-                    gpytorch.settings.max_cholesky_size(self.cholesky_size):
+                    gpytorch.settings.max_cholesky_size(self.cholesky_size), \
+                    gpytorch.settings.skip_posterior_variances(not need_latent_cov):
                 # Use the LATENT distribution (no observation noise) for the
                 # covariance. The training noise σ² is a regularisation artefact
                 # (LALSuite training data is noiseless); the physical surrogate
@@ -896,10 +912,13 @@ class ExactGPSurrogate(WaveformSurrogate):
                     cov = cov.cpu()
                 elif covariance == "diagonal":
                     # Diagonal only — O(N·rank), no N×N matrix formed.
-                    if self.variance_grid is None:
+                    if need_latent_cov:
                         var = latent.variance
                     else:
-                        var = self._latent_variance(model, points_warped)
+                        # Re-enable posterior variances for the coarse grid
+                        # call (we are inside the skip context above).
+                        with gpytorch.settings.skip_posterior_variances(False):
+                            var = self._latent_variance(model, points_warped)
                     if extra is not None:
                         var = var + extra
                     var = var.cpu()
